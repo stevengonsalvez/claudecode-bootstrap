@@ -1,0 +1,21 @@
+---
+description: Rules for running Supabase migrations and SQL statements
+globs: *.sql
+alwaysApply: true
+---
+
+# Supabase SQL Command Rule
+
+When asked to run SQL files or execute SQL statements for Supabase:
+
+## For SQL files
+Use this command format:
+```
+psql "postgres://postgres:postgres@localhost:54322/postgres" -f <file_path>
+```
+
+## For SQL statements
+Use this command format:
+```
+psql "postgres://postgres:postgres@localhost:54322/postgres" -c "<sql_statement>"
+```
