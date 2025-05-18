@@ -5,7 +5,7 @@ alwaysApply: false
 ---
 ---
 description: Cursor Rules Location
-globs: *.mdc
+globs: *.md
 ---
 # Cursor Rules Location
 
@@ -15,9 +15,9 @@ Rules for placing and organizing Cursor rule files in the repository.
 name: cursor_rules_location
 description: Standards for placing Cursor rule files in the correct directory
 filters:
-  # Match any .mdc files
+  # Match any .md files
   - type: file_extension
-    pattern: "\\.mdc$"
+    pattern: "\\.md$"
   # Match files that look like Cursor rules
   - type: content
     pattern: "(?s)<rule>.*?</rule>"
@@ -28,8 +28,8 @@ filters:
 actions:
   - type: reject
     conditions:
-      - pattern: "^(?!\\.\\/\\.cursor\\/rules\\/.*\\.mdc$)"
-        message: "Cursor rule files (.mdc) must be placed in the .cursor/rules directory"
+      - pattern: "^(?!\\.\\/\\.cursor\\/rules\\/.*\\.md$)"
+        message: "Cursor rule files (.md) must be placed in the .cursor/rules directory"
 
   - type: suggest
     message: |
@@ -38,14 +38,14 @@ actions:
       1. Always place rule files in PROJECT_ROOT/.cursor/rules/:
          ```
          .cursor/rules/
-         ├── your-rule-name.mdc
-         ├── another-rule.mdc
+         ├── your-rule-name.md
+         ├── another-rule.md
          └── ...
          ```
 
       2. Follow the naming convention:
          - Use kebab-case for filenames
-         - Always use .mdc extension
+         - Always use .md extension
          - Make names descriptive of the rule's purpose
 
       3. Directory structure:
@@ -53,7 +53,7 @@ actions:
          PROJECT_ROOT/
          ├── .cursor/
          │   └── rules/
-         │       ├── your-rule-name.mdc
+         │       ├── your-rule-name.md
          │       └── ...
          └── ...
          ```
@@ -66,12 +66,12 @@ actions:
 examples:
   - input: |
       # Bad: Rule file in wrong location
-      rules/my-rule.mdc
-      my-rule.mdc
-      .rules/my-rule.mdc
+      rules/my-rule.md
+      my-rule.md
+      .rules/my-rule.md
 
       # Good: Rule file in correct location
-      .cursor/rules/my-rule.mdc
+      .cursor/rules/my-rule.md
     output: "Correctly placed Cursor rule file"
 
 metadata:
