@@ -29,9 +29,9 @@ actions:
         - `globs`: A list of file patterns (e.g., `*.js`, `src/**/*.ts`) that the rule should be applied to.
         - `alwaysApply`: A boolean (`true` or `false`) indicating if the rule should be considered in all contexts, regardless of specific triggers.
 
-      - **Main Title**: Usually an H1 heading (e.g., `# My Awesome Rule`) that provides a human-readable title for the rule.
+      - **Main Title**: Usually an H1 heading (e.g., `# My Awesome Rule`) that provides a human-readable title for the rule file.
 
-      - **`<rule>...</rule>` Block**: The core definition of the rule, enclosed in XML-like tags.
+      - **`<rule>...</rule>` Block(s)**: A file can contain one or more rule blocks. Each block defines a specific rule or an aspect of a larger rule-set. It's enclosed in XML-like tags and should have its own unique 'name' attribute within the file.
         - `name`: (Required) A unique, machine-readable identifier for the rule (e.g., `enforce_strict_equality`).
         - `description`: (Required) A more detailed explanation of what the rule does, its purpose, and its function.
         - `filters`: (Required) A list of conditions that determine when the rule becomes active or applicable. Each filter typically has:
