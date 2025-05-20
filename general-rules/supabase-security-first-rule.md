@@ -32,6 +32,18 @@ actions:
       - pattern: "(?s)\\.serviceRole"
         message: "Using service role client bypasses RLS and is not allowed"
 
+  - type: warn
+    conditions:
+      - pattern: "(?i)(SUPABASE_SERVICE_KEY|SERVICE_ROLE_KEY|service[-_]key)"
+        message: |
+          CAUTION: Potential use or configuration of a Supabase Service Key detected (e.g., an environment variable like `SUPABASE_SERVICE_KEY` or terms like `service_key`).
+          Supabase Service Keys grant full administrative privileges and BYPASS ALL Row-Level Security (RLS) policies.
+          
+          - **DEFAULT BEHAVIOR**: ALWAYS use the Supabase **Anon Key** for client-side applications and for any backend operations where RLS should be enforced.
+          - **SERVICE KEY USAGE**: ONLY use the Service Key for trusted backend administrative scripts or server-to-server communication where you explicitly and intentionally need to bypass RLS for administrative purposes.
+          
+          If this code is intended for backend administrative tasks and you require the Service Key, ensure this is a deliberate choice. Otherwise, please use the Anon Key.
+
   - type: suggest
     message: |
       When working with user data and authentication:
