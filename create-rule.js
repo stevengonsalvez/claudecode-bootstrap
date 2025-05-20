@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readdirSync, statSync } from 'fs';
+import yaml from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +50,17 @@ function getGeneralRuleFiles() {
         .filter(f => !ALWAYS_COPY_RULES.includes(f));
 }
 
+function parseFrontMatter(filePath) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const match = content.match(/^---([\s\S]*?)---/);
+    if (!match) return {};
+    try {
+        return yaml.load(match[1]);
+    } catch {
+        return {};
+    }
+}
+
 async function main() {
     // Step 1: Select tool
     const { tool } = await inquirer.prompt([
@@ -87,6 +99,7 @@ async function main() {
     }
 
     // Step 4: Prompt for additional general rules
+    const copiedFiles = [config.ruleGlob, ...ALWAYS_COPY_RULES];
     const generalRuleFiles = getGeneralRuleFiles();
     if (generalRuleFiles.length > 0) {
         const { selectedGeneralRules } = await inquirer.prompt([
@@ -99,9 +112,24 @@ async function main() {
         ]);
         for (const ruleFile of selectedGeneralRules) {
             fs.copyFileSync(path.join(GENERAL_RULES_DIR, ruleFile), path.join(destDir, ruleFile));
+            copiedFiles.push(ruleFile);
         }
     }
 
+    // Step 5: Generate rule-registry.json
+    const registry = {};
+    for (const file of copiedFiles) {
+        const filePath = path.join(destDir, file);
+        const front = parseFrontMatter(filePath);
+        if (front) {
+            registry[file.replace(/\..*$/, '')] = {
+                path: path.join(config.targetSubdir, file),
+                globs: Array.isArray(front.globs) ? front.globs : (front.globs ? [front.globs] : []),
+                alwaysApply: !!front.alwaysApply
+            };
+        }
+    }
+    fs.writeFileSync(path.join(destDir, 'rule-registry.json'), JSON.stringify(registry, null, 4));
     console.log('Done.');
 }
 
