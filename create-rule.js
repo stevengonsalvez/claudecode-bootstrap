@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
-const inquirer = require('inquirer');
-const fs = require('fs');
-const path = require('path');
+import inquirer from 'inquirer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { readdirSync, statSync } from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const TOOL_CONFIG = {
     amazonq: {
@@ -32,6 +37,18 @@ const TOOL_CONFIG = {
     },
 };
 
+const GENERAL_RULES_DIR = path.join(__dirname, 'general-rules');
+const ALWAYS_COPY_RULES = [
+    'rule-interpreter-rule.md',
+    'rulestyle-rule.md',
+];
+
+function getGeneralRuleFiles() {
+    return readdirSync(GENERAL_RULES_DIR)
+        .filter(f => f.endsWith('.md'))
+        .filter(f => !ALWAYS_COPY_RULES.includes(f));
+}
+
 async function main() {
     // Step 1: Select tool
     const { tool } = await inquirer.prompt([
@@ -57,35 +74,32 @@ async function main() {
         console.log(`Created folder: ${targetFolder}`);
     }
 
-    // Step 3: List available rules for the tool
+    // Step 3: Copy always-included rules
     const config = TOOL_CONFIG[tool];
+    const destDir = path.join(targetFolder, config.targetSubdir);
+    fs.mkdirSync(destDir, { recursive: true });
+    // Tool's own rulestore rule
     const rulePath = path.join(__dirname, config.ruleDir, config.ruleGlob);
-    if (!fs.existsSync(rulePath)) {
-        console.error(`No rule found for ${tool}`);
-        process.exit(1);
+    fs.copyFileSync(rulePath, path.join(destDir, config.ruleGlob));
+    // Always-copy general rules
+    for (const rule of ALWAYS_COPY_RULES) {
+        fs.copyFileSync(path.join(GENERAL_RULES_DIR, rule), path.join(destDir, rule));
     }
 
-    // For now, only one rule per tool, but structure allows for more in future
-    const rules = [config.ruleGlob];
-    const { selectedRules } = await inquirer.prompt([
-        {
-            type: 'checkbox',
-            name: 'selectedRules',
-            message: 'Select rules to copy:',
-            choices: rules,
-            default: rules,
-            validate: (arr) => arr.length > 0 || 'Select at least one rule',
-        },
-    ]);
-
-    // Step 4: Copy selected rules
-    for (const ruleFile of selectedRules) {
-        const src = path.join(__dirname, config.ruleDir, ruleFile);
-        const destDir = path.join(targetFolder, config.targetSubdir);
-        const dest = path.join(destDir, ruleFile);
-        fs.mkdirSync(destDir, { recursive: true });
-        fs.copyFileSync(src, dest);
-        console.log(`Copied ${ruleFile} to ${dest}`);
+    // Step 4: Prompt for additional general rules
+    const generalRuleFiles = getGeneralRuleFiles();
+    if (generalRuleFiles.length > 0) {
+        const { selectedGeneralRules } = await inquirer.prompt([
+            {
+                type: 'checkbox',
+                name: 'selectedGeneralRules',
+                message: 'Select additional general rules to copy:',
+                choices: generalRuleFiles,
+            },
+        ]);
+        for (const ruleFile of selectedGeneralRules) {
+            fs.copyFileSync(path.join(GENERAL_RULES_DIR, ruleFile), path.join(destDir, ruleFile));
+        }
     }
 
     console.log('Done.');
