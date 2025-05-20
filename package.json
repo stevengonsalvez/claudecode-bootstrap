@@ -1,0 +1,21 @@
+{
+    "name": "ai-coder-rules-cli",
+    "version": "1.0.0",
+    "description": "CLI tool for copying rule files for various AI coding tools.",
+    "main": "create-rule.js",
+    "scripts": {
+        "start": "node create-rule.js",
+        "test": "jest"
+    },
+    "dependencies": {
+        "inquirer": "^9.0.0"
+    },
+    "devDependencies": {
+        "jest": "^29.0.0"
+    },
+    "jest": {
+        "testEnvironment": "node"
+    },
+    "author": "",
+    "license": "MIT"
+}
