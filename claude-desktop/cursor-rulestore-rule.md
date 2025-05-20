@@ -4,42 +4,40 @@ globs: *-rule.md
 alwaysApply: false
 ---
 ---
-description: Cursor Rules Location
+description: Claude Desktop Rules Location
 globs: *.md
 ---
-# Cursor Rules Location
+# Claude Desktop Rules Location
 
-Rules for placing and organizing Cursor rule files in the repository.
+Rules for placing and organizing Claude Desktop rule files in the repository.
 
 <rule>
-name: cursor_rules_location
-description: Standards for placing Cursor rule files in the correct directory
+name: claude_rules_location
+description: Standards for placing Claude Desktop rule files in the correct directory
 filters:
   # Match any .md files
   - type: file_extension
     pattern: "\\.md$"
-  # Match files that look like Cursor rules
+  # Match files that look like Claude rules
   - type: content
     pattern: "(?s)<rule>.*?</rule>"
   # Match file creation events
-  - type: event
     pattern: "file_create"
 
 actions:
   - type: reject
     conditions:
-      - pattern: "^(?!\\.\\/\\.cursor\\/rules\\/.*\\.md$)"
-        message: "Cursor rule files (.md) must be placed in the .cursor/rules directory"
+      - pattern: "^(?!\\./\\.claude/rules/.*\\.md$)"
+        message: "Claude Desktop rule files (.md) must be placed in the .claude/rules directory"
 
   - type: suggest
     message: |
-      When creating Cursor rules:
+      When creating Claude Desktop rules:
 
-      1. Always place rule files in PROJECT_ROOT/.cursor/rules/:
+      1. Always place rule files in the following location:
          ```
-         .cursor/rules/
+         .claude/rules/
          ├── your-rule-name.md
-         ├── another-rule.md
          └── ...
          ```
 
@@ -51,7 +49,7 @@ actions:
       3. Directory structure:
          ```
          PROJECT_ROOT/
-         ├── .cursor/
+         ├── .claude/
          │   └── rules/
          │       ├── your-rule-name.md
          │       └── ...
@@ -60,7 +58,7 @@ actions:
 
       4. Never place rule files:
          - In the project root
-         - In subdirectories outside .cursor/rules
+         - In subdirectories outside .claude/rules
          - In any other location
 
 examples:
@@ -71,10 +69,10 @@ examples:
       .rules/my-rule.md
 
       # Good: Rule file in correct location
-      .cursor/rules/my-rule.md
-    output: "Correctly placed Cursor rule file"
+      .claude/rules/my-rule.md
+    output: "Correctly placed Claude Desktop rule file"
 
 metadata:
   priority: high
   version: 1.0
-</rule>
+</rule> 
