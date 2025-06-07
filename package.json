@@ -2,6 +2,7 @@
     "name": "ai-coder-rules-cli",
     "version": "1.0.0",
     "description": "CLI tool for copying rule files for various AI coding tools.",
+    "type": "module",
     "main": "create-rule.js",
     "scripts": {
         "start": "node create-rule.js",
