@@ -42,6 +42,11 @@ const TOOL_CONFIG = {
         targetSubdir: '.claude',
         copyEntireFolder: true,
     },
+    gemini: {
+        ruleDir: 'gemini',
+        targetSubdir: '.gemini',
+        copyEntireFolder: true,
+    },
 };
 
 const GENERAL_RULES_DIR = path.join(__dirname, 'general-rules');
@@ -69,7 +74,6 @@ function parseFrontMatter(filePath) {
 
 function showProgress(message, isComplete = false) {
     const greenCheck = '\x1b[32m✓\x1b[0m';
-    const spinner = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
     
     if (isComplete) {
         console.log(`${greenCheck} ${message}`);
@@ -102,7 +106,6 @@ function copyDirectoryRecursive(source, destination) {
     
     getAllFiles(source);
     
-    // Create destination directories and copy files
     for (const file of files) {
         const destDir = path.dirname(file.dest);
         fs.mkdirSync(destDir, { recursive: true });
@@ -112,51 +115,66 @@ function copyDirectoryRecursive(source, destination) {
     return files.length;
 }
 
+async function handleFullDirectoryCopy(tool, config) {
+    const homeDir = os.homedir();
+    const destDir = path.join(homeDir, config.targetSubdir);
+
+    showProgress(`Checking ~/${config.targetSubdir} directory`);
+    if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+        completeProgress(`Created ~/${config.targetSubdir} directory`);
+    } else {
+        completeProgress(`Found ~/${config.targetSubdir} directory`);
+    }
+
+    showProgress(`Copying ${config.ruleDir} contents`);
+    const sourceDir = path.join(__dirname, config.ruleDir);
+    const filesCopied = copyDirectoryRecursive(sourceDir, destDir);
+    completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
+
+    console.log(`\n\x1b[32m🎉 ${tool} setup complete!\x1b[0m`);
+    console.log(`Files copied to: ${destDir}`);
+}
+
 async function main() {
-    // Step 1: Select tool
-    const { tool } = await inquirer.prompt([
-        {
-            type: 'list',
-            name: 'tool',
-            message: 'Select the tool:',
-            choices: Object.keys(TOOL_CONFIG),
-        },
-    ]);
+    const args = process.argv.slice(2);
+    const toolArg = args.find(arg => arg.startsWith('--tool='));
+    const targetFolderArg = args.find(arg => arg.startsWith('--targetFolder='));
+    const isNonInteractive = !!toolArg;
+
+    let tool = toolArg ? toolArg.split('=')[1] : null;
+    let targetFolder = targetFolderArg ? targetFolderArg.split('=')[1] : null;
+
+    if (!tool) {
+        const answers = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'tool',
+                message: 'Select the tool:',
+                choices: Object.keys(TOOL_CONFIG),
+            },
+        ]);
+        tool = answers.tool;
+    }
 
     const config = TOOL_CONFIG[tool];
 
-    // Handle claude-code special case
-    if (tool === 'claude-code') {
-        const homeDir = os.homedir();
-        const claudeDir = path.join(homeDir, '.claude');
-        
-        showProgress('Checking ~/.claude directory');
-        if (!fs.existsSync(claudeDir)) {
-            fs.mkdirSync(claudeDir, { recursive: true });
-            completeProgress('Created ~/.claude directory');
-        } else {
-            completeProgress('Found ~/.claude directory');
-        }
-
-        showProgress('Copying claude-code contents');
-        const sourceDir = path.join(__dirname, config.ruleDir);
-        const filesCopied = copyDirectoryRecursive(sourceDir, claudeDir);
-        completeProgress(`Copied ${filesCopied} files to ~/.claude`);
-
-        console.log('\n\x1b[32m🎉 Claude Code setup complete!\x1b[0m');
-        console.log(`Files copied to: ${claudeDir}`);
+    if (config.copyEntireFolder) {
+        await handleFullDirectoryCopy(tool, config);
         return;
     }
 
-    // Step 2: Prompt for target project folder (for other tools)
-    const { targetFolder } = await inquirer.prompt([
-        {
-            type: 'input',
-            name: 'targetFolder',
-            message: 'Enter the target project folder:',
-            validate: (input) => !!input.trim() || 'Folder name required',
-        },
-    ]);
+    if (!targetFolder) {
+        const answers = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'targetFolder',
+                message: 'Enter the target project folder:',
+                validate: (input) => !!input.trim() || 'Folder name required',
+            },
+        ]);
+        targetFolder = answers.targetFolder;
+    }
     
     showProgress('Creating target directory');
     if (!fs.existsSync(targetFolder)) {
@@ -166,25 +184,21 @@ async function main() {
         completeProgress(`Using existing folder: ${targetFolder}`);
     }
 
-    // Step 3: Copy always-included rules
     showProgress('Copying tool-specific rules');
     const destDir = path.join(targetFolder, config.targetSubdir);
     fs.mkdirSync(destDir, { recursive: true });
     
-    // Tool's own rulestore rule
     const rulePath = path.join(__dirname, config.ruleDir, config.ruleGlob);
     fs.copyFileSync(rulePath, path.join(destDir, config.ruleGlob));
     
-    // Always-copy general rules
     for (const rule of ALWAYS_COPY_RULES) {
         fs.copyFileSync(path.join(GENERAL_RULES_DIR, rule), path.join(destDir, rule));
     }
     completeProgress('Copied core rules');
 
-    // Step 4: Prompt for additional general rules
     const copiedFiles = [config.ruleGlob, ...ALWAYS_COPY_RULES];
     const generalRuleFiles = getGeneralRuleFiles();
-    if (generalRuleFiles.length > 0) {
+    if (!isNonInteractive && generalRuleFiles.length > 0) {
         const { selectedGeneralRules } = await inquirer.prompt([
             {
                 type: 'checkbox',
@@ -194,7 +208,7 @@ async function main() {
             },
         ]);
         
-        if (selectedGeneralRules.length > 0) {
+        if (selectedGeneralRules && selectedGeneralRules.length > 0) {
             showProgress('Copying additional rules');
             for (const ruleFile of selectedGeneralRules) {
                 fs.copyFileSync(path.join(GENERAL_RULES_DIR, ruleFile), path.join(destDir, ruleFile));
@@ -204,7 +218,6 @@ async function main() {
         }
     }
 
-    // Step 5: Generate rule-registry.json
     showProgress('Generating rule registry');
     const registry = {};
     for (const file of copiedFiles) {
@@ -228,4 +241,4 @@ async function main() {
 main().catch((err) => {
     console.error(err);
     process.exit(1);
-}); 
+});
