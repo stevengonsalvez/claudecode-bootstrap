@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { execSync } = require('child_process');
 
 const TOOL_CONFIG = {
@@ -28,6 +29,16 @@ const TOOL_CONFIG = {
         ruleDir: 'cursor',
         targetSubdir: '.claude/rules',
     },
+    'claude-code': {
+        ruleDir: 'claude-code',
+        targetSubdir: '.claude',
+        copyEntireFolder: true,
+    },
+    gemini: {
+        ruleDir: 'gemini',
+        targetSubdir: '.gemini',
+        copyEntireFolder: true,
+    },
 };
 
 const ALWAYS_COPY_RULES = [
@@ -35,46 +46,55 @@ const ALWAYS_COPY_RULES = [
     'rulestyle-rule.md',
 ];
 
-const GENERAL_RULES_DIR = path.join(__dirname, 'general-rules');
-
-function getGeneralRuleFiles() {
-    return fs.readdirSync(GENERAL_RULES_DIR)
-        .filter(f => f.endsWith('.md'))
-        .filter(f => !ALWAYS_COPY_RULES.includes(f));
-}
-
 describe('CLI Rule Copier', () => {
     const tempDir = path.join(__dirname, 'tmp-test-folder');
+    const homeDir = os.homedir();
 
     afterEach(() => {
         if (fs.existsSync(tempDir)) {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
+        const geminiDir = path.join(homeDir, '.gemini');
+        if (fs.existsSync(geminiDir)) {
+            fs.rmSync(geminiDir, { recursive: true, force: true });
+        }
     });
 
-    it('always copies the tool rule, rule-interpreter-rule.md, and rulestyle-rule.md, and copies selected general rules', () => {
+    it('always copies the tool rule and default rules in non-interactive mode', () => {
         const tool = 'amazonq';
         const config = TOOL_CONFIG[tool];
         const target = path.join(tempDir, tool);
         fs.mkdirSync(target, { recursive: true });
 
-        // Simulate user input: tool, target, and select the first two general rules
-        const generalRuleFiles = getGeneralRuleFiles();
-        const selectedGeneralRules = generalRuleFiles.slice(0, 2); // Pick two for test
-        // Compose input: tool, target, then simulate pressing space for each rule, then enter
-        // But since inquirer is interactive, we run the script and check the always-included rules
-        // For full automation, the CLI would need to support non-interactive mode or dependency injection
-        // Here, we just check the always-included rules
-        execSync(`node create-rule.js`, {
-            input: `${tool}\n${target}\n\n`,
-            stdio: ['pipe', 'ignore', 'ignore'],
+        const command = `node create-rule.js --tool=${tool} --targetFolder=${target}`;
+        execSync(command, {
+            stdio: 'pipe',
             env: { ...process.env },
         });
+
         const destDir = path.join(target, config.targetSubdir);
-        // Always-included rules
         expect(fs.existsSync(path.join(destDir, config.ruleGlob))).toBe(true);
         for (const rule of ALWAYS_COPY_RULES) {
             expect(fs.existsSync(path.join(destDir, rule))).toBe(true);
         }
     });
-}); 
+
+    it('copies the entire gemini folder to the home directory in non-interactive mode', () => {
+        const tool = 'gemini';
+        const config = TOOL_CONFIG[tool];
+        const destDir = path.join(homeDir, config.targetSubdir);
+
+        if (fs.existsSync(destDir)) {
+            fs.rmSync(destDir, { recursive: true, force: true });
+        }
+
+        const command = `node create-rule.js --tool=${tool}`;
+        execSync(command, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        expect(fs.existsSync(destDir)).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'GEMINI.md'))).toBe(true);
+    });
+});
