@@ -57,6 +57,12 @@ When creating a new project with its own Claude.md:
 - Rationale: Collaborative problem-solving produces better outcomes than struggling alone
 </escalation_strategy>
 
+<containerized_development>
+- Before starting any task, check for the availability of a container-based development tool (e.g., Dagger, Docker).
+- If a tool is available, it must be used for all development and testing tasks.
+- Rationale: This ensures a consistent, reproducible, and isolated development environment, preventing "it works on my machine" issues.
+</containerized_development>
+
 # Testing Requirements
 
 <test_coverage_mandate>
