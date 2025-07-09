@@ -43,9 +43,21 @@ const TOOL_CONFIG = {
         copyEntireFolder: true,
     },
     gemini: {
+        ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
         targetSubdir: '.gemini',
-        copyEntireFolder: true,
+        sharedContentDir: 'claude-code',
+        copySharedContent: true,
+        excludeFiles: ['CLAUDE.md'],
+    },
+    amazonq: {
+        ruleGlob: 'q-rulestore-rule.md',
+        ruleDir: 'amazonq',
+        targetSubdir: '.amazonq/rules',
+        rootFiles: ['amazonq/AmazonQ.md'],
+        sharedContentDir: 'claude-code',
+        sharedContentTarget: '.amazonq',
+        excludeFiles: ['CLAUDE.md'],
     },
 };
 
@@ -87,7 +99,7 @@ function completeProgress(message) {
     showProgress(message, true);
 }
 
-function copyDirectoryRecursive(source, destination) {
+function copyDirectoryRecursive(source, destination, excludeFiles = []) {
     const files = [];
     
     function getAllFiles(dir, basePath = '') {
@@ -99,7 +111,14 @@ function copyDirectoryRecursive(source, destination) {
             if (statSync(fullPath).isDirectory()) {
                 getAllFiles(fullPath, relativePath);
             } else {
-                files.push({ source: fullPath, dest: path.join(destination, relativePath) });
+                // Check if this file should be excluded
+                const shouldExclude = excludeFiles.some(excludeFile => 
+                    relativePath === excludeFile || item === excludeFile
+                );
+                
+                if (!shouldExclude) {
+                    files.push({ source: fullPath, dest: path.join(destination, relativePath) });
+                }
             }
         }
     }
@@ -113,6 +132,48 @@ function copyDirectoryRecursive(source, destination) {
     }
     
     return files.length;
+}
+
+async function handleSharedContentCopy(tool, config, targetFolder) {
+    if (!targetFolder) {
+        const answers = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'targetFolder',
+                message: 'Enter the target project folder:',
+                validate: (input) => !!input.trim() || 'Folder name required',
+            },
+        ]);
+        targetFolder = answers.targetFolder;
+    }
+
+    showProgress('Creating target directory');
+    if (!fs.existsSync(targetFolder)) {
+        fs.mkdirSync(targetFolder, { recursive: true });
+        completeProgress(`Created folder: ${targetFolder}`);
+    } else {
+        completeProgress(`Using existing folder: ${targetFolder}`);
+    }
+
+    const destDir = path.join(targetFolder, config.targetSubdir);
+    fs.mkdirSync(destDir, { recursive: true });
+
+    // Copy shared content from claude-code
+    showProgress('Copying shared content from claude-code');
+    const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
+    const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, destDir, config.excludeFiles || []);
+    completeProgress(`Copied ${sharedFilesCopied} shared files`);
+
+    // Copy tool-specific files
+    showProgress('Copying tool-specific files');
+    const toolSpecificPath = path.join(__dirname, config.ruleDir, config.ruleGlob);
+    if (fs.existsSync(toolSpecificPath)) {
+        fs.copyFileSync(toolSpecificPath, path.join(destDir, config.ruleGlob));
+        completeProgress('Copied tool-specific files');
+    }
+
+    console.log(`\n\x1b[32m🎉 ${tool} setup complete!\x1b[0m`);
+    console.log(`Files copied to: ${destDir}`);
 }
 
 async function handleFullDirectoryCopy(tool, config) {
@@ -131,6 +192,23 @@ async function handleFullDirectoryCopy(tool, config) {
     const sourceDir = path.join(__dirname, config.ruleDir);
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir);
     completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
+
+    // Copy tool-specific files if they exist
+    if (config.toolSpecificFiles) {
+        showProgress('Copying tool-specific files');
+        let toolFilesCopied = 0;
+        for (const toolFile of config.toolSpecificFiles) {
+            const sourcePath = path.join(__dirname, toolFile);
+            const fileName = path.basename(toolFile);
+            const destPath = path.join(destDir, fileName);
+            
+            if (fs.existsSync(sourcePath)) {
+                fs.copyFileSync(sourcePath, destPath);
+                toolFilesCopied++;
+            }
+        }
+        completeProgress(`Copied ${toolFilesCopied} tool-specific files`);
+    }
 
     console.log(`\n\x1b[32m🎉 ${tool} setup complete!\x1b[0m`);
     console.log(`Files copied to: ${destDir}`);
@@ -161,6 +239,11 @@ async function main() {
 
     if (config.copyEntireFolder) {
         await handleFullDirectoryCopy(tool, config);
+        return;
+    }
+
+    if (config.copySharedContent) {
+        await handleSharedContentCopy(tool, config, targetFolder);
         return;
     }
 
@@ -216,6 +299,33 @@ async function main() {
             }
             completeProgress(`Copied ${selectedGeneralRules.length} additional rules`);
         }
+    }
+
+    // Copy shared content to specific target if specified
+    if (config.sharedContentTarget) {
+        const targetDir = path.join(targetFolder, config.sharedContentTarget);
+        showProgress(`Copying shared content to ${config.sharedContentTarget}`);
+        const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || []);
+        completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
+    }
+
+    // Copy root files if they exist
+    if (config.rootFiles) {
+        showProgress('Copying root files');
+        let rootFilesCopied = 0;
+        for (const rootFile of config.rootFiles) {
+            const sourcePath = path.join(__dirname, rootFile);
+            const fileName = path.basename(rootFile);
+            const destPath = path.join(targetFolder, fileName);
+            
+            if (fs.existsSync(sourcePath)) {
+                fs.copyFileSync(sourcePath, destPath);
+                rootFilesCopied++;
+            }
+        }
+        completeProgress(`Copied ${rootFilesCopied} root files`);
     }
 
     showProgress('Generating rule registry');
