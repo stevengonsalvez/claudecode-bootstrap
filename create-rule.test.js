@@ -103,6 +103,12 @@ describe('CLI Rule Copier', () => {
         // Should NOT have CLAUDE.md
         expect(fs.existsSync(path.join(destDir, 'CLAUDE.md'))).toBe(false);
 
+        // Check commands folder has files
+        const commandsDir = path.join(destDir, 'commands');
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
         // Check template substitution
         const geminiContent = fs.readFileSync(path.join(destDir, 'GEMINI.md'), 'utf8');
         expect(geminiContent).toContain('.gemini/session/current-session.yaml');
@@ -128,7 +134,18 @@ describe('CLI Rule Copier', () => {
             expect(fs.existsSync(path.join(rulesDir, rule))).toBe(true);
         }
 
-        // Check .amazonq directory structure
+        // Check .amazonq/rules directory structure (shared content is in rules dir)
+        expect(fs.existsSync(path.join(rulesDir, 'commands'))).toBe(true);
+        expect(fs.existsSync(path.join(rulesDir, 'templates'))).toBe(true);
+        expect(fs.existsSync(path.join(rulesDir, 'session', 'current-session.yaml'))).toBe(true);
+
+        // Check commands folder has files
+        const commandsDir = path.join(rulesDir, 'commands');
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
+        // Check .amazonq directory structure (shared content target)
         const amazonqDir = path.join(target, '.amazonq');
         expect(fs.existsSync(path.join(amazonqDir, 'commands'))).toBe(true);
         expect(fs.existsSync(path.join(amazonqDir, 'templates'))).toBe(true);
@@ -146,14 +163,11 @@ describe('CLI Rule Copier', () => {
     it('claude-code copies to home directory with correct paths', () => {
         const tool = 'claude-code';
         const config = TOOL_CONFIG[tool];
-        const destDir = path.join(homeDir, config.targetSubdir);
+        const mockHomeDir = path.join(tempDir, 'mock-home');
+        fs.mkdirSync(mockHomeDir, { recursive: true });
+        const destDir = path.join(mockHomeDir, config.targetSubdir);
 
-        // Clean up before test
-        if (fs.existsSync(destDir)) {
-            fs.rmSync(destDir, { recursive: true, force: true });
-        }
-
-        const command = `node create-rule.js --tool=${tool}`;
+        const command = `node create-rule.js --tool=${tool} --homeDir=${mockHomeDir}`;
         execSync(command, {
             stdio: 'pipe',
             env: { ...process.env },
@@ -163,6 +177,16 @@ describe('CLI Rule Copier', () => {
         expect(fs.existsSync(path.join(destDir, 'CLAUDE.md'))).toBe(true);
         expect(fs.existsSync(path.join(destDir, 'session', 'current-session.yaml'))).toBe(true);
 
+        // Check commands folder exists and has files
+        const commandsDir = path.join(destDir, 'commands');
+        expect(fs.existsSync(commandsDir)).toBe(true);
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
+        // Check templates folder exists
+        expect(fs.existsSync(path.join(destDir, 'templates'))).toBe(true);
+
         // Check template substitution
         const claudeContent = fs.readFileSync(path.join(destDir, 'CLAUDE.md'), 'utf8');
         expect(claudeContent).toContain('.claude/session/current-session.yaml');
@@ -170,7 +194,7 @@ describe('CLI Rule Copier', () => {
         expect(claudeContent).not.toContain('{{TOOL_DIR}}');
         expect(claudeContent).not.toContain('{{HOME_TOOL_DIR}}');
 
-        // Clean up after test
-        fs.rmSync(destDir, { recursive: true, force: true });
+        // Check that settings.local.json is excluded
+        expect(fs.existsSync(path.join(destDir, 'settings.local.json'))).toBe(false);
     });
 });

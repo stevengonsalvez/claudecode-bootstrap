@@ -12,11 +12,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const TOOL_CONFIG = {
-    amazonq: {
-        ruleGlob: 'q-rulestore-rule.md',
-        ruleDir: 'amazonq',
-        targetSubdir: '.amazonq/rules',
-    },
     cline: {
         ruleGlob: 'cline-rulestore-rule.md',
         ruleDir: 'cline',
@@ -41,6 +36,7 @@ const TOOL_CONFIG = {
         ruleDir: 'claude-code',
         targetSubdir: '.claude',
         copyEntireFolder: true,
+        excludeFiles: ['settings.local.json'],
         templateSubstitutions: {
             'CLAUDE.md': {
                 'TOOL_DIR': '.claude',
@@ -69,6 +65,7 @@ const TOOL_CONFIG = {
         rootFiles: ['amazonq/AmazonQ.md'],
         sharedContentDir: 'claude-code',
         sharedContentTarget: '.amazonq',
+        copySharedContent: true,
         excludeFiles: ['CLAUDE.md'],
         templateSubstitutions: {
             'AmazonQ.md': {
@@ -217,12 +214,55 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
         completeProgress('Copied tool-specific files');
     }
 
+    // Copy always copy rules
+    showProgress('Copying core rules');
+    for (const rule of ALWAYS_COPY_RULES) {
+        fs.copyFileSync(path.join(GENERAL_RULES_DIR, rule), path.join(destDir, rule));
+    }
+    completeProgress('Copied core rules');
+
+    // Copy shared content to specific target if specified
+    if (config.sharedContentTarget) {
+        const targetDir = path.join(targetFolder, config.sharedContentTarget);
+        showProgress(`Copying shared content to ${config.sharedContentTarget}`);
+        const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+        completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
+    }
+
+    // Copy root files if they exist
+    if (config.rootFiles) {
+        showProgress('Copying root files');
+        let rootFilesCopied = 0;
+        for (const rootFile of config.rootFiles) {
+            const sourcePath = path.join(__dirname, rootFile);
+            const fileName = path.basename(rootFile);
+            const destPath = path.join(targetFolder, fileName);
+            
+            // For AmazonQ.md, copy CLAUDE.md and apply substitutions
+            if (fileName === 'AmazonQ.md') {
+                const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
+                let content = fs.readFileSync(claudePath, 'utf8');
+                if (config.templateSubstitutions && config.templateSubstitutions['AmazonQ.md']) {
+                    content = substituteTemplate(content, config.templateSubstitutions['AmazonQ.md']);
+                }
+                fs.writeFileSync(destPath, content);
+                rootFilesCopied++;
+            } else if (fs.existsSync(sourcePath)) {
+                fs.copyFileSync(sourcePath, destPath);
+                rootFilesCopied++;
+            }
+        }
+        completeProgress(`Copied ${rootFilesCopied} root files`);
+    }
+
     console.log(`\n\x1b[32m🎉 ${tool} setup complete!\x1b[0m`);
     console.log(`Files copied to: ${destDir}`);
 }
 
-async function handleFullDirectoryCopy(tool, config) {
-    const homeDir = os.homedir();
+async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null) {
+    const homeDir = overrideHomeDir || os.homedir();
     const destDir = path.join(homeDir, config.targetSubdir);
 
     showProgress(`Checking ~/${config.targetSubdir} directory`);
@@ -235,7 +275,7 @@ async function handleFullDirectoryCopy(tool, config) {
 
     showProgress(`Copying ${config.ruleDir} contents`);
     const sourceDir = path.join(__dirname, config.ruleDir);
-    const filesCopied = copyDirectoryRecursive(sourceDir, destDir, [], config.templateSubstitutions || {});
+    const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
 
     // Copy tool-specific files if they exist
@@ -263,10 +303,12 @@ async function main() {
     const args = process.argv.slice(2);
     const toolArg = args.find(arg => arg.startsWith('--tool='));
     const targetFolderArg = args.find(arg => arg.startsWith('--targetFolder='));
+    const homeDirArg = args.find(arg => arg.startsWith('--homeDir='));
     const isNonInteractive = !!toolArg;
 
     let tool = toolArg ? toolArg.split('=')[1] : null;
     let targetFolder = targetFolderArg ? targetFolderArg.split('=')[1] : null;
+    let overrideHomeDir = homeDirArg ? homeDirArg.split('=')[1] : null;
 
     if (!tool) {
         const answers = await inquirer.prompt([
@@ -283,7 +325,7 @@ async function main() {
     const config = TOOL_CONFIG[tool];
 
     if (config.copyEntireFolder) {
-        await handleFullDirectoryCopy(tool, config);
+        await handleFullDirectoryCopy(tool, config, overrideHomeDir);
         return;
     }
 
