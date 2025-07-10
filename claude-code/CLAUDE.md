@@ -104,7 +104,7 @@ Test-Driven Development is our standard approach:
 
 <health_check_protocol>
 When starting ANY conversation, immediately perform a health check to establish session state:
-1. Check for existing session state in `.claude/session/current-session.yaml`
+1. Check for existing session state in `{{TOOL_DIR}}/session/current-session.yaml`
 2. Initialize or update session health tracking
 3. Set appropriate mode based on task type
 4. Track scope of work (MICRO/SMALL/MEDIUM/LARGE/EPIC)
@@ -134,7 +134,7 @@ When starting ANY conversation, immediately perform a health check to establish 
 </automatic_behaviours>
 
 <session_state_management>
-Session state is stored in `.claude/session/current-session.yaml` and includes:
+Session state is stored in `{{TOOL_DIR}}/session/current-session.yaml` and includes:
 - Health status and message count
 - Current mode and scope
 - Active task (reference ID, phase, progress)
@@ -151,6 +151,6 @@ When health reaches 🟡, proactively:
 
 # Specific Technologies
 
-- @~/.claude/docs/python.md
-- @~/.claude/docs/source-control.md
-- @~/.claude/docs/using-uv.md
+- @{{HOME_TOOL_DIR}}/docs/python.md
+- @{{HOME_TOOL_DIR}}/docs/source-control.md
+- @{{HOME_TOOL_DIR}}/docs/using-uv.md
