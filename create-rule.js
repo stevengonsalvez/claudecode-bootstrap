@@ -41,6 +41,12 @@ const TOOL_CONFIG = {
         ruleDir: 'claude-code',
         targetSubdir: '.claude',
         copyEntireFolder: true,
+        templateSubstitutions: {
+            'CLAUDE.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            }
+        }
     },
     gemini: {
         ruleGlob: 'GEMINI.md',
@@ -49,6 +55,12 @@ const TOOL_CONFIG = {
         sharedContentDir: 'claude-code',
         copySharedContent: true,
         excludeFiles: ['CLAUDE.md'],
+        templateSubstitutions: {
+            'GEMINI.md': {
+                'TOOL_DIR': '.gemini',
+                'HOME_TOOL_DIR': '.gemini'
+            }
+        }
     },
     amazonq: {
         ruleGlob: 'q-rulestore-rule.md',
@@ -58,6 +70,12 @@ const TOOL_CONFIG = {
         sharedContentDir: 'claude-code',
         sharedContentTarget: '.amazonq',
         excludeFiles: ['CLAUDE.md'],
+        templateSubstitutions: {
+            'AmazonQ.md': {
+                'TOOL_DIR': '.amazonq',
+                'HOME_TOOL_DIR': '.amazonq'
+            }
+        }
     },
 };
 
@@ -99,7 +117,16 @@ function completeProgress(message) {
     showProgress(message, true);
 }
 
-function copyDirectoryRecursive(source, destination, excludeFiles = []) {
+function substituteTemplate(content, substitutions) {
+    let result = content;
+    for (const [placeholder, value] of Object.entries(substitutions)) {
+        const regex = new RegExp(`{{${placeholder}}}`, 'g');
+        result = result.replace(regex, value);
+    }
+    return result;
+}
+
+function copyDirectoryRecursive(source, destination, excludeFiles = [], templateSubstitutions = {}) {
     const files = [];
     
     function getAllFiles(dir, basePath = '') {
@@ -117,7 +144,7 @@ function copyDirectoryRecursive(source, destination, excludeFiles = []) {
                 );
                 
                 if (!shouldExclude) {
-                    files.push({ source: fullPath, dest: path.join(destination, relativePath) });
+                    files.push({ source: fullPath, dest: path.join(destination, relativePath), fileName: item });
                 }
             }
         }
@@ -128,7 +155,15 @@ function copyDirectoryRecursive(source, destination, excludeFiles = []) {
     for (const file of files) {
         const destDir = path.dirname(file.dest);
         fs.mkdirSync(destDir, { recursive: true });
-        fs.copyFileSync(file.source, file.dest);
+        
+        // Check if this file needs template substitution
+        if (templateSubstitutions[file.fileName]) {
+            let content = fs.readFileSync(file.source, 'utf8');
+            content = substituteTemplate(content, templateSubstitutions[file.fileName]);
+            fs.writeFileSync(file.dest, content);
+        } else {
+            fs.copyFileSync(file.source, file.dest);
+        }
     }
     
     return files.length;
@@ -161,14 +196,24 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     // Copy shared content from claude-code
     showProgress('Copying shared content from claude-code');
     const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
-    const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, destDir, config.excludeFiles || []);
+    const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${sharedFilesCopied} shared files`);
 
     // Copy tool-specific files
     showProgress('Copying tool-specific files');
     const toolSpecificPath = path.join(__dirname, config.ruleDir, config.ruleGlob);
     if (fs.existsSync(toolSpecificPath)) {
-        fs.copyFileSync(toolSpecificPath, path.join(destDir, config.ruleGlob));
+        // For GEMINI.md, copy CLAUDE.md and apply substitutions
+        if (config.ruleGlob === 'GEMINI.md') {
+            const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
+            let content = fs.readFileSync(claudePath, 'utf8');
+            if (config.templateSubstitutions && config.templateSubstitutions['GEMINI.md']) {
+                content = substituteTemplate(content, config.templateSubstitutions['GEMINI.md']);
+            }
+            fs.writeFileSync(path.join(destDir, config.ruleGlob), content);
+        } else {
+            fs.copyFileSync(toolSpecificPath, path.join(destDir, config.ruleGlob));
+        }
         completeProgress('Copied tool-specific files');
     }
 
@@ -190,7 +235,7 @@ async function handleFullDirectoryCopy(tool, config) {
 
     showProgress(`Copying ${config.ruleDir} contents`);
     const sourceDir = path.join(__dirname, config.ruleDir);
-    const filesCopied = copyDirectoryRecursive(sourceDir, destDir);
+    const filesCopied = copyDirectoryRecursive(sourceDir, destDir, [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
 
     // Copy tool-specific files if they exist
@@ -307,7 +352,7 @@ async function main() {
         showProgress(`Copying shared content to ${config.sharedContentTarget}`);
         const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
         fs.mkdirSync(targetDir, { recursive: true });
-        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || []);
+        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
         completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
     }
 
@@ -320,7 +365,16 @@ async function main() {
             const fileName = path.basename(rootFile);
             const destPath = path.join(targetFolder, fileName);
             
-            if (fs.existsSync(sourcePath)) {
+            // For AmazonQ.md, copy CLAUDE.md and apply substitutions
+            if (fileName === 'AmazonQ.md') {
+                const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
+                let content = fs.readFileSync(claudePath, 'utf8');
+                if (config.templateSubstitutions && config.templateSubstitutions['AmazonQ.md']) {
+                    content = substituteTemplate(content, config.templateSubstitutions['AmazonQ.md']);
+                }
+                fs.writeFileSync(destPath, content);
+                rootFilesCopied++;
+            } else if (fs.existsSync(sourcePath)) {
                 fs.copyFileSync(sourcePath, destPath);
                 rootFilesCopied++;
             }
