@@ -149,6 +149,18 @@ When health reaches 🟡, proactively:
 4. Save all session state for seamless resume
 </session_state_management_guide>
 
+# Tool Usage Strategy
+
+<tool_selection_hierarchy>
+1. **MCP Tools First**: Check if there are MCP (Model Context Protocol) tools available that can serve the purpose
+2. **CLI Fallback**: If no MCP tool exists, use equivalent CLI option
+   - Fetch latest man/help page or run with --help to understand usage
+   - Examples: Use `psql` instead of postgres tool, `git` instead of git tool, `gh` instead of github tool 
+3. **API Direct**: For web services without CLI, use curl to call APIs directly
+   - Examples: Use Jira API, GitHub API, etc.
+</tool_selection_hierarchy>
+
+
 # Specific Technologies
 
 - @{{HOME_TOOL_DIR}}/docs/python.md
