@@ -59,10 +59,55 @@ When creating a new project with its own Claude.md:
 </escalation_strategy>
 
 <containerized_development>
-- Before starting any task, check for the availability of a container-based development tool (e.g., Dagger, Docker).
-- If a tool is available, it must be used for all development and testing tasks.
-- Rationale: This ensures a consistent, reproducible, and isolated development environment, preventing "it works on my machine" issues.
+- Before starting any task, check for the availability of the container-use tool (mcp__container-use__* functions).
+- MANDATORY: If the container-use tool is available, it MUST be used for ALL code execution, testing, and development tasks.
+- Use `mcp__container-use__environment_create` to create isolated environments for each task
+- Use `mcp__container-use__environment_run_cmd` to execute commands safely within the environment
+- Use `mcp__container-use__environment_file_*` functions for file operations within environments
+- Each environment provides:
+  - Git branch isolation (dedicated branch tracking all changes)
+  - Container isolation (Dagger container with code and dependencies)
+  - Persistent state (all changes automatically committed with full history)
+  - Safe execution (commands run in isolated containers, not on host system)
+- NEVER execute code directly on the host system if container-use is available
+- Rationale: This ensures a consistent, reproducible, and isolated development environment, preventing "it works on my machine" issues and protecting the host system from potentially harmful operations.
 </containerized_development>
+
+# Execution Environment Policy
+
+<environment_execution_requirements>
+CRITICAL: When the container-use tool is available (mcp__container-use__* functions), you MUST:
+
+1. **Always Create Environments First**
+   - Use `mcp__container-use__environment_create` before any code execution
+   - Name environments descriptively based on the task
+   - Each major task should have its own environment
+
+2. **Execute ALL Commands in Environments**
+   - NEVER use direct Bash tool for code execution if container-use is available
+   - Use `mcp__container-use__environment_run_cmd` for all command execution
+   - This includes: running tests, building code, installing dependencies, running scripts
+
+3. **File Operations in Environments**
+   - Use `mcp__container-use__environment_file_read` for reading files in the environment
+   - Use `mcp__container-use__environment_file_write` for writing files in the environment
+   - Use `mcp__container-use__environment_file_list` for directory listings
+
+4. **Environment Benefits**
+   - Complete isolation from host system
+   - Automatic Git tracking of all changes
+   - Persistent state across commands
+   - Safe execution of potentially harmful operations
+   - Easy rollback and state recovery
+
+5. **When to Create New Environments**
+   - Different projects or repositories
+   - Experimental changes that might break things
+   - Testing different configurations
+   - Running user-provided scripts or commands
+
+RATIONALE: Container-use provides safety, reproducibility, and complete isolation. It prevents any accidental damage to the host system and ensures all work is tracked and recoverable.
+</environment_execution_requirements>
 
 # Testing Requirements
 
@@ -161,8 +206,33 @@ When health reaches 🟡, proactively:
 </tool_selection_hierarchy>
 
 
-# Specific Technologies
+# Available Commands
 
-- @{{HOME_TOOL_DIR}}/docs/python.md
-- @{{HOME_TOOL_DIR}}/docs/source-control.md
-- @{{HOME_TOOL_DIR}}/docs/using-uv.md
+@{{TOOL_DIR}}/commands/brainstorm.md
+@{{TOOL_DIR}}/commands/do-issues.md
+@{{TOOL_DIR}}/commands/find-missing-tests.md
+@{{TOOL_DIR}}/commands/gh-issue.md
+@{{TOOL_DIR}}/commands/handover.md
+@{{TOOL_DIR}}/commands/health-check.md
+@{{TOOL_DIR}}/commands/make-github-issues.md
+@{{TOOL_DIR}}/commands/plan-gh.md
+@{{TOOL_DIR}}/commands/plan-tdd.md
+@{{TOOL_DIR}}/commands/plan.md
+@{{TOOL_DIR}}/commands/session-metrics.md
+@{{TOOL_DIR}}/commands/session-summary.md
+
+# Development Guides
+
+@{{TOOL_DIR}}/guides/customization-guide.md
+@{{TOOL_DIR}}/guides/session-management-guide.md
+
+# Technology Documentation
+
+@{{HOME_TOOL_DIR}}/docs/python.md
+@{{HOME_TOOL_DIR}}/docs/source-control.md
+@{{HOME_TOOL_DIR}}/docs/using-uv.md
+
+# Templates
+
+@{{TOOL_DIR}}/templates/codereview-checklist-template.md
+@{{TOOL_DIR}}/templates/handover-template.md

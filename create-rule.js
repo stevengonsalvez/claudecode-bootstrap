@@ -50,7 +50,8 @@ const TOOL_CONFIG = {
         targetSubdir: '.gemini',
         sharedContentDir: 'claude-code',
         copySharedContent: true,
-        excludeFiles: ['CLAUDE.md'],
+        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
+        settingsFile: 'gemini/settings.json',
         templateSubstitutions: {
             'GEMINI.md': {
                 'TOOL_DIR': '.gemini',
@@ -63,10 +64,11 @@ const TOOL_CONFIG = {
         ruleDir: 'amazonq',
         targetSubdir: '.amazonq/rules',
         rootFiles: ['amazonq/AmazonQ.md'],
+        mcpFile: 'amazonq/mcp.json',
+        mcpTarget: '.amazonq/mcp.json',
         sharedContentDir: 'claude-code',
-        sharedContentTarget: '.amazonq',
         copySharedContent: true,
-        excludeFiles: ['CLAUDE.md'],
+        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
         templateSubstitutions: {
             'AmazonQ.md': {
                 'TOOL_DIR': '.amazonq',
@@ -229,6 +231,31 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
         fs.mkdirSync(targetDir, { recursive: true });
         const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
         completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
+    }
+
+    // Copy settings file to project directory if specified
+    if (config.settingsFile) {
+        showProgress('Copying settings file');
+        const sourcePath = path.join(__dirname, config.settingsFile);
+        const destPath = path.join(destDir, 'settings.json');
+        
+        if (fs.existsSync(sourcePath)) {
+            fs.copyFileSync(sourcePath, destPath);
+            completeProgress('Copied settings file');
+        }
+    }
+
+    // Copy MCP file to specified target if specified
+    if (config.mcpFile && config.mcpTarget) {
+        showProgress('Copying MCP configuration');
+        const sourcePath = path.join(__dirname, config.mcpFile);
+        const destPath = path.join(targetFolder, config.mcpTarget);
+        
+        if (fs.existsSync(sourcePath)) {
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.copyFileSync(sourcePath, destPath);
+            completeProgress(`Copied MCP config to ${config.mcpTarget}`);
+        }
     }
 
     // Copy root files if they exist
@@ -396,6 +423,19 @@ async function main() {
         fs.mkdirSync(targetDir, { recursive: true });
         const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
         completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
+    }
+
+    // Copy MCP file to specified target if specified
+    if (config.mcpFile && config.mcpTarget) {
+        showProgress('Copying MCP configuration');
+        const sourcePath = path.join(__dirname, config.mcpFile);
+        const destPath = path.join(targetFolder, config.mcpTarget);
+        
+        if (fs.existsSync(sourcePath)) {
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.copyFileSync(sourcePath, destPath);
+            completeProgress(`Copied MCP config to ${config.mcpTarget}`);
+        }
     }
 
     // Copy root files if they exist
