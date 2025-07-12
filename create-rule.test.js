@@ -9,9 +9,11 @@ const TOOL_CONFIG = {
         ruleDir: 'amazonq',
         targetSubdir: '.amazonq/rules',
         rootFiles: ['amazonq/AmazonQ.md'],
+        mcpFile: 'amazonq/mcp.json',
+        mcpTarget: '.amazonq/mcp.json',
         sharedContentDir: 'claude-code',
-        sharedContentTarget: '.amazonq',
-        excludeFiles: ['CLAUDE.md'],
+        copySharedContent: true,
+        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
     },
     cline: {
         ruleGlob: 'cline-rulestore-rule.md',
@@ -45,6 +47,7 @@ const TOOL_CONFIG = {
         sharedContentDir: 'claude-code',
         copySharedContent: true,
         excludeFiles: ['CLAUDE.md'],
+        settingsFile: 'gemini/settings.json',
     },
 };
 
@@ -113,6 +116,13 @@ describe('CLI Rule Copier', () => {
         const geminiContent = fs.readFileSync(path.join(destDir, 'GEMINI.md'), 'utf8');
         expect(geminiContent).toContain('.gemini/session/current-session.yaml');
         expect(geminiContent).not.toContain('{{TOOL_DIR}}');
+        
+        // Check settings.json is copied to .gemini folder
+        expect(fs.existsSync(path.join(destDir, 'settings.json'))).toBe(true);
+        const settingsContent = fs.readFileSync(path.join(destDir, 'settings.json'), 'utf8');
+        const settings = JSON.parse(settingsContent);
+        expect(settings.theme).toBe('GitHub');
+        expect(settings.mcpServers).toBeDefined();
     });
 
     it('copies amazonq files with correct structure', () => {
@@ -145,14 +155,18 @@ describe('CLI Rule Copier', () => {
         expect(commandFiles.length).toBeGreaterThan(0);
         expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
 
-        // Check .amazonq directory structure (shared content target)
-        const amazonqDir = path.join(target, '.amazonq');
-        expect(fs.existsSync(path.join(amazonqDir, 'commands'))).toBe(true);
-        expect(fs.existsSync(path.join(amazonqDir, 'templates'))).toBe(true);
-        expect(fs.existsSync(path.join(amazonqDir, 'session', 'current-session.yaml'))).toBe(true);
+        // Check that settings.local.json is excluded
+        expect(fs.existsSync(path.join(rulesDir, 'settings.local.json'))).toBe(false);
 
         // Check AmazonQ.md in project root
         expect(fs.existsSync(path.join(target, 'AmazonQ.md'))).toBe(true);
+
+        // Check mcp.json is copied to .amazonq folder
+        expect(fs.existsSync(path.join(target, '.amazonq', 'mcp.json'))).toBe(true);
+        const mcpContent = fs.readFileSync(path.join(target, '.amazonq', 'mcp.json'), 'utf8');
+        const mcpConfig = JSON.parse(mcpContent);
+        expect(mcpConfig.mcpServers).toBeDefined();
+        expect(mcpConfig.mcpServers['container-use']).toBeDefined();
 
         // Check template substitution
         const amazonqContent = fs.readFileSync(path.join(target, 'AmazonQ.md'), 'utf8');
