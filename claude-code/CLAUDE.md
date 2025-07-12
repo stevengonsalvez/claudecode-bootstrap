@@ -109,6 +109,92 @@ CRITICAL: When the container-use tool is available (mcp__container-use__* functi
 RATIONALE: Container-use provides safety, reproducibility, and complete isolation. It prevents any accidental damage to the host system and ensures all work is tracked and recoverable.
 </environment_execution_requirements>
 
+# Background Process Management
+
+<background_server_execution>
+CRITICAL: When starting any long-running server process (web servers, development servers, APIs, etc.), you MUST:
+
+1. **Always Run in Background**
+   - NEVER run servers in foreground as this will block the agent process indefinitely
+   - Use background execution (`&` or `nohup`) or container-use background mode
+   - Examples of foreground-blocking commands:
+     - `npm run dev` or `npm start`
+     - `python app.py` or `flask run`
+     - `cargo run` or `go run`
+     - `rails server` or `php artisan serve`
+     - Any HTTP/web server command
+
+2. **Random Port Assignment**
+   - ALWAYS use random/dynamic ports to avoid conflicts between parallel sessions
+   - Generate random port: `PORT=$(shuf -i 3000-9999 -n 1)`
+   - Pass port via environment variable or command line argument
+   - Document the assigned port in logs for reference
+
+3. **Mandatory Log Redirection**
+   - Redirect all output to log files: `command > app.log 2>&1 &`
+   - Use descriptive log names: `server.log`, `api.log`, `dev-server.log`
+   - Include port in log name when possible: `server-${PORT}.log`
+   - Capture both stdout and stderr for complete debugging information
+
+4. **Container-use Background Mode**
+   - When using container-use, ALWAYS set `background: true` for server commands
+   - Use `ports` parameter to expose the randomly assigned port
+   - Example: `mcp__container-use__environment_run_cmd` with `background: true, ports: [PORT]`
+
+5. **Log Monitoring**
+   - After starting background process, immediately check logs with `tail -f logfile.log`
+   - Use `cat logfile.log` to view full log contents
+   - Monitor startup messages to ensure server started successfully
+   - Look for port assignment confirmation in logs
+
+6. **Safe Process Management**
+   - NEVER kill by process name (`pkill node`, `pkill vite`, `pkill uv`) - this affects other parallel sessions
+   - ALWAYS kill by port to target specific server: `lsof -ti:${PORT} | xargs kill -9`
+   - Alternative port-based killing: `fuser -k ${PORT}/tcp`
+   - Check what's running on port before killing: `lsof -i :${PORT}`
+   - Clean up port-specific processes before starting new servers on same port
+
+**Examples:**
+```bash
+# ❌ WRONG - Will block forever and use default port
+npm run dev
+
+# ❌ WRONG - Killing by process name affects other sessions
+pkill node
+
+# ✅ CORRECT - Complete workflow with random port
+PORT=$(shuf -i 3000-9999 -n 1)
+echo "Starting server on port $PORT"
+PORT=$PORT npm run dev > dev-server-${PORT}.log 2>&1 &
+tail -f dev-server-${PORT}.log
+
+# ✅ CORRECT - Safe killing by port
+lsof -ti:${PORT} | xargs kill -9
+
+# ✅ CORRECT - Check what's running on port first
+lsof -i :${PORT}
+
+# ✅ CORRECT - Alternative killing method
+fuser -k ${PORT}/tcp
+
+# ✅ CORRECT - Container-use with random port
+mcp__container-use__environment_run_cmd with:
+  command: "PORT=${PORT} npm run dev"
+  background: true
+  ports: [PORT]
+
+# ✅ CORRECT - Flask/Python example
+PORT=$(shuf -i 3000-9999 -n 1)
+FLASK_RUN_PORT=$PORT python app.py > flask-${PORT}.log 2>&1 &
+
+# ✅ CORRECT - Next.js example  
+PORT=$(shuf -i 3000-9999 -n 1)
+PORT=$PORT npm run dev > nextjs-${PORT}.log 2>&1 &
+```
+
+RATIONALE: Background execution with random ports prevents agent process deadlock while enabling parallel sessions to coexist without interference. Port-based process management ensures safe cleanup without affecting other concurrent development sessions. This maintains full visibility into server status through logs while ensuring continuous agent operation.
+</background_server_execution>
+
 # Testing Requirements
 
 <test_coverage_mandate>
