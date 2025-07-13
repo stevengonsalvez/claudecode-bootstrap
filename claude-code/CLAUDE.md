@@ -1,3 +1,4 @@
+
 # Communication Protocol
 
 <interaction_requirements>
@@ -58,10 +59,141 @@ When creating a new project with its own Claude.md:
 </escalation_strategy>
 
 <containerized_development>
-- Before starting any task, check for the availability of a container-based development tool (e.g., Dagger, Docker).
-- If a tool is available, it must be used for all development and testing tasks.
-- Rationale: This ensures a consistent, reproducible, and isolated development environment, preventing "it works on my machine" issues.
+- Before starting any task, check for the availability of the container-use tool (mcp__container-use__* functions).
+- MANDATORY: If the container-use tool is available, it MUST be used for ALL code execution, testing, and development tasks.
+- Use `mcp__container-use__environment_create` to create isolated environments for each task
+- Use `mcp__container-use__environment_run_cmd` to execute commands safely within the environment
+- Use `mcp__container-use__environment_file_*` functions for file operations within environments
+- Each environment provides:
+  - Git branch isolation (dedicated branch tracking all changes)
+  - Container isolation (Dagger container with code and dependencies)
+  - Persistent state (all changes automatically committed with full history)
+  - Safe execution (commands run in isolated containers, not on host system)
+- NEVER execute code directly on the host system if container-use is available
+- Rationale: This ensures a consistent, reproducible, and isolated development environment, preventing "it works on my machine" issues and protecting the host system from potentially harmful operations.
 </containerized_development>
+
+# Execution Environment Policy
+
+<environment_execution_requirements>
+CRITICAL: When the container-use tool is available (mcp__container-use__* functions), you MUST:
+
+1. **Always Create Environments First**
+   - Use `mcp__container-use__environment_create` before any code execution
+   - Name environments descriptively based on the task
+   - Each major task should have its own environment
+
+2. **Execute ALL Commands in Environments**
+   - NEVER use direct Bash tool for code execution if container-use is available
+   - Use `mcp__container-use__environment_run_cmd` for all command execution
+   - This includes: running tests, building code, installing dependencies, running scripts
+
+3. **File Operations in Environments**
+   - Use `mcp__container-use__environment_file_read` for reading files in the environment
+   - Use `mcp__container-use__environment_file_write` for writing files in the environment
+   - Use `mcp__container-use__environment_file_list` for directory listings
+
+4. **Environment Benefits**
+   - Complete isolation from host system
+   - Automatic Git tracking of all changes
+   - Persistent state across commands
+   - Safe execution of potentially harmful operations
+   - Easy rollback and state recovery
+
+5. **When to Create New Environments**
+   - Different projects or repositories
+   - Experimental changes that might break things
+   - Testing different configurations
+   - Running user-provided scripts or commands
+
+RATIONALE: Container-use provides safety, reproducibility, and complete isolation. It prevents any accidental damage to the host system and ensures all work is tracked and recoverable.
+</environment_execution_requirements>
+
+# Background Process Management
+
+<background_server_execution>
+CRITICAL: When starting any long-running server process (web servers, development servers, APIs, etc.), you MUST:
+
+1. **Always Run in Background**
+   - NEVER run servers in foreground as this will block the agent process indefinitely
+   - Use background execution (`&` or `nohup`) or container-use background mode
+   - Examples of foreground-blocking commands:
+     - `npm run dev` or `npm start`
+     - `python app.py` or `flask run`
+     - `cargo run` or `go run`
+     - `rails server` or `php artisan serve`
+     - Any HTTP/web server command
+
+2. **Random Port Assignment**
+   - ALWAYS use random/dynamic ports to avoid conflicts between parallel sessions
+   - Generate random port: `PORT=$(shuf -i 3000-9999 -n 1)`
+   - Pass port via environment variable or command line argument
+   - Document the assigned port in logs for reference
+
+3. **Mandatory Log Redirection**
+   - Redirect all output to log files: `command > app.log 2>&1 &`
+   - Use descriptive log names: `server.log`, `api.log`, `dev-server.log`
+   - Include port in log name when possible: `server-${PORT}.log`
+   - Capture both stdout and stderr for complete debugging information
+
+4. **Container-use Background Mode**
+   - When using container-use, ALWAYS set `background: true` for server commands
+   - Use `ports` parameter to expose the randomly assigned port
+   - Example: `mcp__container-use__environment_run_cmd` with `background: true, ports: [PORT]`
+
+5. **Log Monitoring**
+   - After starting background process, immediately check logs with `tail -f logfile.log`
+   - Use `cat logfile.log` to view full log contents
+   - Monitor startup messages to ensure server started successfully
+   - Look for port assignment confirmation in logs
+
+6. **Safe Process Management**
+   - NEVER kill by process name (`pkill node`, `pkill vite`, `pkill uv`) - this affects other parallel sessions
+   - ALWAYS kill by port to target specific server: `lsof -ti:${PORT} | xargs kill -9`
+   - Alternative port-based killing: `fuser -k ${PORT}/tcp`
+   - Check what's running on port before killing: `lsof -i :${PORT}`
+   - Clean up port-specific processes before starting new servers on same port
+
+**Examples:**
+```bash
+# ❌ WRONG - Will block forever and use default port
+npm run dev
+
+# ❌ WRONG - Killing by process name affects other sessions
+pkill node
+
+# ✅ CORRECT - Complete workflow with random port
+PORT=$(shuf -i 3000-9999 -n 1)
+echo "Starting server on port $PORT"
+PORT=$PORT npm run dev > dev-server-${PORT}.log 2>&1 &
+tail -f dev-server-${PORT}.log
+
+# ✅ CORRECT - Safe killing by port
+lsof -ti:${PORT} | xargs kill -9
+
+# ✅ CORRECT - Check what's running on port first
+lsof -i :${PORT}
+
+# ✅ CORRECT - Alternative killing method
+fuser -k ${PORT}/tcp
+
+# ✅ CORRECT - Container-use with random port
+mcp__container-use__environment_run_cmd with:
+  command: "PORT=${PORT} npm run dev"
+  background: true
+  ports: [PORT]
+
+# ✅ CORRECT - Flask/Python example
+PORT=$(shuf -i 3000-9999 -n 1)
+FLASK_RUN_PORT=$PORT python app.py > flask-${PORT}.log 2>&1 &
+
+# ✅ CORRECT - Next.js example  
+PORT=$(shuf -i 3000-9999 -n 1)
+PORT=$PORT npm run dev > nextjs-${PORT}.log 2>&1 &
+```
+
+RATIONALE: Background execution with random ports prevents agent process deadlock while enabling parallel sessions to coexist without interference. Port-based process management ensures safe cleanup without affecting other concurrent development sessions. This maintains full visibility into server status through logs while ensuring continuous agent operation.
+</background_server_execution>
 
 # Testing Requirements
 
@@ -98,8 +230,95 @@ Test-Driven Development is our standard approach:
 6. Repeat cycle for each feature or bugfix
 </tdd_cycle>
 
-# Specific Technologies
 
-- @~/.claude/docs/python.md
-- @~/.claude/docs/source-control.md
-- @~/.claude/docs/using-uv.md
+# Session Management System
+
+<health_check_protocol>
+When starting ANY conversation, immediately perform a health check to establish session state:
+1. Check for existing session state in `{{TOOL_DIR}}/session/current-session.yaml`
+2. Initialize or update session health tracking
+3. Set appropriate mode based on task type
+4. Track scope of work (MICRO/SMALL/MEDIUM/LARGE/EPIC)
+</health_check_protocol>
+
+<session_health_indicators>
+- 🟢 **Healthy** (0-30 messages): Normal operation
+- 🟡 **Approaching** (31-45 messages): Plan for handover
+- 🔴 **Handover Now** (46+ messages): Immediate handover required
+</session_health_indicators>
+
+<command_triggers>
+- `<Health-Check>` - Display current session health and metrics
+- `<Handover01>` - Generate handover document for session continuity
+- `<Session-Metrics>` - View detailed session statistics
+- `MODE: [DEBUG|BUILD|REVIEW|LEARN|RAPID]` - Switch response mode
+- `SCOPE: [MICRO|SMALL|MEDIUM|LARGE|EPIC]` - Set work complexity
+
+</command_triggers>
+
+
+<automatic_behaviours>
+1. **On Session Start**: Run health check, load previous state if exists
+2. **Every 10 Messages**: Background health check with warnings
+3. **On Mode Switch**: Update session state and load mode-specific guidelines
+4. **On Health Warning**: Suggest natural breakpoints for handover
+</automatic_behaviours>
+
+<session_state_management>
+Session state is stored in `{{TOOL_DIR}}/session/current-session.yaml` and includes:
+- Health status and message count
+- Current mode and scope
+- Active task (reference ID, phase, progress)
+- Context (current file, branch, etc.)
+</session_state_management>
+
+<session_state_management_guide>
+When health reaches 🟡, proactively:
+1. Complete current logical unit of work
+2. Update todo list with completed items
+3. Prepare handover documentation
+4. Save all session state for seamless resume
+</session_state_management_guide>
+
+# Tool Usage Strategy
+
+<tool_selection_hierarchy>
+1. **MCP Tools First**: Check if there are MCP (Model Context Protocol) tools available that can serve the purpose
+2. **CLI Fallback**: If no MCP tool exists, use equivalent CLI option
+   - Fetch latest man/help page or run with --help to understand usage
+   - Examples: Use `psql` instead of postgres tool, `git` instead of git tool, `gh` instead of github tool 
+3. **API Direct**: For web services without CLI, use curl to call APIs directly
+   - Examples: Use Jira API, GitHub API, etc.
+</tool_selection_hierarchy>
+
+
+# Available Commands
+
+@{{TOOL_DIR}}/commands/brainstorm.md
+@{{TOOL_DIR}}/commands/do-issues.md
+@{{TOOL_DIR}}/commands/find-missing-tests.md
+@{{TOOL_DIR}}/commands/gh-issue.md
+@{{TOOL_DIR}}/commands/handover.md
+@{{TOOL_DIR}}/commands/health-check.md
+@{{TOOL_DIR}}/commands/make-github-issues.md
+@{{TOOL_DIR}}/commands/plan-gh.md
+@{{TOOL_DIR}}/commands/plan-tdd.md
+@{{TOOL_DIR}}/commands/plan.md
+@{{TOOL_DIR}}/commands/session-metrics.md
+@{{TOOL_DIR}}/commands/session-summary.md
+
+# Development Guides
+
+@{{TOOL_DIR}}/guides/customization-guide.md
+@{{TOOL_DIR}}/guides/session-management-guide.md
+
+# Technology Documentation
+
+@{{HOME_TOOL_DIR}}/docs/python.md
+@{{HOME_TOOL_DIR}}/docs/source-control.md
+@{{HOME_TOOL_DIR}}/docs/using-uv.md
+
+# Templates
+
+@{{TOOL_DIR}}/templates/codereview-checklist-template.md
+@{{TOOL_DIR}}/templates/handover-template.md
