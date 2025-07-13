@@ -10,19 +10,59 @@ This project provides a CLI tool to help you set up and manage rule files for va
    ```sh
    npm install
    ```
-2. **Run the CLI:**
+
+2. **Run the CLI (Interactive - Recommended):**
    ```sh
-   ./create-rule.js
+   node create-rule.js
    ```
-3. **Follow the prompts:**
-   - Select the tool (e.g., amazonq, cline, roo, cursor, claude)
-   - Enter the target project folder
+   Then select your tool from the dropdown menu.
+
+3. **Or run non-interactively (for automation):**
+   ```sh
+   node create-rule.js --tool=gemini
+   node create-rule.js --tool=amazonq
+   node create-rule.js --tool=claude-code
+   ```
+
+4. **Follow the prompts:**
+   - For project-specific tools, enter the target project folder
    - Select any additional general rules you want to include
 
-The CLI will:
-- Copy the tool's own rulestore rule, `rule-interpreter-rule.md`, and `rulestyle-rule.md` to the correct rules directory in your target project.
-- Prompt you to select any additional general rules from the `general-rules/` folder.
-- Generate a `rule-registry.json` in the rules directory, describing all copied rules and their metadata.
+### What the CLI Does
+
+**For claude-code (Home Directory Installation):**
+- Copies complete tool setup to your home directory (`~/.claude`)
+- No project folder required - installs globally for the tool
+
+**For gemini/amazonq (Project-Specific Installation):**
+- Prompts for target project folder
+- Creates workspace-relative directories for tool configuration
+- Generates a `rule-registry.json` describing all copied rules and their metadata
+
+**For other tools (Project-Specific Installation):**
+- Copies the tool's rulestore rule, `rule-interpreter-rule.md`, and `rulestyle-rule.md` to your project's rules directory
+- Prompts for target project folder
+- Generates a `rule-registry.json` describing all copied rules and their metadata
+
+### Tool-Specific Behavior
+
+**claude-code**: 
+- Copies entire `claude-code/` directory to `~/.claude/`
+- Includes: commands, guides, templates, docs, and main CLAUDE.md
+
+**gemini**: 
+- Copies all shared content from `claude-code/` to `PROJECT/.gemini/`
+- Adds tool-specific `GEMINI.md` file
+- Result: Same functionality as claude-code but project-specific
+- Aligns with Gemini CLI's workspace-relative configuration
+
+**amazonq**:
+- Copies rule files to `PROJECT/.amazonq/rules/` (follows AmazonQ's rules pattern)
+- Adds `AmazonQ.md` to project root
+- Includes: `q-rulestore-rule.md`, `rule-interpreter-rule.md`, `rulestyle-rule.md`
+- Follows AmazonQ's workspace-relative `.amazonq/rules/**/*.md` pattern
+
+**Other tools**: Project-specific installation to your chosen directory
 
 ---
 

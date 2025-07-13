@@ -8,6 +8,12 @@ const TOOL_CONFIG = {
         ruleGlob: 'q-rulestore-rule.md',
         ruleDir: 'amazonq',
         targetSubdir: '.amazonq/rules',
+        rootFiles: ['amazonq/AmazonQ.md'],
+        mcpFile: 'amazonq/mcp.json',
+        mcpTarget: '.amazonq/mcp.json',
+        sharedContentDir: 'claude-code',
+        copySharedContent: true,
+        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
     },
     cline: {
         ruleGlob: 'cline-rulestore-rule.md',
@@ -35,9 +41,13 @@ const TOOL_CONFIG = {
         copyEntireFolder: true,
     },
     gemini: {
+        ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
         targetSubdir: '.gemini',
-        copyEntireFolder: true,
+        sharedContentDir: 'claude-code',
+        copySharedContent: true,
+        excludeFiles: ['CLAUDE.md'],
+        settingsFile: 'gemini/settings.json',
     },
 };
 
@@ -53,10 +63,6 @@ describe('CLI Rule Copier', () => {
     afterEach(() => {
         if (fs.existsSync(tempDir)) {
             fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-        const geminiDir = path.join(homeDir, '.gemini');
-        if (fs.existsSync(geminiDir)) {
-            fs.rmSync(geminiDir, { recursive: true, force: true });
         }
     });
 
@@ -79,22 +85,130 @@ describe('CLI Rule Copier', () => {
         }
     });
 
-    it('copies the entire gemini folder to the home directory in non-interactive mode', () => {
+    it('copies shared content to gemini project folder with correct structure', () => {
         const tool = 'gemini';
         const config = TOOL_CONFIG[tool];
-        const destDir = path.join(homeDir, config.targetSubdir);
+        const target = path.join(tempDir, tool);
+        fs.mkdirSync(target, { recursive: true });
 
-        if (fs.existsSync(destDir)) {
-            fs.rmSync(destDir, { recursive: true, force: true });
+        const command = `node create-rule.js --tool=${tool} --targetFolder=${target}`;
+        execSync(command, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        const destDir = path.join(target, config.targetSubdir);
+        expect(fs.existsSync(destDir)).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'GEMINI.md'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'commands'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'templates'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'session', 'current-session.yaml'))).toBe(true);
+        // Should NOT have CLAUDE.md
+        expect(fs.existsSync(path.join(destDir, 'CLAUDE.md'))).toBe(false);
+
+        // Check commands folder has files
+        const commandsDir = path.join(destDir, 'commands');
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
+        // Check template substitution
+        const geminiContent = fs.readFileSync(path.join(destDir, 'GEMINI.md'), 'utf8');
+        expect(geminiContent).toContain('.gemini/session/current-session.yaml');
+        expect(geminiContent).not.toContain('{{TOOL_DIR}}');
+        
+        // Check settings.json is copied to .gemini folder
+        expect(fs.existsSync(path.join(destDir, 'settings.json'))).toBe(true);
+        const settingsContent = fs.readFileSync(path.join(destDir, 'settings.json'), 'utf8');
+        const settings = JSON.parse(settingsContent);
+        expect(settings.theme).toBe('GitHub');
+        expect(settings.mcpServers).toBeDefined();
+    });
+
+    it('copies amazonq files with correct structure', () => {
+        const tool = 'amazonq';
+        const config = TOOL_CONFIG[tool];
+        const target = path.join(tempDir, tool);
+        fs.mkdirSync(target, { recursive: true });
+
+        const command = `node create-rule.js --tool=${tool} --targetFolder=${target}`;
+        execSync(command, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        // Check rules directory
+        const rulesDir = path.join(target, config.targetSubdir);
+        expect(fs.existsSync(path.join(rulesDir, config.ruleGlob))).toBe(true);
+        for (const rule of ALWAYS_COPY_RULES) {
+            expect(fs.existsSync(path.join(rulesDir, rule))).toBe(true);
         }
 
-        const command = `node create-rule.js --tool=${tool}`;
+        // Check .amazonq/rules directory structure (shared content is in rules dir)
+        expect(fs.existsSync(path.join(rulesDir, 'commands'))).toBe(true);
+        expect(fs.existsSync(path.join(rulesDir, 'templates'))).toBe(true);
+        expect(fs.existsSync(path.join(rulesDir, 'session', 'current-session.yaml'))).toBe(true);
+
+        // Check commands folder has files
+        const commandsDir = path.join(rulesDir, 'commands');
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
+        // Check that settings.local.json is excluded
+        expect(fs.existsSync(path.join(rulesDir, 'settings.local.json'))).toBe(false);
+
+        // Check AmazonQ.md in project root
+        expect(fs.existsSync(path.join(target, 'AmazonQ.md'))).toBe(true);
+
+        // Check mcp.json is copied to .amazonq folder
+        expect(fs.existsSync(path.join(target, '.amazonq', 'mcp.json'))).toBe(true);
+        const mcpContent = fs.readFileSync(path.join(target, '.amazonq', 'mcp.json'), 'utf8');
+        const mcpConfig = JSON.parse(mcpContent);
+        expect(mcpConfig.mcpServers).toBeDefined();
+        expect(mcpConfig.mcpServers['container-use']).toBeDefined();
+
+        // Check template substitution
+        const amazonqContent = fs.readFileSync(path.join(target, 'AmazonQ.md'), 'utf8');
+        expect(amazonqContent).toContain('.amazonq/session/current-session.yaml');
+        expect(amazonqContent).not.toContain('{{TOOL_DIR}}');
+    });
+
+    it('claude-code copies to home directory with correct paths', () => {
+        const tool = 'claude-code';
+        const config = TOOL_CONFIG[tool];
+        const mockHomeDir = path.join(tempDir, 'mock-home');
+        fs.mkdirSync(mockHomeDir, { recursive: true });
+        const destDir = path.join(mockHomeDir, config.targetSubdir);
+
+        const command = `node create-rule.js --tool=${tool} --homeDir=${mockHomeDir}`;
         execSync(command, {
             stdio: 'pipe',
             env: { ...process.env },
         });
 
         expect(fs.existsSync(destDir)).toBe(true);
-        expect(fs.existsSync(path.join(destDir, 'GEMINI.md'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'CLAUDE.md'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'session', 'current-session.yaml'))).toBe(true);
+
+        // Check commands folder exists and has files
+        const commandsDir = path.join(destDir, 'commands');
+        expect(fs.existsSync(commandsDir)).toBe(true);
+        const commandFiles = fs.readdirSync(commandsDir);
+        expect(commandFiles.length).toBeGreaterThan(0);
+        expect(commandFiles.some(f => f.endsWith('.md'))).toBe(true);
+
+        // Check templates folder exists
+        expect(fs.existsSync(path.join(destDir, 'templates'))).toBe(true);
+
+        // Check template substitution
+        const claudeContent = fs.readFileSync(path.join(destDir, 'CLAUDE.md'), 'utf8');
+        expect(claudeContent).toContain('.claude/session/current-session.yaml');
+        expect(claudeContent).toContain('~/.claude/docs/');
+        expect(claudeContent).not.toContain('{{TOOL_DIR}}');
+        expect(claudeContent).not.toContain('{{HOME_TOOL_DIR}}');
+
+        // Check that settings.local.json is excluded
+        expect(fs.existsSync(path.join(destDir, 'settings.local.json'))).toBe(false);
     });
 });
