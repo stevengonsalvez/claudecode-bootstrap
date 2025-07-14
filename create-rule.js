@@ -63,10 +63,21 @@ const TOOL_CONFIG = {
         ruleGlob: 'q-rulestore-rule.md',
         ruleDir: 'amazonq',
         targetSubdir: '.amazonq/rules',
-        rootFiles: ['amazonq/AmazonQ.md'],
         mcpFile: 'amazonq/mcp.json',
         mcpTarget: '.amazonq/mcp.json',
         sharedContentDir: 'claude-code',
+        specialCopies: [
+            {
+                source: 'amazonq/AmazonQ.md',
+                dest: '.amazonq/rules/AmazonQ.md'
+            }
+        ],
+        linkedFiles: [
+            {
+                source: 'amazonq/AmazonQ.md',
+                linkName: 'AmazonQ.md'
+            }
+        ],
         copySharedContent: true,
         excludeFiles: ['CLAUDE.md', 'settings.local.json'],
         templateSubstitutions: {
@@ -258,30 +269,44 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
         }
     }
 
-    // Copy root files if they exist
-    if (config.rootFiles) {
-        showProgress('Copying root files');
-        let rootFilesCopied = 0;
-        for (const rootFile of config.rootFiles) {
-            const sourcePath = path.join(__dirname, rootFile);
-            const fileName = path.basename(rootFile);
-            const destPath = path.join(targetFolder, fileName);
-            
-            // For AmazonQ.md, copy CLAUDE.md and apply substitutions
-            if (fileName === 'AmazonQ.md') {
-                const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
-                let content = fs.readFileSync(claudePath, 'utf8');
-                if (config.templateSubstitutions && config.templateSubstitutions['AmazonQ.md']) {
-                    content = substituteTemplate(content, config.templateSubstitutions['AmazonQ.md']);
+    // Perform special file copies
+    if (config.specialCopies) {
+        showProgress('Performing special file copies');
+        let specialFilesCopied = 0;
+        for (const copy of config.specialCopies) {
+            const sourcePath = path.join(__dirname, copy.source);
+            const destPath = path.join(targetFolder, copy.dest);
+            const fileName = path.basename(copy.source);
+
+            if (fs.existsSync(sourcePath)) {
+                fs.mkdirSync(path.dirname(destPath), { recursive: true });
+
+                if (config.templateSubstitutions && config.templateSubstitutions[fileName]) {
+                    let content = fs.readFileSync(sourcePath, 'utf8');
+                    content = substituteTemplate(content, config.templateSubstitutions[fileName]);
+                    fs.writeFileSync(destPath, content);
+                } else {
+                    fs.copyFileSync(sourcePath, destPath);
                 }
-                fs.writeFileSync(destPath, content);
-                rootFilesCopied++;
-            } else if (fs.existsSync(sourcePath)) {
-                fs.copyFileSync(sourcePath, destPath);
-                rootFilesCopied++;
+                specialFilesCopied++;
             }
         }
-        completeProgress(`Copied ${rootFilesCopied} root files`);
+        completeProgress(`Copied ${specialFilesCopied} special files`);
+    }
+
+    
+
+    // Create linked files if they exist
+    if (config.linkedFiles) {
+        showProgress('Creating linked files');
+        let linkedFilesCreated = 0;
+        for (const link of config.linkedFiles) {
+            const linkPath = path.join(targetFolder, link.linkName);
+            const sourcePath = path.join(config.targetSubdir, link.source.split('/').pop());
+            fs.writeFileSync(linkPath, `@${sourcePath}`);
+            linkedFilesCreated++;
+        }
+        completeProgress(`Created ${linkedFilesCreated} linked files`);
     }
 
     console.log(`\n\x1b[32m🎉 ${tool} setup complete!\x1b[0m`);
@@ -438,31 +463,32 @@ async function main() {
         }
     }
 
-    // Copy root files if they exist
-    if (config.rootFiles) {
-        showProgress('Copying root files');
-        let rootFilesCopied = 0;
-        for (const rootFile of config.rootFiles) {
-            const sourcePath = path.join(__dirname, rootFile);
-            const fileName = path.basename(rootFile);
-            const destPath = path.join(targetFolder, fileName);
-            
-            // For AmazonQ.md, copy CLAUDE.md and apply substitutions
-            if (fileName === 'AmazonQ.md') {
-                const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
-                let content = fs.readFileSync(claudePath, 'utf8');
-                if (config.templateSubstitutions && config.templateSubstitutions['AmazonQ.md']) {
-                    content = substituteTemplate(content, config.templateSubstitutions['AmazonQ.md']);
+    // Perform special file copies
+    if (config.specialCopies) {
+        showProgress('Performing special file copies');
+        let specialFilesCopied = 0;
+        for (const copy of config.specialCopies) {
+            const sourcePath = path.join(__dirname, copy.source);
+            const destPath = path.join(targetFolder, copy.dest);
+            const fileName = path.basename(copy.source);
+
+            if (fs.existsSync(sourcePath)) {
+                fs.mkdirSync(path.dirname(destPath), { recursive: true });
+
+                if (config.templateSubstitutions && config.templateSubstitutions[fileName]) {
+                    let content = fs.readFileSync(sourcePath, 'utf8');
+                    content = substituteTemplate(content, config.templateSubstitutions[fileName]);
+                    fs.writeFileSync(destPath, content);
+                } else {
+                    fs.copyFileSync(sourcePath, destPath);
                 }
-                fs.writeFileSync(destPath, content);
-                rootFilesCopied++;
-            } else if (fs.existsSync(sourcePath)) {
-                fs.copyFileSync(sourcePath, destPath);
-                rootFilesCopied++;
+                specialFilesCopied++;
             }
         }
-        completeProgress(`Copied ${rootFilesCopied} root files`);
+        completeProgress(`Copied ${specialFilesCopied} special files`);
     }
+
+    
 
     showProgress('Generating rule registry');
     const registry = {};
