@@ -8,12 +8,23 @@ const TOOL_CONFIG = {
         ruleGlob: 'q-rulestore-rule.md',
         ruleDir: 'amazonq',
         targetSubdir: '.amazonq/rules',
-        rootFiles: ['amazonq/AmazonQ.md'],
         mcpFile: 'amazonq/mcp.json',
         mcpTarget: '.amazonq/mcp.json',
         sharedContentDir: 'claude-code',
         copySharedContent: true,
         excludeFiles: ['CLAUDE.md', 'settings.local.json'],
+        specialCopies: [
+            {
+                source: 'amazonq/AmazonQ.md',
+                dest: '.amazonq/rules/AmazonQ.md'
+            }
+        ],
+        linkedFiles: [
+            {
+                source: 'amazonq/AmazonQ.md',
+                linkName: 'AmazonQ.md'
+            }
+        ],
     },
     cline: {
         ruleGlob: 'cline-rulestore-rule.md',
@@ -158,8 +169,14 @@ describe('CLI Rule Copier', () => {
         // Check that settings.local.json is excluded
         expect(fs.existsSync(path.join(rulesDir, 'settings.local.json'))).toBe(false);
 
-        // Check AmazonQ.md in project root
-        expect(fs.existsSync(path.join(target, 'AmazonQ.md'))).toBe(true);
+        // Check AmazonQ.md in the rules directory
+        expect(fs.existsSync(path.join(rulesDir, 'AmazonQ.md'))).toBe(true);
+
+        // Check for the linked AmazonQ.md in the project root
+        const rootAmazonQPath = path.join(target, 'AmazonQ.md');
+        expect(fs.existsSync(rootAmazonQPath)).toBe(true);
+        const rootAmazonQContent = fs.readFileSync(rootAmazonQPath, 'utf8');
+        expect(rootAmazonQContent).toBe('@.amazonq/rules/AmazonQ.md');
 
         // Check mcp.json is copied to .amazonq folder
         expect(fs.existsSync(path.join(target, '.amazonq', 'mcp.json'))).toBe(true);
@@ -169,7 +186,7 @@ describe('CLI Rule Copier', () => {
         expect(mcpConfig.mcpServers['container-use']).toBeDefined();
 
         // Check template substitution
-        const amazonqContent = fs.readFileSync(path.join(target, 'AmazonQ.md'), 'utf8');
+        const amazonqContent = fs.readFileSync(path.join(rulesDir, 'AmazonQ.md'), 'utf8');
         expect(amazonqContent).toContain('.amazonq/session/current-session.yaml');
         expect(amazonqContent).not.toContain('{{TOOL_DIR}}');
     });
