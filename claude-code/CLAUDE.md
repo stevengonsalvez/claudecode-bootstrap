@@ -378,6 +378,8 @@ When health reaches 🟡, proactively:
 @{{HOME_TOOL_DIR}}/docs/python.md
 @{{HOME_TOOL_DIR}}/docs/source-control.md
 @{{HOME_TOOL_DIR}}/docs/using-uv.md
+@{{HOME_TOOL_DIR}}/docs/react.md
+
 
 # Templates
 
