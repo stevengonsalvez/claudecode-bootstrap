@@ -1,7 +1,6 @@
 {
   "selectedAuthType": "oauth-personal",
   "theme": "GitHub",
-  "sandbox": "docker",
   "autoAccept": true,
   "hideTips": false,
   "preferredEditor": "vscode",
