@@ -192,6 +192,31 @@ PORT=$(shuf -i 3000-9999 -n 1)
 PORT=$PORT npm run dev > nextjs-${PORT}.log 2>&1 &
 ```
 
+**Playwright Testing Background Execution:**
+
+- **ALWAYS run Playwright tests in background** to prevent agent blocking
+- **NEVER open test report servers** - they will block agent execution indefinitely
+- Use `--reporter=json` and `--reporter=line` for programmatic result parsing
+- Redirect all output to log files for later analysis
+- Examples:
+
+```bash
+# ✅ CORRECT - Background Playwright execution
+npx playwright test --reporter=json > playwright-results.log 2>&1 &
+
+# ✅ CORRECT - Custom config with background execution  
+npx playwright test --config=custom.config.js --reporter=line > test-output.log 2>&1 &
+
+# ❌ WRONG - Will block agent indefinitely
+npx playwright test --reporter=html
+npx playwright show-report
+
+# ✅ CORRECT - Parse results programmatically
+cat playwright-results.json | jq '.stats'
+tail -20 test-output.log
+```
+
+
 RATIONALE: Background execution with random ports prevents agent process deadlock while enabling parallel sessions to coexist without interference. Port-based process management ensures safe cleanup without affecting other concurrent development sessions. This maintains full visibility into server status through logs while ensuring continuous agent operation.
 </background_server_execution>
 
