@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/pre_tool_use.py"
+            "command": "uv run ~/.claude/hooks/pre_tool_use.py"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/post_tool_use.py"
+            "command": "uv run ~/.claude/hooks/post_tool_use.py"
           }
         ]
       }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/notification.py --notify"
+            "command": "uv run ~/.claude/hooks/notification.py --notify"
           }
         ]
       }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/stop.py --chat"
+            "command": "uv run ~/.claude/hooks/stop.py --chat"
           }
         ]
       }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/subagent_stop.py"
+            "command": "uv run ~/.claude/hooks/subagent_stop.py"
           }
         ]
       }
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/user_prompt_submit.py --log-only"
+            "command": "uv run ~/.claude/hooks/user_prompt_submit.py --log-only"
           }
         ]
       }
@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/pre_compact.py --handover --backup --verbose"
+            "command": "uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose"
           }
         ]
       }
@@ -100,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/session_start.py --git-status --load-context"
+            "command": "uv run ~/.claude/hooks/session_start.py --git-status --load-context"
           }
         ]
       }
