@@ -5,5 +5,17 @@
     "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
     "hook_event_name": "SessionStart",
     "source": "resume"
+  },
+  {
+    "session_id": "test-tts",
+    "source": "startup"
+  },
+  {
+    "session_id": "test-session",
+    "source": "startup"
+  },
+  {
+    "session_id": "test-session",
+    "source": "startup"
   }
 ]
