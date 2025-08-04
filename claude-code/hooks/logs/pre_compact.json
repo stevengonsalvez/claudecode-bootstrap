@@ -1,0 +1,60 @@
+[
+  {
+    "session_id": "test-session-456",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "auto"
+  },
+  {
+    "session_id": "integration-test-1",
+    "transcript_path": "/tmp/test.jsonl",
+    "trigger": "manual"
+  },
+  {
+    "session_id": "test-session-123",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "manual",
+    "custom_instructions": "Test handover"
+  },
+  {
+    "session_id": "test-session-123",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "manual",
+    "custom_instructions": "Test handover"
+  },
+  {
+    "session_id": "test-session-456",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "auto"
+  },
+  {
+    "session_id": "integration-test-1",
+    "transcript_path": "/tmp/test.jsonl",
+    "trigger": "manual"
+  },
+  {
+    "session_id": "manual-test",
+    "transcript_path": "/tmp/test.jsonl",
+    "trigger": "manual"
+  },
+  {
+    "session_id": "test-session-123",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "manual",
+    "custom_instructions": "Test handover"
+  },
+  {
+    "session_id": "test-session-456",
+    "transcript_path": "/path/to/transcript.jsonl",
+    "trigger": "auto"
+  },
+  {
+    "session_id": "integration-test-1",
+    "transcript_path": "/tmp/test.jsonl",
+    "trigger": "manual"
+  },
+  {
+    "session_id": "test-json",
+    "transcript_path": "/tmp/test.jsonl",
+    "trigger": "manual"
+  }
+]
