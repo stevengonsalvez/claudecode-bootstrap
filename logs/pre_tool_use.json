@@ -99,5 +99,406 @@
       "command": "git add . && git commit -m \"$(cat <<'EOF'\nfix: configure hooks to use user-level ~/.claude directory\n\n- Update settings.json to point to ~/.claude/hooks/ instead of .claude/hooks/\n- Install hooks at user level using create-rule.js for claude-code tool\n- Fix hook path resolution issue preventing proper execution\n- Hooks now properly execute from user's global Claude Code configuration\n\nThe hooks will now work correctly across all Claude Code sessions.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
       "description": "Commit the hooks path fix"
     }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-tts\", \"source\": \"startup\"}' | uv run ~/.claude/hooks/session_start.py --announce",
+      "description": "Test session_start TTS functionality"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "ls -la ~/.claude/hooks/utils/tts/",
+      "description": "Check what TTS scripts are available"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "uv run ~/.claude/hooks/utils/tts/pyttsx3_tts.py \"Testing TTS functionality\"",
+      "description": "Test the basic pyttsx3 TTS directly"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/settings.json"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/settings.json",
+      "old_string": "            \"command\": \"uv run ~/.claude/hooks/session_start.py --git-status --load-context\"",
+      "new_string": "            \"command\": \"uv run ~/.claude/hooks/session_start.py --git-status --load-context --announce\""
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/stop.py",
+      "offset": 195,
+      "limit": 20
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-stop\", \"stop_hook_active\": true}' | uv run ~/.claude/hooks/stop.py",
+      "description": "Test stop hook TTS functionality"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "env | grep -E \"(ELEVENLABS|OPENAI|ANTHROPIC)_API_KEY\"",
+      "description": "Check for TTS API keys"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-session\", \"source\": \"startup\"}' | uv run ~/.claude/hooks/session_start.py --announce --verbose",
+      "description": "Test session start with verbose TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-session\", \"source\": \"startup\"}' | uv run ~/.claude/hooks/session_start.py --announce",
+      "description": "Test session start with TTS announce"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Test notification message\"}' | uv run ~/.claude/hooks/notification.py --notify",
+      "description": "Test notification hook TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "say \"Testing macOS built-in TTS\"",
+      "description": "Test macOS built-in TTS to verify audio works"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/utils/tts/pyttsx3_tts.py",
+      "offset": 40,
+      "limit": 20
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "uv run ~/.claude/hooks/utils/tts/pyttsx3_tts.py \"Hello Stevie, this is a TTS test\"",
+      "description": "Test TTS directly with a clear message"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "say \"Testing macOS say command directly\"",
+      "description": "Test macOS built-in say command"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Claude is waiting for your input\"}' | uv run ~/.claude/hooks/notification.py --notify",
+      "description": "Test notification TTS that should announce"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Test message\"}' | uv run ~/.claude/hooks/notification.py --notify",
+      "description": "Test notification with different message"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/test_tts.py",
+      "content": "#!/usr/bin/env python3\n\nimport sys\nimport subprocess\n\ndef test_say_command():\n    \"\"\"Test macOS say command\"\"\"\n    print(\"Testing macOS say command...\")\n    try:\n        result = subprocess.run(['say', 'Hello from macOS say command'], \n                              capture_output=False, text=True, timeout=10)\n        print(f\"Say command result: {result.returncode}\")\n        return result.returncode == 0\n    except Exception as e:\n        print(f\"Say command failed: {e}\")\n        return False\n\ndef test_pyttsx3():\n    \"\"\"Test pyttsx3 library\"\"\"\n    print(\"Testing pyttsx3...\")\n    try:\n        import pyttsx3\n        engine = pyttsx3.init()\n        print(f\"pyttsx3 engine initialized: {engine}\")\n        \n        # Get available voices\n        voices = engine.getProperty('voices')\n        print(f\"Available voices: {len(voices) if voices else 0}\")\n        \n        # Test speech\n        engine.say('Hello from pyttsx3')\n        engine.runAndWait()\n        print(\"pyttsx3 speech completed\")\n        return True\n    except Exception as e:\n        print(f\"pyttsx3 failed: {e}\")\n        return False\n\nif __name__ == \"__main__\":\n    print(\"\ud83d\udd0a TTS Diagnostic Test\")\n    print(\"=\" * 30)\n    \n    say_works = test_say_command()\n    print()\n    pyttsx3_works = test_pyttsx3()\n    \n    print()\n    print(\"Results:\")\n    print(f\"macOS say: {'\u2705 Working' if say_works else '\u274c Failed'}\")\n    print(f\"pyttsx3: {'\u2705 Working' if pyttsx3_works else '\u274c Failed'}\")"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "python test_tts.py",
+      "description": "Run comprehensive TTS diagnostic test"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "say \"TTS test - can you hear this?\"",
+      "description": "Final test of macOS say command with clear message"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/utils/tts/macos_say_tts.py",
+      "content": "#!/usr/bin/env python3\n\n# ABOUTME: macOS native TTS using the 'say' command for reliable audio output\n# Uses subprocess to call macOS built-in text-to-speech which is more reliable than pyttsx3\n\nimport sys\nimport subprocess\nimport random\n\ndef main():\n    try:\n        print(\"\ud83c\udf99\ufe0f  macOS Say TTS\")\n        print(\"=\" * 17)\n        \n        # Get text from command line argument or use default\n        if len(sys.argv) > 1:\n            text = \" \".join(sys.argv[1:])  # Join all arguments as text\n        else:\n            # Default completion messages\n            completion_messages = [\n                \"Work complete!\",\n                \"All done!\",\n                \"Task finished!\",\n                \"Job complete!\",\n                \"Ready for next task!\",\n                \"Claude Code task completed!\"\n            ]\n            text = random.choice(completion_messages)\n        \n        print(f\"\ud83c\udfaf Text: {text}\")\n        print(\"\ud83d\udd0a Speaking...\")\n        \n        # Use macOS say command\n        result = subprocess.run(['say', text], \n                              capture_output=True, \n                              text=True, \n                              timeout=30)\n        \n        if result.returncode == 0:\n            print(\"\u2705 Speech completed!\")\n        else:\n            print(f\"\u274c Speech failed: {result.stderr}\")\n            \n    except subprocess.TimeoutExpired:\n        print(\"\u23f0 Speech timed out\")\n    except FileNotFoundError:\n        print(\"\u274c macOS 'say' command not found\")\n    except Exception as e:\n        print(f\"\u274c Error: {e}\")\n\nif __name__ == \"__main__\":\n    main()"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "chmod +x ~/.claude/hooks/utils/tts/macos_say_tts.py",
+      "description": "Make the new TTS script executable"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "python ~/.claude/hooks/utils/tts/macos_say_tts.py \"Testing new macOS TTS script\"",
+      "description": "Test the new macOS say TTS script"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/notification.py",
+      "offset": 24,
+      "limit": 25
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/notification.py",
+      "old_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Fall back to pyttsx3 (no API key required)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None",
+      "new_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > macOS say > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Use macOS say command (third priority - more reliable than pyttsx3)\n    macos_say_script = tts_dir / \"macos_say_tts.py\"\n    if macos_say_script.exists():\n        return str(macos_say_script)\n    \n    # Fall back to pyttsx3 (lowest priority)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/stop.py",
+      "old_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Fall back to pyttsx3 (no API key required)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None",
+      "new_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > macOS say > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Use macOS say command (third priority - more reliable than pyttsx3)\n    macos_say_script = tts_dir / \"macos_say_tts.py\"\n    if macos_say_script.exists():\n        return str(macos_say_script)\n    \n    # Fall back to pyttsx3 (lowest priority)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cp ~/.claude/hooks/utils/tts/macos_say_tts.py ~/.claude/hooks/utils/tts/macos_say_tts.py",
+      "description": "Ensure macos TTS script is in user directory"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Testing improved TTS system\"}' | uv run ~/.claude/hooks/notification.py --notify",
+      "description": "Test notification hook with new macOS TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-session\", \"source\": \"startup\"}' | uv run ~/.claude/hooks/session_start.py --announce",
+      "description": "Test session start with new TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-stop\", \"stop_hook_active\": true}' | uv run ~/.claude/hooks/stop.py",
+      "description": "Test stop hook with new TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/debug_tts.py",
+      "content": "#!/usr/bin/env python3\n\nimport os\nimport subprocess\nfrom pathlib import Path\n\ndef debug_tts_selection():\n    \"\"\"Debug which TTS script would be selected\"\"\"\n    script_dir = Path.home() / \".claude\" / \"hooks\"\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    print(\"\ud83d\udd0d TTS Debug Information\")\n    print(\"=\" * 30)\n    print(f\"Script directory: {script_dir}\")\n    print(f\"TTS directory: {tts_dir}\")\n    print(f\"TTS directory exists: {tts_dir.exists()}\")\n    \n    if tts_dir.exists():\n        print(f\"Contents: {list(tts_dir.iterdir())}\")\n    \n    print()\n    print(\"API Key Check:\")\n    print(f\"ELEVENLABS_API_KEY: {'\u2705 Set' if os.getenv('ELEVENLABS_API_KEY') else '\u274c Not set'}\")\n    print(f\"OPENAI_API_KEY: {'\u2705 Set' if os.getenv('OPENAI_API_KEY') else '\u274c Not set'}\")\n    \n    print()\n    print(\"TTS Script Selection:\")\n    \n    # Check for ElevenLabs\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            print(f\"\ud83c\udfaf Selected: ElevenLabs TTS ({elevenlabs_script})\")\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            print(f\"\ud83c\udfaf Selected: OpenAI TTS ({openai_script})\")\n            return str(openai_script)\n    \n    # Check for macOS say\n    macos_say_script = tts_dir / \"macos_say_tts.py\"\n    if macos_say_script.exists():\n        print(f\"\ud83c\udfaf Selected: macOS Say TTS ({macos_say_script})\")\n        return str(macos_say_script)\n    \n    # Check for pyttsx3\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        print(f\"\ud83c\udfaf Selected: pyttsx3 TTS ({pyttsx3_script})\")\n        return str(pyttsx3_script)\n    \n    print(\"\u274c No TTS script found\")\n    return None\n\ndef test_selected_tts(script_path):\n    \"\"\"Test the selected TTS script\"\"\"\n    if not script_path:\n        return\n        \n    print()\n    print(\"\ud83e\uddea Testing Selected TTS Script:\")\n    print(f\"Running: python {script_path} 'TTS Debug Test'\")\n    \n    try:\n        result = subprocess.run([\n            'python', script_path, 'TTS Debug Test Message'\n        ], capture_output=True, text=True, timeout=15)\n        \n        print(f\"Return code: {result.returncode}\")\n        print(f\"Stdout: {result.stdout}\")\n        if result.stderr:\n            print(f\"Stderr: {result.stderr}\")\n            \n    except Exception as e:\n        print(f\"Error running TTS: {e}\")\n\nif __name__ == \"__main__\":\n    selected_script = debug_tts_selection()\n    test_selected_tts(selected_script)"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "python debug_tts.py",
+      "description": "Run TTS debug script to diagnose the issue"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cp ~/.claude/hooks/notification.py ~/.claude/hooks/stop.py claude-code/hooks/",
+      "description": "Copy updated hooks back to source"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "rm debug_tts.py test_tts.py",
+      "description": "Clean up debug files"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "rm -f debug_tts.py test_tts.py",
+      "description": "Force remove debug files"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git add . && git commit -m \"$(cat <<'EOF'\nfeat: improve TTS system with macOS say command priority\n\n- Add macOS native TTS script using 'say' command for reliable audio\n- Update TTS priority: ElevenLabs > OpenAI > macOS say > pyttsx3  \n- Enable --announce flag for SessionStart hook in settings\n- Improve TTS reliability by using macOS built-in speech synthesis\n\nThe TTS system now prioritizes the native macOS 'say' command which is more\nreliable than pyttsx3 for local audio output.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
+      "description": "Commit TTS improvements"
+    }
   }
 ]

@@ -5,5 +5,26 @@
     "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
     "hook_event_name": "UserPromptSubmit",
     "prompt": "getting this error \n\n\u23fa UserPromptSubmit operation blocked by hook:\n  - [uv run .claude/hooks/user_prompt_submit.py --log-only]: error: Failed to spawn: `.claude/hooks/user_prompt_submit.py`\n    Caused by: No such file or directory (os error 2)\n\nThe file is actually not in the project, but at user level so ~/.claude/.. ?"
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Also which hook has the python text to speech , and when will that be triggered ?"
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "I dont get anything announced at the moment (with session start or ended sessions anything)"
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "try again"
   }
 ]
