@@ -1,0 +1,246 @@
+[
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json"
+    },
+    "tool_response": {
+      "type": "text",
+      "file": {
+        "filePath": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(mkdir:*)\",\n      \"Bash(uv:*)\",\n      \"Bash(find:*)\",\n      \"Bash(mv:*)\",\n      \"Bash(grep:*)\",\n      \"Bash(npm:*)\",\n      \"Bash(ls:*)\",\n      \"Bash(cp:*)\",\n      \"Write\",\n      \"Edit\",\n      \"Bash(chmod:*)\",\n      \"Bash(touch:*)\",\n      \"WebFetch(domain:docs.anthropic.com)\"\n    ],\n    \"deny\": []\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/pre_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/post_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/notification.py --notify\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/stop.py --chat\"\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/subagent_stop.py\"\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/user_prompt_submit.py --log-only\"\n          }\n        ]\n      }\n    ],\n    \"PreCompact\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/pre_compact.py --handover --backup --verbose\"\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/session_start.py --git-status --load-context\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+        "numLines": 109,
+        "startLine": 1,
+        "totalLines": 109
+      }
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json",
+      "old_string": "            \"command\": \"uv run .claude/hooks/pre_tool_use.py\"",
+      "new_string": "            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\""
+    },
+    "tool_response": {
+      "filePath": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json",
+      "oldString": "            \"command\": \"uv run .claude/hooks/pre_tool_use.py\"",
+      "newString": "            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\"",
+      "originalFile": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(mkdir:*)\",\n      \"Bash(uv:*)\",\n      \"Bash(find:*)\",\n      \"Bash(mv:*)\",\n      \"Bash(grep:*)\",\n      \"Bash(npm:*)\",\n      \"Bash(ls:*)\",\n      \"Bash(cp:*)\",\n      \"Write\",\n      \"Edit\",\n      \"Bash(chmod:*)\",\n      \"Bash(touch:*)\",\n      \"WebFetch(domain:docs.anthropic.com)\"\n    ],\n    \"deny\": []\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/pre_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/post_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/notification.py --notify\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/stop.py --chat\"\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/subagent_stop.py\"\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/user_prompt_submit.py --log-only\"\n          }\n        ]\n      }\n    ],\n    \"PreCompact\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/pre_compact.py --handover --backup --verbose\"\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/session_start.py --git-status --load-context\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+      "structuredPatch": [
+        {
+          "oldStart": 24,
+          "oldLines": 7,
+          "newStart": 24,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/pre_tool_use.py\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        }
+      ],
+      "userModified": false,
+      "replaceAll": false
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json",
+      "old_string": "            \"command\": \"uv run .claude/hooks/",
+      "new_string": "            \"command\": \"uv run ~/.claude/hooks/",
+      "replace_all": true
+    },
+    "tool_response": {
+      "filePath": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/settings.json",
+      "oldString": "            \"command\": \"uv run .claude/hooks/",
+      "newString": "            \"command\": \"uv run ~/.claude/hooks/",
+      "originalFile": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(mkdir:*)\",\n      \"Bash(uv:*)\",\n      \"Bash(find:*)\",\n      \"Bash(mv:*)\",\n      \"Bash(grep:*)\",\n      \"Bash(npm:*)\",\n      \"Bash(ls:*)\",\n      \"Bash(cp:*)\",\n      \"Write\",\n      \"Edit\",\n      \"Bash(chmod:*)\",\n      \"Bash(touch:*)\",\n      \"WebFetch(domain:docs.anthropic.com)\"\n    ],\n    \"deny\": []\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/post_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/notification.py --notify\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/stop.py --chat\"\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/subagent_stop.py\"\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/user_prompt_submit.py --log-only\"\n          }\n        ]\n      }\n    ],\n    \"PreCompact\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/pre_compact.py --handover --backup --verbose\"\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run .claude/hooks/session_start.py --git-status --load-context\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+      "structuredPatch": [
+        {
+          "oldStart": 35,
+          "oldLines": 7,
+          "newStart": 35,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/post_tool_use.py\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/post_tool_use.py\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 46,
+          "oldLines": 7,
+          "newStart": 46,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/notification.py --notify\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/notification.py --notify\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 57,
+          "oldLines": 7,
+          "newStart": 57,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/stop.py --chat\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/stop.py --chat\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 68,
+          "oldLines": 7,
+          "newStart": 68,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/subagent_stop.py\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/subagent_stop.py\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 78,
+          "oldLines": 7,
+          "newStart": 78,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/user_prompt_submit.py --log-only\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/user_prompt_submit.py --log-only\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 89,
+          "oldLines": 7,
+          "newStart": 89,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/pre_compact.py --handover --backup --verbose\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        },
+        {
+          "oldStart": 100,
+          "oldLines": 7,
+          "newStart": 100,
+          "newLines": 7,
+          "lines": [
+            "         \"hooks\": [",
+            "           {",
+            "             \"type\": \"command\",",
+            "-            \"command\": \"uv run .claude/hooks/session_start.py --git-status --load-context\"",
+            "+            \"command\": \"uv run ~/.claude/hooks/session_start.py --git-status --load-context\"",
+            "           }",
+            "         ]",
+            "       }"
+          ]
+        }
+      ],
+      "userModified": false,
+      "replaceAll": true
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "yes | cp claude-code/settings.json .claude/settings.json",
+      "description": "Force overwrite settings file"
+    },
+    "tool_response": {
+      "stdout": "claude-code/settings.json -> .claude/settings.json\noverwrite .claude/settings.json? (y/n [n])",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/.claude/settings.json",
+      "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(mkdir:*)\",\n      \"Bash(uv:*)\",\n      \"Bash(find:*)\",\n      \"Bash(mv:*)\",\n      \"Bash(grep:*)\",\n      \"Bash(npm:*)\",\n      \"Bash(ls:*)\",\n      \"Bash(cp:*)\",\n      \"Write\",\n      \"Edit\",\n      \"Bash(chmod:*)\",\n      \"Bash(touch:*)\",\n      \"WebFetch(domain:docs.anthropic.com)\"\n    ],\n    \"deny\": []\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/post_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/notification.py --notify\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/stop.py --chat\"\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/subagent_stop.py\"\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/user_prompt_submit.py --log-only\"\n          }\n        ]\n      }\n    ],\n    \"PreCompact\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose\"\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/session_start.py --git-status --load-context\"\n          }\n        ]\n      }\n    ]\n  }\n}"
+    },
+    "tool_response": {
+      "type": "update",
+      "filePath": "/Users/stevengonsalvez/d/git/ai-coder-rules/.claude/settings.json",
+      "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(mkdir:*)\",\n      \"Bash(uv:*)\",\n      \"Bash(find:*)\",\n      \"Bash(mv:*)\",\n      \"Bash(grep:*)\",\n      \"Bash(npm:*)\",\n      \"Bash(ls:*)\",\n      \"Bash(cp:*)\",\n      \"Write\",\n      \"Edit\",\n      \"Bash(chmod:*)\",\n      \"Bash(touch:*)\",\n      \"WebFetch(domain:docs.anthropic.com)\"\n    ],\n    \"deny\": []\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/pre_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/post_tool_use.py\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/notification.py --notify\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/stop.py --chat\"\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/subagent_stop.py\"\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/user_prompt_submit.py --log-only\"\n          }\n        ]\n      }\n    ],\n    \"PreCompact\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose\"\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"uv run ~/.claude/hooks/session_start.py --git-status --load-context\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+      "structuredPatch": []
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "node create-rule.js --tool=claude-code",
+      "description": "Use create-rule script to install Claude Code hooks at user level"
+    },
+    "tool_response": {
+      "stdout": "\u280b Checking ~/.claude directory...\r\u001b[K\u001b[32m\u2713\u001b[0m Found ~/.claude directory\n\u280b Copying claude-code contents...\r\u001b[K\u001b[32m\u2713\u001b[0m Copied 94 files to ~/.claude\n\n\u001b[32m\ud83c\udf89 claude-code setup complete!\u001b[0m\nFiles copied to: /Users/stevengonsalvez/.claude",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false
+    }
+  }
+]
