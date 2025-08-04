@@ -136,6 +136,17 @@ function substituteTemplate(content, substitutions) {
     return result;
 }
 
+function getEffectiveExcludeFiles(tool, config) {
+    const excludeFiles = [...(config.excludeFiles || [])];
+    
+    // Exclude agents folder for all tools except claude-code
+    if (tool !== 'claude-code') {
+        excludeFiles.push('agents');
+    }
+    
+    return excludeFiles;
+}
+
 function copyDirectoryRecursive(source, destination, excludeFiles = [], templateSubstitutions = {}) {
     const files = [];
     
@@ -146,7 +157,14 @@ function copyDirectoryRecursive(source, destination, excludeFiles = [], template
             const relativePath = path.join(basePath, item);
             
             if (statSync(fullPath).isDirectory()) {
-                getAllFiles(fullPath, relativePath);
+                // Check if this directory should be excluded
+                const shouldExcludeDir = excludeFiles.some(excludeFile => 
+                    relativePath === excludeFile || item === excludeFile
+                );
+                
+                if (!shouldExcludeDir) {
+                    getAllFiles(fullPath, relativePath);
+                }
             } else {
                 // Check if this file should be excluded
                 const shouldExclude = excludeFiles.some(excludeFile => 
@@ -206,7 +224,9 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     // Copy shared content from claude-code
     showProgress('Copying shared content from claude-code');
     const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
-    const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
+    
+    const excludeFiles = getEffectiveExcludeFiles(tool, config);
+    const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, destDir, excludeFiles, config.templateSubstitutions || {});
     completeProgress(`Copied ${sharedFilesCopied} shared files`);
 
     // Copy tool-specific files
@@ -240,7 +260,8 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
         showProgress(`Copying shared content to ${config.sharedContentTarget}`);
         const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
         fs.mkdirSync(targetDir, { recursive: true });
-        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+        const excludeFiles = getEffectiveExcludeFiles(tool, config);
+        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, excludeFiles, config.templateSubstitutions || {});
         completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
     }
 
@@ -446,7 +467,8 @@ async function main() {
         showProgress(`Copying shared content to ${config.sharedContentTarget}`);
         const sharedSourceDir = path.join(__dirname, config.sharedContentDir);
         fs.mkdirSync(targetDir, { recursive: true });
-        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+        const excludeFiles = getEffectiveExcludeFiles(tool, config);
+        const sharedFilesCopied = copyDirectoryRecursive(sharedSourceDir, targetDir, excludeFiles, config.templateSubstitutions || {});
         completeProgress(`Copied ${sharedFilesCopied} shared files to ${config.sharedContentTarget}`);
     }
 

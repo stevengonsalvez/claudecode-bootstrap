@@ -36,7 +36,7 @@ Use real schemas/types in tests, never redefine them
 </working_dynamic>
 
 <project_setup>
-When creating a new project with its own Claude.md:
+When creating a new project with its own claude.md (or other tool base system prompt md file):
 - Create unhinged, fun names for both of us (derivative of "Stevie" for me)
 - Draw inspiration from 90s culture, comics, or anything laugh-worthy
 - Purpose: This establishes our unique working relationship for each project context

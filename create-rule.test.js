@@ -50,6 +50,13 @@ const TOOL_CONFIG = {
         ruleDir: 'claude-code',
         targetSubdir: '.claude',
         copyEntireFolder: true,
+        excludeFiles: ['settings.local.json'],
+        templateSubstitutions: {
+            'CLAUDE.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            }
+        }
     },
     gemini: {
         ruleGlob: 'GEMINI.md',
@@ -227,5 +234,57 @@ describe('CLI Rule Copier', () => {
 
         // Check that settings.local.json is excluded
         expect(fs.existsSync(path.join(destDir, 'settings.local.json'))).toBe(false);
+    });
+
+    it('only copies agents folder for claude-code tool, not for other tools', () => {
+        // Test that claude-code DOES copy agents folder
+        const claudeCodeTool = 'claude-code';
+        const claudeCodeConfig = TOOL_CONFIG[claudeCodeTool];
+        const claudeCodeMockHomeDir = path.join(tempDir, 'claude-code-home');
+        fs.mkdirSync(claudeCodeMockHomeDir, { recursive: true });
+        const claudeCodeDestDir = path.join(claudeCodeMockHomeDir, claudeCodeConfig.targetSubdir);
+
+        const claudeCodeCommand = `node create-rule.js --tool=${claudeCodeTool} --homeDir=${claudeCodeMockHomeDir}`;
+        execSync(claudeCodeCommand, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        // claude-code SHOULD have agents folder
+        expect(fs.existsSync(path.join(claudeCodeDestDir, 'agents'))).toBe(true);
+        // Check that agentmaker.md exists in agents folder
+        expect(fs.existsSync(path.join(claudeCodeDestDir, 'agents', 'meta', 'agentmaker.md'))).toBe(true);
+
+        // Test that gemini tool does NOT copy agents folder
+        const geminiTool = 'gemini';
+        const geminiConfig = TOOL_CONFIG[geminiTool];
+        const geminiTarget = path.join(tempDir, 'gemini-test');
+        fs.mkdirSync(geminiTarget, { recursive: true });
+
+        const geminiCommand = `node create-rule.js --tool=${geminiTool} --targetFolder=${geminiTarget}`;
+        execSync(geminiCommand, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        const geminiDestDir = path.join(geminiTarget, geminiConfig.targetSubdir);
+        // gemini should NOT have agents folder
+        expect(fs.existsSync(path.join(geminiDestDir, 'agents'))).toBe(false);
+
+        // Test that amazonq tool does NOT copy agents folder
+        const amazonqTool = 'amazonq';
+        const amazonqConfig = TOOL_CONFIG[amazonqTool];
+        const amazonqTarget = path.join(tempDir, 'amazonq-test');
+        fs.mkdirSync(amazonqTarget, { recursive: true });
+
+        const amazonqCommand = `node create-rule.js --tool=${amazonqTool} --targetFolder=${amazonqTarget}`;
+        execSync(amazonqCommand, {
+            stdio: 'pipe',
+            env: { ...process.env },
+        });
+
+        const amazonqDestDir = path.join(amazonqTarget, amazonqConfig.targetSubdir);
+        // amazonq should NOT have agents folder  
+        expect(fs.existsSync(path.join(amazonqDestDir, 'agents'))).toBe(false);
     });
 });
