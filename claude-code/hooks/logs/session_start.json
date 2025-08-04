@@ -1,0 +1,30 @@
+[
+  {
+    "session_id": "session-101112",
+    "source": "resume"
+  },
+  {
+    "session_id": "integration-test-2",
+    "source": "startup"
+  },
+  {
+    "session_id": "session-789",
+    "source": "startup"
+  },
+  {
+    "session_id": "session-789",
+    "source": "startup"
+  },
+  {
+    "session_id": "session-101112",
+    "source": "resume"
+  },
+  {
+    "session_id": "integration-test-2",
+    "source": "startup"
+  },
+  {
+    "session_id": "manual-test-2",
+    "source": "startup"
+  }
+]
