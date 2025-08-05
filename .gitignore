@@ -14,3 +14,4 @@ logs/pre_compact.json
 logs/pre_tool_use.json
 logs/stop.json
 logs/user_prompt_submit.json
+.claude/
