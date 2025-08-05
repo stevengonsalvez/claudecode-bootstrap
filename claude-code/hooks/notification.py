@@ -23,8 +23,8 @@ except ImportError:
 
 def get_tts_script_path():
     """
-    Determine which TTS script to use based on available API keys.
-    Priority order: ElevenLabs > OpenAI > pyttsx3
+    Determine which TTS script to use based on available API keys and platform.
+    Priority order: ElevenLabs > OpenAI > Cross-Platform > pyttsx3
     """
     # Get current script directory and construct utils/tts path
     script_dir = Path(__file__).parent
@@ -42,7 +42,12 @@ def get_tts_script_path():
         if openai_script.exists():
             return str(openai_script)
     
-    # Fall back to pyttsx3 (no API key required)
+    # Use cross-platform TTS (third priority - automatically detects best method)
+    cross_platform_script = tts_dir / "cross_platform_tts.py"
+    if cross_platform_script.exists():
+        return str(cross_platform_script)
+    
+    # Fall back to pyttsx3 (lowest priority)
     pyttsx3_script = tts_dir / "pyttsx3_tts.py"
     if pyttsx3_script.exists():
         return str(pyttsx3_script)

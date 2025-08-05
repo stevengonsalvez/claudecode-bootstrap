@@ -6,3 +6,11 @@ tmp-test-folder/
 *.log
 .vscode/
 .idea/ 
+logs/
+logs/chat.json
+logs/notification.json
+logs/post_tool_use.json
+logs/pre_compact.json
+logs/pre_tool_use.json
+logs/stop.json
+logs/user_prompt_submit.json

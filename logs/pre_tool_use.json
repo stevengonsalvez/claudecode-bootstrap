@@ -500,5 +500,382 @@
       "command": "git add . && git commit -m \"$(cat <<'EOF'\nfeat: improve TTS system with macOS say command priority\n\n- Add macOS native TTS script using 'say' command for reliable audio\n- Update TTS priority: ElevenLabs > OpenAI > macOS say > pyttsx3  \n- Enable --announce flag for SessionStart hook in settings\n- Improve TTS reliability by using macOS built-in speech synthesis\n\nThe TTS system now prioritizes the native macOS 'say' command which is more\nreliable than pyttsx3 for local audio output.\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
       "description": "Commit TTS improvements"
     }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "TodoWrite",
+    "tool_input": {
+      "todos": [
+        {
+          "content": "Create cross-platform TTS script with OS detection",
+          "status": "pending",
+          "priority": "high",
+          "id": "create-cross-platform-tts"
+        },
+        {
+          "content": "Update hook TTS selection to use cross-platform script",
+          "status": "pending",
+          "priority": "high",
+          "id": "update-tts-priority-logic"
+        },
+        {
+          "content": "Test TTS on different platforms (macOS detected)",
+          "status": "pending",
+          "priority": "medium",
+          "id": "test-cross-platform-tts"
+        },
+        {
+          "content": "Update source hooks in claude-code directory",
+          "status": "pending",
+          "priority": "medium",
+          "id": "update-source-hooks"
+        }
+      ]
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "TodoWrite",
+    "tool_input": {
+      "todos": [
+        {
+          "content": "Create cross-platform TTS script with OS detection",
+          "status": "in_progress",
+          "priority": "high",
+          "id": "create-cross-platform-tts"
+        },
+        {
+          "content": "Update hook TTS selection to use cross-platform script",
+          "status": "pending",
+          "priority": "high",
+          "id": "update-tts-priority-logic"
+        },
+        {
+          "content": "Test TTS on different platforms (macOS detected)",
+          "status": "pending",
+          "priority": "medium",
+          "id": "test-cross-platform-tts"
+        },
+        {
+          "content": "Update source hooks in claude-code directory",
+          "status": "pending",
+          "priority": "medium",
+          "id": "update-source-hooks"
+        }
+      ]
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/utils/tts/cross_platform_tts.py",
+      "content": "#!/usr/bin/env -S uv run --script\n# /// script\n# requires-python = \">=3.8\"\n# dependencies = [\n#     \"pyttsx3>=2.90\",\n# ]\n# ///\n\n# ABOUTME: Cross-platform TTS script that automatically selects the best TTS method based on OS\n# Uses macOS 'say' command, Windows SAPI, or falls back to pyttsx3 for maximum compatibility\n\nimport sys\nimport subprocess\nimport platform\nimport random\nimport shutil\n\ndef get_platform_tts_method():\n    \"\"\"Detect the best TTS method for the current platform.\"\"\"\n    system = platform.system().lower()\n    \n    if system == \"darwin\":  # macOS\n        # Check if 'say' command is available\n        if shutil.which('say'):\n            return \"macos_say\"\n    elif system == \"windows\":\n        # Windows has built-in SAPI\n        return \"windows_sapi\" \n    elif system == \"linux\":\n        # Check for common Linux TTS commands\n        if shutil.which('espeak'):\n            return \"linux_espeak\"\n        elif shutil.which('spd-say'):\n            return \"linux_spd_say\"\n        elif shutil.which('festival'):\n            return \"linux_festival\"\n    \n    # Fall back to pyttsx3 for all platforms\n    return \"pyttsx3\"\n\ndef speak_macos(text):\n    \"\"\"Use macOS native 'say' command.\"\"\"\n    try:\n        result = subprocess.run(['say', text], \n                              capture_output=True, \n                              text=True, \n                              timeout=30)\n        return result.returncode == 0\n    except Exception:\n        return False\n\ndef speak_windows_sapi(text):\n    \"\"\"Use Windows SAPI via PowerShell.\"\"\"\n    try:\n        # Use PowerShell to access Windows Speech API\n        ps_command = f'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\"{text}\")'\n        result = subprocess.run(['powershell', '-Command', ps_command],\n                              capture_output=True,\n                              text=True,\n                              timeout=30)\n        return result.returncode == 0\n    except Exception:\n        return False\n\ndef speak_linux_espeak(text):\n    \"\"\"Use Linux espeak command.\"\"\"\n    try:\n        result = subprocess.run(['espeak', text],\n                              capture_output=True,\n                              text=True,\n                              timeout=30)\n        return result.returncode == 0\n    except Exception:\n        return False\n\ndef speak_linux_spd_say(text):\n    \"\"\"Use Linux spd-say command.\"\"\"\n    try:\n        result = subprocess.run(['spd-say', text],\n                              capture_output=True,\n                              text=True,\n                              timeout=30)\n        return result.returncode == 0\n    except Exception:\n        return False\n\ndef speak_linux_festival(text):\n    \"\"\"Use Linux festival command.\"\"\"\n    try:\n        # Festival expects text via stdin\n        result = subprocess.run(['festival', '--tts'],\n                              input=text,\n                              text=True,\n                              capture_output=True,\n                              timeout=30)\n        return result.returncode == 0\n    except Exception:\n        return False\n\ndef speak_pyttsx3(text):\n    \"\"\"Use pyttsx3 as fallback TTS.\"\"\"\n    try:\n        import pyttsx3\n        engine = pyttsx3.init()\n        engine.say(text)\n        engine.runAndWait()\n        return True\n    except Exception:\n        return False\n\ndef speak_text(text, method):\n    \"\"\"Speak text using the specified method.\"\"\"\n    method_map = {\n        \"macos_say\": speak_macos,\n        \"windows_sapi\": speak_windows_sapi,\n        \"linux_espeak\": speak_linux_espeak,\n        \"linux_spd_say\": speak_linux_spd_say,\n        \"linux_festival\": speak_linux_festival,\n        \"pyttsx3\": speak_pyttsx3\n    }\n    \n    if method in method_map:\n        return method_map[method](text)\n    else:\n        return False\n\ndef main():\n    try:\n        # Detect platform and TTS method\n        tts_method = get_platform_tts_method()\n        platform_name = platform.system()\n        \n        print(f\"\ud83c\udf99\ufe0f  Cross-Platform TTS ({platform_name})\")\n        print(\"=\" * 35)\n        print(f\"\ud83d\udd27 Method: {tts_method}\")\n        \n        # Get text from command line argument or use default\n        if len(sys.argv) > 1:\n            text = \" \".join(sys.argv[1:])  # Join all arguments as text\n        else:\n            # Default completion messages\n            completion_messages = [\n                \"Work complete!\",\n                \"All done!\",\n                \"Task finished!\",\n                \"Job complete!\",\n                \"Ready for next task!\",\n                \"Claude Code task completed!\"\n            ]\n            text = random.choice(completion_messages)\n        \n        print(f\"\ud83c\udfaf Text: {text}\")\n        print(\"\ud83d\udd0a Speaking...\")\n        \n        # Attempt to speak using the selected method\n        success = speak_text(text, tts_method)\n        \n        if success:\n            print(\"\u2705 Speech completed!\")\n        else:\n            print(f\"\u274c {tts_method} failed, trying pyttsx3 fallback...\")\n            # Try pyttsx3 as last resort\n            if tts_method != \"pyttsx3\":\n                fallback_success = speak_pyttsx3(text)\n                if fallback_success:\n                    print(\"\u2705 Fallback speech completed!\")\n                else:\n                    print(\"\u274c All TTS methods failed!\")\n                    \n    except Exception as e:\n        print(f\"\u274c Error: {e}\")\n\nif __name__ == \"__main__\":\n    main()"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "chmod +x claude-code/hooks/utils/tts/cross_platform_tts.py",
+      "description": "Make cross-platform TTS executable"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "uv run claude-code/hooks/utils/tts/cross_platform_tts.py \"Testing cross-platform TTS on macOS\"",
+      "description": "Test the new cross-platform TTS script"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "TodoWrite",
+    "tool_input": {
+      "todos": [
+        {
+          "content": "Create cross-platform TTS script with OS detection",
+          "status": "completed",
+          "priority": "high",
+          "id": "create-cross-platform-tts"
+        },
+        {
+          "content": "Update hook TTS selection to use cross-platform script",
+          "status": "in_progress",
+          "priority": "high",
+          "id": "update-tts-priority-logic"
+        },
+        {
+          "content": "Test TTS on different platforms (macOS detected)",
+          "status": "pending",
+          "priority": "medium",
+          "id": "test-cross-platform-tts"
+        },
+        {
+          "content": "Update source hooks in claude-code directory",
+          "status": "pending",
+          "priority": "medium",
+          "id": "update-source-hooks"
+        }
+      ]
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/notification.py",
+      "offset": 24,
+      "limit": 30
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/notification.py",
+      "old_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Fall back to pyttsx3 (no API key required)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None",
+      "new_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys and platform.\n    Priority order: ElevenLabs > OpenAI > Cross-Platform > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Use cross-platform TTS (third priority - automatically detects best method)\n    cross_platform_script = tts_dir / \"cross_platform_tts.py\"\n    if cross_platform_script.exists():\n        return str(cross_platform_script)\n    \n    # Fall back to pyttsx3 (lowest priority)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/stop.py",
+      "offset": 36,
+      "limit": 30
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/stop.py",
+      "old_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys.\n    Priority order: ElevenLabs > OpenAI > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Fall back to pyttsx3 (no API key required)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None",
+      "new_string": "def get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys and platform.\n    Priority order: ElevenLabs > OpenAI > Cross-Platform > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Use cross-platform TTS (third priority - automatically detects best method)\n    cross_platform_script = tts_dir / \"cross_platform_tts.py\"\n    if cross_platform_script.exists():\n        return str(cross_platform_script)\n    \n    # Fall back to pyttsx3 (lowest priority)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "TodoWrite",
+    "tool_input": {
+      "todos": [
+        {
+          "content": "Create cross-platform TTS script with OS detection",
+          "status": "completed",
+          "priority": "high",
+          "id": "create-cross-platform-tts"
+        },
+        {
+          "content": "Update hook TTS selection to use cross-platform script",
+          "status": "completed",
+          "priority": "high",
+          "id": "update-tts-priority-logic"
+        },
+        {
+          "content": "Test TTS on different platforms (macOS detected)",
+          "status": "in_progress",
+          "priority": "medium",
+          "id": "test-cross-platform-tts"
+        },
+        {
+          "content": "Update source hooks in claude-code directory",
+          "status": "pending",
+          "priority": "medium",
+          "id": "update-source-hooks"
+        }
+      ]
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Testing cross-platform TTS integration\"}' | uv run claude-code/hooks/notification.py --notify",
+      "description": "Test notification hook with cross-platform TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"session_id\": \"test-stop\", \"stop_hook_active\": true}' | uv run claude-code/hooks/stop.py",
+      "description": "Test stop hook with cross-platform TTS"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cp claude-code/hooks/utils/tts/cross_platform_tts.py ~/.claude/hooks/utils/tts/",
+      "description": "Copy cross-platform TTS to user directory"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cp claude-code/hooks/notification.py claude-code/hooks/stop.py ~/.claude/hooks/",
+      "description": "Copy updated hooks to user directory"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Users/stevengonsalvez/.claude/hooks/notification.py",
+      "content": "#!/usr/bin/env -S uv run --script\n# /// script\n# requires-python = \">=3.11\"\n# dependencies = [\n#     \"python-dotenv\",\n# ]\n# ///\n\nimport argparse\nimport json\nimport os\nimport sys\nimport subprocess\nimport random\nfrom pathlib import Path\n\ntry:\n    from dotenv import load_dotenv\n    load_dotenv()\nexcept ImportError:\n    pass  # dotenv is optional\n\n\ndef get_tts_script_path():\n    \"\"\"\n    Determine which TTS script to use based on available API keys and platform.\n    Priority order: ElevenLabs > OpenAI > Cross-Platform > pyttsx3\n    \"\"\"\n    # Get current script directory and construct utils/tts path\n    script_dir = Path(__file__).parent\n    tts_dir = script_dir / \"utils\" / \"tts\"\n    \n    # Check for ElevenLabs API key (highest priority)\n    if os.getenv('ELEVENLABS_API_KEY'):\n        elevenlabs_script = tts_dir / \"elevenlabs_tts.py\"\n        if elevenlabs_script.exists():\n            return str(elevenlabs_script)\n    \n    # Check for OpenAI API key (second priority)\n    if os.getenv('OPENAI_API_KEY'):\n        openai_script = tts_dir / \"openai_tts.py\"\n        if openai_script.exists():\n            return str(openai_script)\n    \n    # Use cross-platform TTS (third priority - automatically detects best method)\n    cross_platform_script = tts_dir / \"cross_platform_tts.py\"\n    if cross_platform_script.exists():\n        return str(cross_platform_script)\n    \n    # Fall back to pyttsx3 (lowest priority)\n    pyttsx3_script = tts_dir / \"pyttsx3_tts.py\"\n    if pyttsx3_script.exists():\n        return str(pyttsx3_script)\n    \n    return None\n\n\ndef announce_notification():\n    \"\"\"Announce that the agent needs user input.\"\"\"\n    try:\n        tts_script = get_tts_script_path()\n        if not tts_script:\n            return  # No TTS scripts available\n        \n        # Get engineer name if available\n        engineer_name = os.getenv('ENGINEER_NAME', '').strip()\n        \n        # Create notification message with 30% chance to include name\n        if engineer_name and random.random() < 0.3:\n            notification_message = f\"{engineer_name}, your agent needs your input\"\n        else:\n            notification_message = \"Your agent needs your input\"\n        \n        # Call the TTS script with the notification message\n        subprocess.run([\n            \"uv\", \"run\", tts_script, notification_message\n        ], \n        capture_output=True,  # Suppress output\n        timeout=10  # 10-second timeout\n        )\n        \n    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):\n        # Fail silently if TTS encounters issues\n        pass\n    except Exception:\n        # Fail silently for any other errors\n        pass\n\n\ndef main():\n    try:\n        # Parse command line arguments\n        parser = argparse.ArgumentParser()\n        parser.add_argument('--notify', action='store_true', help='Enable TTS notifications')\n        args = parser.parse_args()\n        \n        # Read JSON input from stdin\n        input_data = json.loads(sys.stdin.read())\n        \n        # Ensure log directory exists\n        import os\n        log_dir = os.path.join(os.getcwd(), 'logs')\n        os.makedirs(log_dir, exist_ok=True)\n        log_file = os.path.join(log_dir, 'notification.json')\n        \n        # Read existing log data or initialize empty list\n        if os.path.exists(log_file):\n            with open(log_file, 'r') as f:\n                try:\n                    log_data = json.load(f)\n                except (json.JSONDecodeError, ValueError):\n                    log_data = []\n        else:\n            log_data = []\n        \n        # Append new data\n        log_data.append(input_data)\n        \n        # Write back to file with formatting\n        with open(log_file, 'w') as f:\n            json.dump(log_data, f, indent=2)\n        \n        # Announce notification via TTS only if --notify flag is set\n        # Skip TTS for the generic \"Claude is waiting for your input\" message\n        if args.notify and input_data.get('message') != 'Claude is waiting for your input':\n            announce_notification()\n        \n        sys.exit(0)\n        \n    except json.JSONDecodeError:\n        # Handle JSON decode errors gracefully\n        sys.exit(0)\n    except Exception:\n        # Handle any other errors gracefully\n        sys.exit(0)\n\nif __name__ == '__main__':\n    main()"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo '{\"message\": \"Final cross-platform TTS test\"}' | uv run ~/.claude/hooks/notification.py --notify",
+      "description": "Test final cross-platform TTS integration"
+    }
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cd claude-code/hooks/utils/tts && uv run cross_platform_tts.py \"Test message\"",
+      "description": "Test cross-platform TTS script"
+    }
+  },
+  {
+    "session_id": "1a899c8e-a64c-48eb-9991-5410f2befe4a",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/1a899c8e-a64c-48eb-9991-5410f2befe4a.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "TodoWrite",
+    "tool_input": {
+      "todos": [
+        {
+          "content": "Create cross-platform TTS script with OS detection",
+          "status": "completed",
+          "priority": "high",
+          "id": "create-cross-platform-tts"
+        },
+        {
+          "content": "Update hook TTS selection to use cross-platform script",
+          "status": "completed",
+          "priority": "high",
+          "id": "update-tts-priority-logic"
+        },
+        {
+          "content": "Test TTS on different platforms (macOS detected)",
+          "status": "completed",
+          "priority": "medium",
+          "id": "test-cross-platform-tts"
+        },
+        {
+          "content": "Update source hooks in claude-code directory",
+          "status": "completed",
+          "priority": "medium",
+          "id": "update-source-hooks"
+        }
+      ]
+    }
+  },
+  {
+    "session_id": "1a899c8e-a64c-48eb-9991-5410f2befe4a",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/1a899c8e-a64c-48eb-9991-5410f2befe4a.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cd claude-code/hooks/utils/tts && uv run cross_platform_tts.py \"Cross-platform TTS test complete\"",
+      "description": "Final test of cross-platform TTS in source directory"
+    }
+  },
+  {
+    "session_id": "1a899c8e-a64c-48eb-9991-5410f2befe4a",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/1a899c8e-a64c-48eb-9991-5410f2befe4a.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git status --porcelain",
+      "description": "Check git status from root"
+    }
+  },
+  {
+    "session_id": "1a899c8e-a64c-48eb-9991-5410f2befe4a",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/1a899c8e-a64c-48eb-9991-5410f2befe4a.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git reset HEAD logs/",
+      "description": "Unstage all log files"
+    }
+  },
+  {
+    "session_id": "1a899c8e-a64c-48eb-9991-5410f2befe4a",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/1a899c8e-a64c-48eb-9991-5410f2befe4a.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git status --short",
+      "description": "Check final git status"
+    }
   }
 ]

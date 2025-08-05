@@ -24,5 +24,18 @@
   },
   {
     "message": "Testing improved TTS system"
+  },
+  {
+    "session_id": "72064c45-8137-4c02-90a6-00000b2e8d13",
+    "transcript_path": "/Users/stevengonsalvez/.claude/projects/-Users-stevengonsalvez-d-git-ai-coder-rules/72064c45-8137-4c02-90a6-00000b2e8d13.jsonl",
+    "cwd": "/Users/stevengonsalvez/d/git/ai-coder-rules",
+    "hook_event_name": "Notification",
+    "message": "Claude is waiting for your input"
+  },
+  {
+    "message": "Testing cross-platform TTS integration"
+  },
+  {
+    "message": "Final cross-platform TTS test"
   }
 ]
