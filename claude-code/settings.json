@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose"
+            "command": "claude handover;uv run ~/.claude/hooks/pre_compact.py --handover --backup --verbose"
           }
         ]
       }
