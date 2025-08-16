@@ -49,6 +49,7 @@ This project provides a CLI tool to help you set up and manage rule files for va
 **claude-code**: 
 - Copies entire `claude-code/` directory to `~/.claude/`
 - Includes: commands, guides, templates, docs, and main CLAUDE.md
+- Status line uses compiled Bun binary (`statusline-bin`) instead of JS for ~4x faster execution
 
 **gemini**: 
 - Copies all shared content from `claude-code/` to `PROJECT/.gemini/`
