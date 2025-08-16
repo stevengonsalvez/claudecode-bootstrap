@@ -17,7 +17,7 @@
     ],
     "deny": []
   },
-  "statusline": "/Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/statusline-bin",
+  "statusline": "bun /Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/statusline.js",
   "hooks": {
     "PreToolUse": [
       {
