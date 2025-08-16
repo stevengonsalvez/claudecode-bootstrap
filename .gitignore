@@ -15,3 +15,7 @@ logs/pre_tool_use.json
 logs/stop.json
 logs/user_prompt_submit.json
 .claude/
+
+# Bun build artifacts
+*.bun-build
+claude-code/hooks/*.bun-build
