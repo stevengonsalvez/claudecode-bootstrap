@@ -17,7 +17,6 @@
     ],
     "deny": []
   },
-  "statusline": "bun /Users/stevengonsalvez/d/git/ai-coder-rules/claude-code/hooks/statusline.js",
   "hooks": {
     "PreToolUse": [
       {
@@ -106,5 +105,9 @@
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 /Users/stevengonsalvez/.claude/hooks/statusline.py"
   }
 }
