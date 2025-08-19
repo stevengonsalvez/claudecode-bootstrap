@@ -109,6 +109,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "python3 /Users/stevengonsalvez/.claude/hooks/statusline.py"
+    "command": "bunx -y ccstatusline@latest",
+    "padding": 0
   }
 }
