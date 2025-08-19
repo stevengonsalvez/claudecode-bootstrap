@@ -38,7 +38,7 @@ Example: `handover-2024-01-15-14-30-45.md`
 
 ## Implementation
 
-1. Generate handover using `{{TOOL_DIR}}/templates/handover-template.md`
+1. Generate handover using `{{HOME_TOOL_DIR}}/templates/handover-template.md`
 2. Replace all `{{VARIABLE}}` placeholders with actual values
 3. Save to the specified location
 4. Display the full file path to the user for reference

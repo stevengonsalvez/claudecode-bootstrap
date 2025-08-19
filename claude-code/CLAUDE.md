@@ -930,23 +930,23 @@ When health reaches 🟡, proactively:
 
 # Available Commands
 
-@{{TOOL_DIR}}/commands/brainstorm.md
-@{{TOOL_DIR}}/commands/do-issues.md
-@{{TOOL_DIR}}/commands/find-missing-tests.md
-@{{TOOL_DIR}}/commands/gh-issue.md
-@{{TOOL_DIR}}/commands/handover.md
-@{{TOOL_DIR}}/commands/health-check.md
-@{{TOOL_DIR}}/commands/make-github-issues.md
-@{{TOOL_DIR}}/commands/plan-gh.md
-@{{TOOL_DIR}}/commands/plan-tdd.md
-@{{TOOL_DIR}}/commands/plan.md
-@{{TOOL_DIR}}/commands/session-metrics.md
-@{{TOOL_DIR}}/commands/session-summary.md
+@{{HOME_TOOL_DIR}}/commands/brainstorm.md
+@{{HOME_TOOL_DIR}}/commands/do-issues.md
+@{{HOME_TOOL_DIR}}/commands/find-missing-tests.md
+@{{HOME_TOOL_DIR}}/commands/gh-issue.md
+@{{HOME_TOOL_DIR}}/commands/handover.md
+@{{HOME_TOOL_DIR}}/commands/health-check.md
+@{{HOME_TOOL_DIR}}/commands/make-github-issues.md
+@{{HOME_TOOL_DIR}}/commands/plan-gh.md
+@{{HOME_TOOL_DIR}}/commands/plan-tdd.md
+@{{HOME_TOOL_DIR}}/commands/plan.md
+@{{HOME_TOOL_DIR}}/commands/session-metrics.md
+@{{HOME_TOOL_DIR}}/commands/session-summary.md
 
 # Development Guides
 
-@{{TOOL_DIR}}/guides/customization-guide.md
-@{{TOOL_DIR}}/guides/session-management-guide.md
+@{{HOME_TOOL_DIR}}/guides/customization-guide.md
+@{{HOME_TOOL_DIR}}/guides/session-management-guide.md
 
 # Technology Documentation
 
@@ -958,5 +958,5 @@ When health reaches 🟡, proactively:
 
 # Templates
 
-@{{TOOL_DIR}}/templates/codereview-checklist-template.md
-@{{TOOL_DIR}}/templates/handover-template.md
+@{{HOME_TOOL_DIR}}/templates/codereview-checklist-template.md
+@{{HOME_TOOL_DIR}}/templates/handover-template.md
