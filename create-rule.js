@@ -360,15 +360,15 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null) {
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
 
-    // Copy output-style folder for claude-code
+    // Copy output-styles folder for claude-code
     if (tool === 'claude-code') {
-        showProgress('Copying output-style folder');
-        const outputStyleSource = path.join(__dirname, 'output-style');
-        const outputStyleDest = path.join(destDir, 'output-style');
+        showProgress('Copying output-styles folder');
+        const outputStylesSource = path.join(__dirname, 'claude-code', 'output-styles');
+        const outputStylesDest = path.join(destDir, 'output-styles');
         
-        if (fs.existsSync(outputStyleSource)) {
-            const outputStyleFiles = copyDirectoryRecursive(outputStyleSource, outputStyleDest, [], {});
-            completeProgress(`Copied ${outputStyleFiles} output-style files`);
+        if (fs.existsSync(outputStylesSource)) {
+            const outputStylesFiles = copyDirectoryRecursive(outputStylesSource, outputStylesDest, [], {});
+            completeProgress(`Copied ${outputStylesFiles} output-styles files`);
         }
     }
 
