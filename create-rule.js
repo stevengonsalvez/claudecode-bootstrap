@@ -41,6 +41,10 @@ const TOOL_CONFIG = {
             'CLAUDE.md': {
                 'TOOL_DIR': '.claude',
                 'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
             }
         }
     },
@@ -172,7 +176,7 @@ function copyDirectoryRecursive(source, destination, excludeFiles = [], template
                 );
                 
                 if (!shouldExclude) {
-                    files.push({ source: fullPath, dest: path.join(destination, relativePath), fileName: item });
+                    files.push({ source: fullPath, dest: path.join(destination, relativePath), fileName: item, relativePath: relativePath });
                 }
             }
         }
@@ -185,9 +189,14 @@ function copyDirectoryRecursive(source, destination, excludeFiles = [], template
         fs.mkdirSync(destDir, { recursive: true });
         
         // Check if this file needs template substitution
-        if (templateSubstitutions[file.fileName]) {
+        // Support both exact filename and relative path matching
+        const substitutions = templateSubstitutions[file.fileName] || 
+                            templateSubstitutions[file.relativePath] || 
+                            (file.relativePath.endsWith('.md') ? templateSubstitutions['**/*.md'] : null);
+        
+        if (substitutions) {
             let content = fs.readFileSync(file.source, 'utf8');
-            content = substituteTemplate(content, templateSubstitutions[file.fileName]);
+            content = substituteTemplate(content, substitutions);
             fs.writeFileSync(file.dest, content);
         } else {
             fs.copyFileSync(file.source, file.dest);
@@ -350,6 +359,18 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null) {
     const sourceDir = path.join(__dirname, config.ruleDir);
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
+
+    // Copy output-style folder for claude-code
+    if (tool === 'claude-code') {
+        showProgress('Copying output-style folder');
+        const outputStyleSource = path.join(__dirname, 'output-style');
+        const outputStyleDest = path.join(destDir, 'output-style');
+        
+        if (fs.existsSync(outputStyleSource)) {
+            const outputStyleFiles = copyDirectoryRecursive(outputStyleSource, outputStyleDest, [], {});
+            completeProgress(`Copied ${outputStyleFiles} output-style files`);
+        }
+    }
 
     // Copy tool-specific files if they exist
     if (config.toolSpecificFiles) {
