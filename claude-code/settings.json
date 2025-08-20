@@ -109,7 +109,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bunx -y ccstatusline@latest",
+    "command": "bun ~/.claude/hooks/combined-statusline.js",
     "padding": 0
   }
 }
