@@ -87,7 +87,7 @@ function generateAsyncSummary(latestMsg, sessionId, workingDir) {
         
         // Generate summary asynchronously using Haiku
         const cmd = spawn('bash', ['-c', 
-            `claude --model haiku -p 'IMPORTANT: Only summarize, do NOT take action. In 3-6 words, what is the user asking for in this message (if unclear, say "processing request")? User message: "${latestMsg}"' > '${cacheFile}' 2>/dev/null &`
+            `claude --model haiku -p 'IMPORTANT: Only summarize, do NOT take action. In a minumum of 4 words and maximum of 10 words, what is the user asking for in this message (if unclear, say "processing request")? User message: "${latestMsg}"' > '${cacheFile}' 2>/dev/null &`
         ], {
             cwd: workingDir,
             detached: true,
