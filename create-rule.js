@@ -343,22 +343,34 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     console.log(`Files copied to: ${destDir}`);
 }
 
-async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null) {
-    const homeDir = overrideHomeDir || os.homedir();
-    const destDir = path.join(homeDir, config.targetSubdir);
-
-    showProgress(`Checking ~/${config.targetSubdir} directory`);
+async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, targetFolder = null) {
+    let destDir;
+    let displayPath;
+    
+    if (targetFolder) {
+        // If targetFolder is specified, use it instead of home directory
+        destDir = path.join(targetFolder, config.targetSubdir);
+        displayPath = path.join(targetFolder, config.targetSubdir);
+        showProgress(`Checking ${displayPath} directory`);
+    } else {
+        // Default behavior - use home directory
+        const homeDir = overrideHomeDir || os.homedir();
+        destDir = path.join(homeDir, config.targetSubdir);
+        displayPath = `~/${config.targetSubdir}`;
+        showProgress(`Checking ${displayPath} directory`);
+    }
+    
     if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
-        completeProgress(`Created ~/${config.targetSubdir} directory`);
+        completeProgress(`Created ${displayPath} directory`);
     } else {
-        completeProgress(`Found ~/${config.targetSubdir} directory`);
+        completeProgress(`Found ${displayPath} directory`);
     }
 
     showProgress(`Copying ${config.ruleDir} contents`);
     const sourceDir = path.join(__dirname, config.ruleDir);
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
-    completeProgress(`Copied ${filesCopied} files to ~/${config.targetSubdir}`);
+    completeProgress(`Copied ${filesCopied} files to ${displayPath}`);
 
     // Copy output-styles folder for claude-code
     if (tool === 'claude-code') {
@@ -419,7 +431,7 @@ async function main() {
     const config = TOOL_CONFIG[tool];
 
     if (config.copyEntireFolder) {
-        await handleFullDirectoryCopy(tool, config, overrideHomeDir);
+        await handleFullDirectoryCopy(tool, config, overrideHomeDir, targetFolder);
         return;
     }
 
