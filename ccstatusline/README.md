@@ -1,0 +1,1 @@
+The file to be placed at `~/.config/ccstatusline/settings.json`
