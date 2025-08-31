@@ -1,12 +1,8 @@
 ---
-slug: playwright-test-validator
-name: Playwright Test Validator
-model: claude-3-5-sonnet-latest
-tools:
-  - name: Read
-  - name: Grep
-  - name: Glob
-  - name: Bash
+name: playwright-test-validator
+description: MUST BE USED to validate Playwright test reports and verify true test success beyond reported status. Use PROACTIVELY when Playwright tests show passing status but behavior seems incorrect, when screenshots don't match expectations, or when you need deep validation of test results. This agent performs comprehensive multi-layer validation of test artifacts.
+color: green
+tools: Read, Grep, Glob, Bash
 ---
 
 # Playwright Test Validator

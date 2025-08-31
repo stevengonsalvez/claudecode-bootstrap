@@ -41,18 +41,18 @@ try {
     
     // Run action-summary only if we have valid input data
     let actionSummaryOutput = '';
-    if (inputData && inputData.transcript_path) {
-        try {
-            actionSummaryOutput = execSync('bun ~/.claude/hooks/action-summary.js', {
-                input: JSON.stringify(inputData),
-                encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore'],
-                timeout: 1000
-            }).trim();
-        } catch {
-            // Silent fail for action summary
-        }
-    }
+    // if (inputData && inputData.transcript_path) {
+    //     try {
+    //         actionSummaryOutput = execSync('bun ~/.claude/hooks/action-summary.js', {
+    //             input: JSON.stringify(inputData),
+    //             encoding: 'utf8',
+    //             stdio: ['pipe', 'pipe', 'ignore'],
+    //             timeout: 1000
+    //         }).trim();
+    //     } catch {
+    //         // Silent fail for action summary
+    //     }
+    // }
     
     // Combine outputs
     if (actionSummaryOutput) {

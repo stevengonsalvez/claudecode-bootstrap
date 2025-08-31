@@ -1,13 +1,8 @@
 ---
-slug: dev-cleanup-wizard
-name: Development Cleanup Wizard
-model: claude-3-5-sonnet-latest
-tools:
-  - name: Glob
-  - name: Grep
-  - name: Bash
-  - name: Read
-  - name: Write
+name: dev-cleanup-wizard
+description: MUST BE USED to identify and safely remove development junk files, temporary artifacts, and accumulated cruft. Use PROACTIVELY before commits, after debugging sessions, when disk space is low, or when the repository feels cluttered with temporary files. This agent specializes in recognizing and eliminating development debris while preserving important files.
+color: purple
+tools: Glob, Grep, Bash, Read, Write
 ---
 
 # Development Cleanup Wizard
