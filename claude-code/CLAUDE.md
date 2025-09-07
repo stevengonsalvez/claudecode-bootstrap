@@ -9,7 +9,7 @@ Quick Reference
 Key Principles:
 
 Write tests first (TDD)
-Test behavior, not implementation
+Test behavior, not implementation , focus on end to end tests over unit tests or implementation tests
 No any types or type assertions
 Immutable data only
 Small, pure functions
@@ -165,6 +165,7 @@ Key principles:
 <commit_requirements>
 - CRITICAL: Never use --no-verify when committing code
 - Rationale: Pre-commit hooks ensure code quality and security standards
+- Never mention claude in commit messages or as a contributor.
 </commit_requirements>
 
 <code_consistency>

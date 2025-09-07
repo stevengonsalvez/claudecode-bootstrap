@@ -57,8 +57,8 @@ When called, this command will:
          "port": 3000,
          "path": "/svc-a8f3d2c1",
          "name": "frontend",
-         "url": "https://mb1412-1.tailae910a.ts.net/svc-a8f3d2c1",
-         "direct": "http://100.98.203.32:3000",
+         "url": "https://example-hostname.example.ts.net/svc-a8f3d2c1",
+         "direct": "http://100.64.1.2:3000",
          "created": "2024-01-15T10:30:00Z"
        }
      ]
@@ -70,9 +70,9 @@ When called, this command will:
    ✅ Service exposed successfully!
    
    📍 Service: frontend (port 3000)
-   🔗 HTTPS Path: https://mb1412-1.tailae910a.ts.net/svc-a8f3d2c1
-   🔗 Direct Access: http://100.98.203.32:3000
-   🔗 Hostname Access: http://mb1412-1:3000
+   🔗 HTTPS Path: https://example-hostname.example.ts.net/svc-a8f3d2c1
+   🔗 Direct Access: http://100.64.1.2:3000
+   🔗 Hostname Access: http://example-hostname:3000
    
    💡 For SPAs, use direct access URLs to avoid routing issues
    ```
@@ -162,7 +162,7 @@ expose_service() {
     # Get Tailscale info
     TAILSCALE_IP=$(tailscale ip -4)
     TAILSCALE_HOSTNAME=$(tailscale status --self --peers=false | awk '{print $2}')
-    TAILSCALE_DOMAIN="${TAILSCALE_HOSTNAME}.tailae910a.ts.net"
+    TAILSCALE_DOMAIN="${TAILSCALE_HOSTNAME}.example.ts.net"
     
     # Generate path
     if [ -z "$SERVICE_NAME" ]; then
