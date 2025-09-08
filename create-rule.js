@@ -410,11 +410,17 @@ async function main() {
     const toolArg = args.find(arg => arg.startsWith('--tool='));
     const targetFolderArg = args.find(arg => arg.startsWith('--targetFolder='));
     const homeDirArg = args.find(arg => arg.startsWith('--homeDir='));
-    const isNonInteractive = !!toolArg;
+    const sddShortcut = args.includes('--sdd');
+    const isNonInteractive = !!toolArg || sddShortcut;
 
     let tool = toolArg ? toolArg.split('=')[1] : null;
     let targetFolder = targetFolderArg ? targetFolderArg.split('=')[1] : null;
     let overrideHomeDir = homeDirArg ? homeDirArg.split('=')[1] : null;
+
+    // Convenience: allow --sdd without specifying a tool
+    if (!tool && sddShortcut) {
+        tool = 'sdd';
+    }
 
     if (!tool) {
         const answers = await inquirer.prompt([
@@ -422,10 +428,22 @@ async function main() {
                 type: 'list',
                 name: 'tool',
                 message: 'Select the tool:',
-                choices: Object.keys(TOOL_CONFIG),
+                choices: [...Object.keys(TOOL_CONFIG), 'sdd'],
             },
         ]);
         tool = answers.tool;
+    }
+
+    // Handle SDD-only installation mode (no rules), copying assets from spec-kit into a project
+    if (tool === 'sdd') {
+        // Single, simple path: clone repo then copy assets
+        const repo = process.env.SPEC_KIT_REPO || 'https://github.com/github/spec-kit.git';
+        const ref = process.env.SPEC_KIT_REF || '';
+        // pick destination
+        const dest = targetFolder || (await inquirer.prompt([{ type: 'input', name: 'sddDest', message: 'Project folder for Spec Kit (SDD) assets:', validate: (v) => !!v.trim() || 'Folder name required' }])).sddDest;
+        const clonePath = await cloneSpecKit(repo, ref);
+        await copySpecKitAssets(clonePath, dest);
+        return;
     }
 
     const config = TOOL_CONFIG[tool];
@@ -569,3 +587,118 @@ main().catch((err) => {
     console.error(err);
     process.exit(1);
 });
+
+// --- Spec Kit integration: clone-on-demand, then copy ---
+import { execSync } from 'child_process';
+
+async function cloneSpecKit(repoUrl, ref = '') {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'spec-kit-'));
+    const cloneDir = path.join(base, 'src');
+    showProgress(`Cloning Spec Kit from ${repoUrl}`);
+    execSync(`git clone --depth 1 ${repoUrl} ${cloneDir}`, { stdio: 'pipe' });
+    if (ref && ref.trim()) {
+        execSync(`git -C ${cloneDir} fetch origin ${ref} --depth 1`, { stdio: 'pipe' });
+        execSync(`git -C ${cloneDir} checkout ${ref}`, { stdio: 'pipe' });
+    }
+    completeProgress('Cloned Spec Kit');
+    return cloneDir;
+}
+async function copySpecKitAssets(specKitRoot, projectRoot) {
+    const requiredFiles = {
+        claudeCommands: [
+            '.claude/commands/specify.md',
+            '.claude/commands/plan.md',
+            '.claude/commands/tasks.md',
+        ],
+        scripts: [
+            'scripts/create-new-feature.sh',
+            'scripts/setup-plan.sh',
+            'scripts/check-task-prerequisites.sh',
+            'scripts/common.sh',
+            'scripts/get-feature-paths.sh',
+            'scripts/update-agent-context.sh',
+        ],
+        templates: [
+            'templates/spec-template.md',
+            'templates/plan-template.md',
+            'templates/tasks-template.md',
+            'templates/agent-file-template.md',
+        ],
+        memory: [
+            'memory/constitution.md',
+        ],
+    };
+
+    const exists = (p) => fs.existsSync(p);
+    const src = (rel) => path.join(specKitRoot, rel);
+    const dst = (rel) => path.join(projectRoot, rel);
+
+    if (!exists(specKitRoot)) {
+        throw new Error(`[SDD] Spec Kit path not found: ${specKitRoot}`);
+    }
+
+    console.log(`\n⠋ Installing Spec Kit (SDD) assets from: ${specKitRoot}`);
+
+    // Ensure directories
+    const ensureParent = (p) => fs.mkdirSync(path.dirname(p), { recursive: true });
+    const copyFileIdempotent = (from, to, makeExecutable = false) => {
+        ensureParent(to);
+        if (exists(to)) {
+            const a = fs.readFileSync(from);
+            const b = fs.readFileSync(to);
+            if (Buffer.compare(a, b) === 0) {
+                return 'skipped';
+            }
+            fs.copyFileSync(to, `${to}.bak`);
+        }
+        fs.copyFileSync(from, to);
+        if (makeExecutable) {
+            try { fs.chmodSync(to, 0o755); } catch {}
+        }
+        return 'copied';
+    };
+
+    // Commands
+    for (const rel of requiredFiles.claudeCommands) {
+        const from = src(`.${path.sep}${rel.split('/').slice(1).join(path.sep)}`); // map .claude/commands under spec-kit root
+        const to = dst(rel);
+        if (!exists(from)) {
+            // In spec-kit, commands live at .claude/commands
+            const alt = src(rel);
+            copyFileIdempotent(exists(alt) ? alt : from, to);
+        } else {
+            copyFileIdempotent(from, to);
+        }
+    }
+
+    // Scripts (executable)
+    for (const rel of requiredFiles.scripts) {
+        const from = src(rel);
+        const to = dst(rel);
+        copyFileIdempotent(from, to, true);
+    }
+
+    // Templates
+    for (const rel of requiredFiles.templates) {
+        const from = src(rel);
+        const to = dst(rel);
+        copyFileIdempotent(from, to);
+    }
+
+    // Memory
+    for (const rel of requiredFiles.memory) {
+        const from = src(rel);
+        const to = dst(rel);
+        copyFileIdempotent(from, to);
+    }
+
+    // Optional quickstart doc (generated)
+    const quickstartPath = dst('docs/sdd-quickstart.md');
+    ensureParent(quickstartPath);
+    if (!exists(quickstartPath)) {
+        const qs = `# Spec-Driven Development (SDD) Quickstart\n\n- Requires: Git, bash (macOS/Linux/WSL).\n- Commands live in \`.claude/commands\` for Claude Code.\n\nWorkflow:\n- /specify → creates branch + \`specs/###-.../spec.md\`\n- /plan → fills \`plan.md\` and generates research/data model/contracts/quickstart\n- /tasks → creates \`tasks.md\` from available docs\n\nRun manually (if needed):\n- \`bash scripts/create-new-feature.sh --json \"My feature\"\`\n- \`bash scripts/setup-plan.sh --json\` (must be on feature branch)\n- \`bash scripts/check-task-prerequisites.sh --json\`\n\nBranch rule: must match \`^[0-9]{3}-\` for /plan and /tasks.\n`;
+        fs.writeFileSync(quickstartPath, qs);
+    }
+
+    console.log('\x1b[32m✓ Installed Spec Kit assets\x1b[0m');
+}
