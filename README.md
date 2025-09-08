@@ -162,4 +162,30 @@ This ensures consistent rule enforcement and discoverability, regardless of the 
 
 - Use the CLI to quickly scaffold and manage rules for your AI coding tools.
 - All rules follow a strict, documented structure for maximum compatibility.
-- The rules registry bridges the gap for tools that can't parse frontmatter, ensuring all rules are discoverable and actionable. 
+- The rules registry bridges the gap for tools that can't parse frontmatter, ensuring all rules are discoverable and actionable.
+
+---
+
+## Spec-Driven Development (SDD)
+
+Use the Spec Kit workflow to drive a spec → plan → tasks process via slash commands (Claude Code) or manual scripts.
+
+Quickstart (simple):
+- Ensure Git and bash are available (macOS/Linux/WSL). Initialize a repo in your project if needed.
+- Install SDD assets into a project (clones Spec Kit automatically to a temp folder):
+  - `node create-rule.js --sdd --targetFolder=<project>`
+  - Optional: set `SPEC_KIT_REPO` (and `SPEC_KIT_REF`) to point to a fork/branch.
+- Claude Code users: open the project and run `/specify "Your feature"`. Commands are installed at `.claude/commands`.
+- Or run manually:
+  - `bash scripts/create-new-feature.sh --json "Your feature"`
+  - `bash scripts/setup-plan.sh --json` (must be on `^[0-9]{3}-` feature branch)
+  - `bash scripts/check-task-prerequisites.sh --json`
+
+Artifacts are created under `specs/<feature-branch>/`:
+- `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
+
+Troubleshooting:
+- Not on feature branch: `/plan` and `/tasks` require a `^[0-9]{3}-` branch (the scripts will error clearly).
+- Scripts not found: Ensure you ran `--sdd` and that `scripts/` exists in your project.
+- Templates missing: Re-run `--sdd`. Existing files with different content are backed up as `.bak`.
+- JSON outputs: All SDD scripts support `--json` and print stable JSON with key paths for automation.
