@@ -27,7 +27,7 @@ This command generates a comprehensive handover document that includes:
 ## Output Location
 
 The handover document MUST be saved to:
-- **Primary Location**: `.claude/session/handover-{{TIMESTAMP}}.md`
+- **Primary Location**: `.{{TOOL_DIR}}/session/handover-{{TIMESTAMP}}.md`
 - **Backup Location**: `./handover-{{TIMESTAMP}}.md` (project root)
 
 ## File Naming Convention
@@ -50,7 +50,7 @@ FILENAME="handover-${TIMESTAMP}.md"
    date +"%Y-%m-%d %H:%M:%S"  # For document header
    date +"%Y-%m-%d-%H-%M-%S"  # For filename
    ```
-2. Generate handover using `~/.claude/templates/handover-template.md`
+2. Generate handover using `{{HOME_TOOL_DIR}}/templates/handover-template.md`
 3. Replace all `{{VARIABLE}}` placeholders with actual values
 4. Save to BOTH locations (primary and backup)
 5. Display the full file path to the user for reference
