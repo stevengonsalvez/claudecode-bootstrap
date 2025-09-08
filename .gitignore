@@ -19,3 +19,4 @@ logs/user_prompt_submit.json
 # Bun build artifacts
 *.bun-build
 claude-code/hooks/*.bun-build
+.code/

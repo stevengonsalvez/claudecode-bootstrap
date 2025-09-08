@@ -84,6 +84,154 @@ describe('CLI Rule Copier', () => {
         }
     });
 
+    it('installs Spec Kit assets via git clone using --sdd (local fake repo)', () => {
+        const fakeRepo = path.join(tempDir, 'fake-spec-kit');
+        const mk = (p, content='') => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); };
+        mk(path.join(fakeRepo, '.claude/commands/specify.md'), 'specify');
+        mk(path.join(fakeRepo, '.claude/commands/plan.md'), 'plan');
+        mk(path.join(fakeRepo, '.claude/commands/tasks.md'), 'tasks');
+        mk(path.join(fakeRepo, 'templates/plan-template.md'), 'plan-template');
+        mk(path.join(fakeRepo, 'templates/spec-template.md'), 'spec-template');
+        mk(path.join(fakeRepo, 'templates/tasks-template.md'), 'tasks-template');
+        mk(path.join(fakeRepo, 'templates/agent-file-template.md'), 'agent-file');
+        mk(path.join(fakeRepo, 'memory/constitution.md'), 'constitution');
+        mk(path.join(fakeRepo, 'scripts/create-new-feature.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/setup-plan.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/check-task-prerequisites.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/common.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/get-feature-paths.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/update-agent-context.sh'), '');
+        execSync('git init && git add . && git -c user.name="T" -c user.email="t@e" commit -m init', { cwd: fakeRepo, stdio: 'pipe' });
+
+        const target = path.join(tempDir, 'sdd-project');
+        fs.mkdirSync(target, { recursive: true });
+
+        execSync(`node create-rule.js --sdd --targetFolder=${target}`, { stdio: 'pipe', env: { ...process.env, SPEC_KIT_REPO: fakeRepo } });
+
+        // Commands copied
+        expect(fs.existsSync(path.join(target, '.claude', 'commands', 'specify.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, '.claude', 'commands', 'plan.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, '.claude', 'commands', 'tasks.md'))).toBe(true);
+
+        // Scripts copied and executable
+        const scripts = [
+            'create-new-feature.sh',
+            'setup-plan.sh',
+            'check-task-prerequisites.sh',
+            'common.sh',
+            'get-feature-paths.sh',
+            'update-agent-context.sh',
+        ];
+        for (const s of scripts) {
+            const p = path.join(target, 'scripts', s);
+            expect(fs.existsSync(p)).toBe(true);
+            const mode = fs.statSync(p).mode & 0o111;
+            expect(mode).toBeGreaterThan(0);
+        }
+
+        // Templates
+        expect(fs.existsSync(path.join(target, 'templates', 'spec-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates', 'plan-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates', 'tasks-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates', 'agent-file-template.md'))).toBe(true);
+
+        // Memory
+        expect(fs.existsSync(path.join(target, 'memory', 'constitution.md'))).toBe(true);
+    });
+
+    it('creates .bak when overwriting different SDD template', () => {
+        const fakeRepo = path.join(tempDir, 'fake-spec-kit-bak');
+        const mk = (p, content='') => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); };
+        mk(path.join(fakeRepo, '.claude/commands/specify.md'), 'specify');
+        mk(path.join(fakeRepo, '.claude/commands/plan.md'), 'plan');
+        mk(path.join(fakeRepo, '.claude/commands/tasks.md'), 'tasks');
+        mk(path.join(fakeRepo, 'templates/plan-template.md'), 'plan-template');
+        mk(path.join(fakeRepo, 'templates/spec-template.md'), 'spec-template');
+        mk(path.join(fakeRepo, 'templates/tasks-template.md'), 'tasks-template');
+        mk(path.join(fakeRepo, 'templates/agent-file-template.md'), 'agent-file');
+        mk(path.join(fakeRepo, 'memory/constitution.md'), 'constitution');
+        mk(path.join(fakeRepo, 'scripts/create-new-feature.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/setup-plan.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/check-task-prerequisites.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/common.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/get-feature-paths.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/update-agent-context.sh'), '');
+        execSync('git init && git add . && git -c user.name="T" -c user.email="t@e" commit -m init', { cwd: fakeRepo, stdio: 'pipe' });
+
+        const target = path.join(tempDir, 'sdd-bak');
+        fs.mkdirSync(path.join(target, 'templates'), { recursive: true });
+        fs.writeFileSync(path.join(target, 'templates', 'plan-template.md'), 'DIFFERENT');
+
+        execSync(`node create-rule.js --sdd --targetFolder=${target}`, { stdio: 'pipe', env: { ...process.env, SPEC_KIT_REPO: fakeRepo } });
+
+        expect(fs.existsSync(path.join(target, 'templates', 'plan-template.md.bak'))).toBe(true);
+    });
+
+    it('SDD smoke test: git clone → install → git init → /specify → /plan', () => {
+        const fakeRepo = path.join(tempDir, 'fake-spec-kit-smoke');
+        const mk = (p, content='') => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); };
+        mk(path.join(fakeRepo, '.claude/commands/specify.md'), 'specify');
+        mk(path.join(fakeRepo, '.claude/commands/plan.md'), 'plan');
+        mk(path.join(fakeRepo, '.claude/commands/tasks.md'), 'tasks');
+        mk(path.join(fakeRepo, 'scripts/create-new-feature.sh'), `#!/usr/bin/env bash
+set -e
+REPO_ROOT=$(pwd)
+SPECS_DIR="$REPO_ROOT/specs"
+mkdir -p "$SPECS_DIR"
+BRANCH_NAME="001-test-feature"
+git checkout -b "$BRANCH_NAME" >/dev/null 2>&1 || git checkout "$BRANCH_NAME" >/dev/null 2>&1
+FEATURE_DIR="$SPECS_DIR/$BRANCH_NAME"
+mkdir -p "$FEATURE_DIR"
+SPEC_FILE="$FEATURE_DIR/spec.md"
+echo X > "$SPEC_FILE"
+printf '{"BRANCH_NAME":"%s","SPEC_FILE":"%s"}\n' "$BRANCH_NAME" "$SPEC_FILE"
+`);
+        mk(path.join(fakeRepo, 'scripts/setup-plan.sh'), `#!/usr/bin/env bash
+set -e
+REPO_ROOT=$(pwd)
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+FEATURE_DIR="$REPO_ROOT/specs/$BRANCH"
+mkdir -p "$FEATURE_DIR"
+IMPL_PLAN="$FEATURE_DIR/plan.md"
+echo PLAN > "$IMPL_PLAN"
+printf '{"FEATURE_SPEC":"%s","IMPL_PLAN":"%s","SPECS_DIR":"%s","BRANCH":"%s"}\n' "$FEATURE_DIR/spec.md" "$IMPL_PLAN" "$FEATURE_DIR" "$BRANCH"
+`);
+        mk(path.join(fakeRepo, 'scripts/check-task-prerequisites.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/common.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/get-feature-paths.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/update-agent-context.sh'), '');
+        mk(path.join(fakeRepo, 'templates/plan-template.md'), 'plan-template');
+        mk(path.join(fakeRepo, 'templates/spec-template.md'), 'spec-template');
+        mk(path.join(fakeRepo, 'templates/tasks-template.md'), 'tasks-template');
+        mk(path.join(fakeRepo, 'templates/agent-file-template.md'), 'agent-file');
+        mk(path.join(fakeRepo, 'memory/constitution.md'), 'constitution');
+        execSync('git init && git add . && git -c user.name="T" -c user.email="t@e" commit -m init', { cwd: fakeRepo, stdio: 'pipe' });
+
+        const target = path.join(tempDir, 'sdd-smoke');
+        fs.mkdirSync(target, { recursive: true });
+
+        execSync(`node create-rule.js --sdd --targetFolder=${target}`, { stdio: 'pipe', env: { ...process.env, SPEC_KIT_REPO: fakeRepo } });
+
+        // Init git and create initial commit to satisfy HEAD-based scripts
+        execSync('git init', { cwd: target, stdio: 'pipe' });
+        execSync('git -c user.name="Test" -c user.email="test@example.com" commit --allow-empty -m "init"', { cwd: target, stdio: 'pipe' });
+        fs.writeFileSync(path.join(target, '.gitignore'), 'node_modules\n');
+        execSync('git add . && git commit -m "init"', { cwd: target, stdio: 'pipe' });
+
+        // Run /specify script
+        const out = execSync('bash scripts/create-new-feature.sh --json "Sample SDD feature"', { cwd: target, stdio: 'pipe' }).toString();
+        const created = JSON.parse(out);
+        expect(created.BRANCH_NAME).toMatch(/^[0-9]{3}-/);
+        expect(fs.existsSync(created.SPEC_FILE)).toBe(true);
+        expect(created.SPEC_FILE).toContain(path.join(target, 'specs'));
+
+        // Run /plan setup
+        const out2 = execSync('bash scripts/setup-plan.sh --json', { cwd: target, stdio: 'pipe' }).toString();
+        const setup = JSON.parse(out2);
+        expect(setup.IMPL_PLAN).toContain(path.join(target, 'specs'));
+        expect(fs.existsSync(setup.IMPL_PLAN)).toBe(true);
+    });
+
     it('always copies the tool rule and default rules in non-interactive mode', () => {
         const tool = 'amazonq';
         const config = TOOL_CONFIG[tool];
@@ -287,4 +435,72 @@ describe('CLI Rule Copier', () => {
         // amazonq should NOT have agents folder  
         expect(fs.existsSync(path.join(amazonqDestDir, 'agents'))).toBe(false);
     });
+});
+
+// --- SDD (Spec-Driven Development) tests ---
+describe('Spec-Driven Development (SDD) Setup', () => {
+    const tempDir = path.join(__dirname, 'tmp-test-folder-sdd');
+    const specKitRoot = process.env.SPEC_KIT_PATH || '/Users/stevengonsalvez/d/git/spec-kit';
+
+    beforeEach(() => {
+        if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(tempDir, { recursive: true });
+    });
+
+    afterAll(() => {
+        if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    it('copies SDD assets using --sdd into a project folder (local fake repo)', () => {
+        // build a minimal local fake repo to avoid network
+        const fakeRepo = path.join(tempDir, 'fake-spec-kit-sdd');
+        const mk = (p, content='') => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); };
+        mk(path.join(fakeRepo, '.claude/commands/specify.md'), 'specify');
+        mk(path.join(fakeRepo, '.claude/commands/plan.md'), 'plan');
+        mk(path.join(fakeRepo, '.claude/commands/tasks.md'), 'tasks');
+        mk(path.join(fakeRepo, 'templates/plan-template.md'), 'plan-template');
+        mk(path.join(fakeRepo, 'templates/spec-template.md'), 'spec-template');
+        mk(path.join(fakeRepo, 'templates/tasks-template.md'), 'tasks-template');
+        mk(path.join(fakeRepo, 'templates/agent-file-template.md'), 'agent-file');
+        mk(path.join(fakeRepo, 'memory/constitution.md'), 'constitution');
+        mk(path.join(fakeRepo, 'scripts/create-new-feature.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/setup-plan.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/check-task-prerequisites.sh'), '#!/usr/bin/env bash\necho {}');
+        mk(path.join(fakeRepo, 'scripts/common.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/get-feature-paths.sh'), '');
+        mk(path.join(fakeRepo, 'scripts/update-agent-context.sh'), '');
+        execSync('git init && git add . && git -c user.name="T" -c user.email="t@e" commit -m init', { cwd: fakeRepo, stdio: 'pipe' });
+
+        const target = path.join(tempDir, 'sdd-project');
+        fs.mkdirSync(target, { recursive: true });
+
+        const cmd = `node create-rule.js --sdd --targetFolder=${target}`;
+        execSync(cmd, { cwd: path.join(__dirname), stdio: 'pipe', env: { ...process.env, SPEC_KIT_REPO: fakeRepo } });
+
+        // Verify core folders
+        expect(fs.existsSync(path.join(target, '.claude', 'commands'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'scripts'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'memory'))).toBe(true);
+
+        // Verify key files
+        expect(fs.existsSync(path.join(target, '.claude/commands/specify.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, '.claude/commands/plan.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, '.claude/commands/tasks.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates/spec-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates/plan-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'templates/tasks-template.md'))).toBe(true);
+        expect(fs.existsSync(path.join(target, 'memory/constitution.md'))).toBe(true);
+
+        // Script executability
+        const script = path.join(target, 'scripts/create-new-feature.sh');
+        const st = fs.statSync(script);
+        expect(st.mode & 0o111).not.toBe(0);
+    });
+
+    // Full smoke coverage exists in the main suite; duplicated flow removed here to avoid redundancy.
 });
