@@ -606,9 +606,9 @@ async function cloneSpecKit(repoUrl, ref = '') {
 async function copySpecKitAssets(specKitRoot, projectRoot) {
     const requiredFiles = {
         claudeCommands: [
-            '.claude/commands/specify.md',
-            '.claude/commands/plan.md',
-            '.claude/commands/tasks.md',
+            { source: '.claude/commands/specify.md', dest: '.claude/commands/sdd-specify.md' },
+            { source: '.claude/commands/plan.md', dest: '.claude/commands/sdd-plan.md' },
+            { source: '.claude/commands/tasks.md', dest: '.claude/commands/sdd-tasks.md' },
         ],
         scripts: [
             'scripts/create-new-feature.sh',
@@ -658,13 +658,15 @@ async function copySpecKitAssets(specKitRoot, projectRoot) {
         return 'copied';
     };
 
-    // Commands
-    for (const rel of requiredFiles.claudeCommands) {
-        const from = src(`.${path.sep}${rel.split('/').slice(1).join(path.sep)}`); // map .claude/commands under spec-kit root
-        const to = dst(rel);
+    // Commands (with renaming)
+    for (const cmd of requiredFiles.claudeCommands) {
+        const sourcePath = cmd.source;
+        const destPath = cmd.dest;
+        const from = src(`.${path.sep}${sourcePath.split('/').slice(1).join(path.sep)}`); // map .claude/commands under spec-kit root
+        const to = dst(destPath);
         if (!exists(from)) {
             // In spec-kit, commands live at .claude/commands
-            const alt = src(rel);
+            const alt = src(sourcePath);
             copyFileIdempotent(exists(alt) ? alt : from, to);
         } else {
             copyFileIdempotent(from, to);
@@ -696,7 +698,7 @@ async function copySpecKitAssets(specKitRoot, projectRoot) {
     const quickstartPath = dst('docs/sdd-quickstart.md');
     ensureParent(quickstartPath);
     if (!exists(quickstartPath)) {
-        const qs = `# Spec-Driven Development (SDD) Quickstart\n\n- Requires: Git, bash (macOS/Linux/WSL).\n- Commands live in \`.claude/commands\` for Claude Code.\n\nWorkflow:\n- /specify → creates branch + \`specs/###-.../spec.md\`\n- /plan → fills \`plan.md\` and generates research/data model/contracts/quickstart\n- /tasks → creates \`tasks.md\` from available docs\n\nRun manually (if needed):\n- \`bash scripts/create-new-feature.sh --json \"My feature\"\`\n- \`bash scripts/setup-plan.sh --json\` (must be on feature branch)\n- \`bash scripts/check-task-prerequisites.sh --json\`\n\nBranch rule: must match \`^[0-9]{3}-\` for /plan and /tasks.\n`;
+        const qs = `# Spec-Driven Development (SDD) Quickstart\n\n- Requires: Git, bash (macOS/Linux/WSL).\n- Commands live in \`.claude/commands\` for Claude Code.\n\nWorkflow:\n- /sdd-specify → creates branch + \`specs/###-.../spec.md\`\n- /sdd-plan → fills \`plan.md\` and generates research/data model/contracts/quickstart\n- /sdd-tasks → creates \`tasks.md\` from available docs\n\nRun manually (if needed):\n- \`bash scripts/create-new-feature.sh --json \"My feature\"\`\n- \`bash scripts/setup-plan.sh --json\` (must be on feature branch)\n- \`bash scripts/check-task-prerequisites.sh --json\`\n\nBranch rule: must match \`^[0-9]{3}-\` for /sdd-plan and /sdd-tasks.\n`;
         fs.writeFileSync(quickstartPath, qs);
     }
 
