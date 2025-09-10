@@ -917,18 +917,6 @@ When health reaches 🟡, proactively:
 4. Save all session state for seamless resume
 </session_state_management_guide>
 
-# Tool Usage Strategy
-
-<tool_selection_hierarchy>
-1. **MCP Tools First**: Check if there are MCP (Model Context Protocol) tools available that can serve the purpose
-2. **CLI Fallback**: If no MCP tool exists, use equivalent CLI option
-   - Fetch latest man/help page or run with --help to understand usage
-   - Examples: Use `psql` instead of postgres tool, `git` instead of git tool, `gh` instead of github tool 
-3. **API Direct**: For web services without CLI, use curl to call APIs directly
-   - Examples: Use Jira API, GitHub API, etc.
-</tool_selection_hierarchy>
-
-
 # Available Commands
 
 @{{HOME_TOOL_DIR}}/commands/brainstorm.md
@@ -961,3 +949,38 @@ When health reaches 🟡, proactively:
 
 @{{HOME_TOOL_DIR}}/templates/codereview-checklist-template.md
 @{{HOME_TOOL_DIR}}/templates/handover-template.md
+
+# Tool Usage Strategy
+
+<tool_selection_hierarchy>
+1. **MCP Tools First**: Check if there are MCP (Model Context Protocol) tools available that can serve the purpose
+2. **CLI Fallback**: If no MCP tool exists, use equivalent CLI option
+   - Fetch latest man/help page or run with --help to understand usage
+   - Examples: Use `psql` instead of postgres tool, `git` instead of git tool, `gh` instead of github tool 
+3. **API Direct**: For web services without CLI, use curl to call APIs directly
+   - Examples: Use Jira API, GitHub API, etc.
+
+# When you need to call tools from the shell, **use this rubric**:
+
+- Find Files: `fd`
+- Find Text: `rg` (ripgrep)
+- Find Code Structure (TS/TSX): `ast-grep`
+  - **Default to TypeScript:**  
+    - `.ts` → `ast-grep --lang ts -p '<pattern>'`  
+    - `.tsx` (React) → `ast-grep --lang tsx -p '<pattern>'`
+  - For other languages, set `--lang` appropriately (e.g., `--lang rust`).
+  - **Supported Languages by Domain:**
+    - System Programming: C, Cpp, Rust
+    - Server Side Programming: Go, Java, Python, C-sharp
+    - Web Development: JS(X), TS(X), HTML, CSS
+    - Mobile App Development: Kotlin, Swift
+    - Configuration: Json, YAML
+    - Scripting, Protocols, etc.: Lua, Thrift
+- Select among matches: pipe to `fzf`
+- JSON: `jq`
+- YAML/XML: `yq`
+
+If ast-grep is available avoid tools `rg` or `grep` unless a plain‑text search is explicitly requested.
+
+**If a CLI tool is not available, install it and use it.**
+</tool_selection_hierarchy>
