@@ -18,6 +18,7 @@
     "deny": []
   },
   "model": "opus",
+  "includeCoAuthoredBy": false,
   "hooks": {
     "PreToolUse": [
       {
