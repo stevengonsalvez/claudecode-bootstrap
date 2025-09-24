@@ -30,22 +30,30 @@ Please provide the plan file to validate against, or I can check for recently im
 
 ### Step 1: Context Discovery
 
+If starting fresh or need more context:
+
 1. **Read the implementation plan** completely
 2. **Identify what should have changed**:
    - List all files that should be modified
    - Note all success criteria (automated and manual)
    - Identify key functionality to verify
 
-3. **Check implementation evidence**:
-   ```bash
-   # Check recent commits
-   git log --oneline -n 20
-   
-   # Check current changes
-   git status
-   git diff
-   
-   # Look for the files mentioned in plan
+3. **Spawn parallel research tasks** to discover implementation:
+   ```
+   Task 1 - Verify database changes:
+   Research if migration [N] was added and schema changes match plan.
+   Check: migration files, schema version, table structure
+   Return: What was implemented vs what plan specified
+
+   Task 2 - Verify code changes:
+   Find all modified files related to [feature].
+   Compare actual changes to plan specifications.
+   Return: File-by-file comparison of planned vs actual
+
+   Task 3 - Verify test coverage:
+   Check if tests were added/modified as specified.
+   Run test commands and capture results.
+   Return: Test status and any missing coverage
    ```
 
 ### Step 2: Systematic Validation
@@ -55,34 +63,21 @@ For each phase in the plan:
 1. **Check completion status**:
    - Look for checkmarks in the plan (- [x])
    - Verify the actual code matches claimed completion
-   - Note any unchecked items
 
 2. **Run automated verification**:
-   Execute each command from "Automated Verification" sections:
-   ```bash
-   # Common verification commands
-   npm test
-   npm run lint
-   npm run typecheck
-   npm run build
-   
-   # Or project-specific
-   make test
-   make check
-   pytest
-   cargo test
-   ```
+   - Execute each command from "Automated Verification"
+   - Document pass/fail status
+   - If failures, investigate root cause
 
-3. **Document results**:
-   - ✓ for passing checks
-   - ✗ for failing checks with error details
-   - ⚠️ for partial success or warnings
-
-4. **Assess manual criteria**:
+3. **Assess manual criteria**:
    - List what needs manual testing
    - Provide clear steps for user verification
-   - Note which manual checks you cannot perform
 
+4. **Think deeply about edge cases**:
+   - Were error conditions handled?
+   - Are there missing validations?
+   - Could the implementation break existing functionality?
+   
 ### Step 3: Code Quality Review
 
 Spawn parallel Task agents for thorough review:
