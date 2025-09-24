@@ -17,7 +17,7 @@
     ],
     "deny": []
   },
-  "model": "opus",
+  "model": "claude-opus-4-1-20250805",
   "includeCoAuthoredBy": false,
   "hooks": {
     "PreToolUse": [
