@@ -318,6 +318,220 @@ After committing, always:
    git show HEAD
    ```
 
+## Push to Remote
+
+### When to Push
+
+After creating commits, automatically push to remote with these rules:
+
+1. **Automatic push for feature branches**:
+   - Push immediately after commits on non-protected branches
+   - Inform user what was pushed after completion
+
+2. **Ask permission ONLY for main/master**:
+   ```
+   You have commits ready to push to main/master branch.
+   This is a protected branch. Please confirm:
+   - Have all tests passed?
+   - Is the code reviewed?
+   - Are you ready to deploy?
+
+   Proceed with push to main/master? (yes/no)
+   ```
+
+3. **Always check remote status first**:
+   ```bash
+   # Check if branch exists on remote
+   git branch -r | grep origin/[current-branch]
+
+   # Check if local is ahead/behind
+   git status -sb
+
+   # Fetch latest without merging
+   git fetch origin
+   ```
+
+### Push Process
+
+#### Step 1: Verify Branch and Remote
+
+```bash
+# Check current branch
+BRANCH=$(git branch --show-current)
+
+# Determine if it's a protected branch
+if [[ "$BRANCH" == "main" ]] || [[ "$BRANCH" == "master" ]]; then
+    # Requires user confirmation (see rules above)
+    PROTECTED=true
+else
+    # Will push automatically
+    PROTECTED=false
+fi
+
+# Check tracking branch
+git branch -vv
+
+# See commits that will be pushed
+git log origin/$BRANCH..HEAD --oneline
+```
+
+#### Step 2: Inform User What Will Be Pushed
+
+```bash
+# Show the commits that will be pushed
+echo "Pushing the following commits to origin/$BRANCH:"
+git log origin/$BRANCH..HEAD --oneline
+
+# Example output:
+# "Pushing the following commits to origin/feature/oauth:
+# abc1234 feat: add OAuth2 authentication
+# def5678 test: add auth tests
+# ghi9012 fix: handle token refresh"
+```
+
+#### Step 3: Handle Different Scenarios
+
+**New Branch (not on remote):**
+```bash
+echo "Creating new remote branch and pushing..."
+git push -u origin $BRANCH
+echo "✓ Successfully pushed $BRANCH to origin"
+```
+
+**Existing Branch (already tracking):**
+```bash
+echo "Pushing to origin/$BRANCH..."
+git push
+echo "✓ Successfully pushed updates to origin/$BRANCH"
+```
+
+**Behind Remote (need to pull first):**
+```bash
+# Fetch and check
+git fetch origin
+
+# Always use rebase when pulling to keep history clean
+echo "Branch is behind remote. Syncing with rebase..."
+git pull --rebase
+echo "Retrying push after rebase..."
+git push
+echo "✓ Successfully pushed after rebasing on remote changes"
+```
+
+#### Step 4: Verify and Report Success
+
+```bash
+# Confirm push completed
+git log origin/$BRANCH..HEAD --oneline
+
+# Report success to user
+echo "✓ Push complete. Your branch is up to date with 'origin/$BRANCH'"
+
+# For feature branches, suggest next steps
+if [[ "$PROTECTED" == "false" ]]; then
+    echo ""
+    echo "Next steps:"
+    echo "- Create a pull request: gh pr create"
+    echo "- View on GitHub: gh repo view --web"
+fi
+```
+
+### Push Rules
+
+1. **Automatic push for feature branches**:
+   ```bash
+   # For non-protected branches, push automatically after commits
+   # Just inform the user what was pushed:
+   "Pushing 3 commits to origin/feature/oauth-impl..."
+   "✓ Successfully pushed to origin/feature/oauth-impl"
+   ```
+
+2. **Ask permission ONLY for protected branches**:
+   ```bash
+   # Protected branches require confirmation
+   if [[ "$BRANCH" == "main" ]] || [[ "$BRANCH" == "master" ]] || [[ "$BRANCH" == release/* ]]; then
+       echo "Ready to push to $BRANCH (protected branch)"
+       echo "Please confirm push to protected branch (yes/no):"
+       # Wait for user confirmation
+   else
+       # All other branches push automatically
+       echo "Pushing to origin/$BRANCH..."
+       git push
+   fi
+   ```
+
+3. **NEVER force push without explicit permission**:
+   ```bash
+   # If force push is needed, always ask regardless of branch:
+   "This requires a force push which will overwrite remote history.
+   This can affect other developers. Are you sure you want to proceed?"
+   ```
+
+4. **Always show what will be pushed**:
+   ```bash
+   # Before pushing, show commits
+   echo "Pushing the following commits to origin/$BRANCH:"
+   git log origin/$BRANCH..HEAD --oneline
+   ```
+
+5. **Handle push rejections gracefully**:
+   ```bash
+   # If push is rejected, automatically handle it
+   echo "Push rejected. Syncing with remote using rebase..."
+   git fetch origin
+   git pull --rebase
+
+   # Retry push after rebase
+   echo "Retrying push after rebase..."
+   git push
+
+   # If still fails, it's likely branch protection
+   if [ $? -ne 0 ]; then
+       echo "Push still rejected. This is likely due to:"
+       echo "- Branch protection rules"
+       echo "- Insufficient permissions"
+       echo ""
+       echo "Creating a pull request instead..."
+       gh pr create
+   fi
+   ```
+
+### Common Push Scenarios
+
+**Feature Branch Workflow:**
+```bash
+# After commits on feature branch, automatically push
+echo "Pushing feature branch to origin..."
+git push -u origin feature/oauth-implementation
+echo "✓ Successfully pushed to origin/feature/oauth-implementation"
+echo ""
+echo "Pull request can be created with: gh pr create"
+```
+
+**Hotfix Push:**
+```bash
+# For urgent fixes, push immediately
+echo "Pushing hotfix to origin..."
+git push origin hotfix/critical-security-fix
+echo "✓ Hotfix pushed successfully"
+echo ""
+echo "Creating urgent PR for review..."
+gh pr create --title "HOTFIX: Critical security fix" --label "urgent,hotfix"
+```
+
+**Release Branch:**
+```bash
+# Release branches are treated like protected branches
+echo "Ready to push to release branch"
+echo "Please confirm the following are complete:"
+echo "✓ All tests pass"
+echo "✓ Version numbers updated"
+echo "✓ Changelog updated"
+echo ""
+echo "Proceed with push to release branch? (yes/no)"
+# Only release and main/master branches ask for confirmation
+```
+
 ## Best Practices
 
 1. **Atomic commits**: Each commit should work independently
@@ -325,6 +539,9 @@ After committing, always:
 3. **Group related changes**: But don't mix unrelated changes
 4. **Test before committing**: Ensure code works
 5. **Review diff carefully**: Check for debug code, comments, secrets
+6. **Always rebase when syncing**: Use `git pull --rebase` to keep history clean
+7. **Automatic push for feature branches**: No confirmation needed, just inform user
+8. **Respect branch protection**: Only ask confirmation for main/master/release branches
 
 ## Quick Reference
 
