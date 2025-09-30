@@ -48,6 +48,22 @@ const TOOL_CONFIG = {
             }
         }
     },
+    'claude-code-4.5': {
+        ruleDir: 'claude-code-4.5',
+        targetSubdir: '.claude',
+        copyEntireFolder: true,
+        excludeFiles: ['settings.local.json'],
+        templateSubstitutions: {
+            'CLAUDE.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            }
+        }
+    },
     gemini: {
         ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
