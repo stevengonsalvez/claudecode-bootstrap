@@ -20,28 +20,6 @@
   "model": "claude-sonnet-4-5-20250929",
   "includeCoAuthoredBy": false,
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run ~/.claude/hooks/pre_tool_use.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run ~/.claude/hooks/post_tool_use.py"
-          }
-        ]
-      }
-    ],
     "Notification": [
       {
         "matcher": "",
