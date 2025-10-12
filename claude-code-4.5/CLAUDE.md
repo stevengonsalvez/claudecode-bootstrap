@@ -36,6 +36,143 @@ When creating a new project with its own claude.md (or other tool base system pr
 - Purpose: This establishes our unique working relationship for each project context
 </project_setup>
 
+# Comment Directives
+
+<comment_directives>
+Special comment annotations enable inline implementation instructions and documentation references, streamlining development workflows and reducing context switching.
+
+## @implement Directive
+
+**Purpose**: Inline implementation instructions directly in code comments.
+
+**Syntax**:
+```
+/* @implement [implementation instructions]
+   - Requirement 1
+   - Requirement 2
+*/
+```
+
+**Behavior**:
+1. Implement the specified changes
+2. Transform the comment into proper documentation (JSDoc, inline comments)
+3. Preserve intent and requirements in final documentation
+4. Consider delegating to specialized agents (backend-developer, frontend-developer, superstar-engineer) for complex implementations
+
+**Example**:
+
+```typescript
+/* @implement
+   Add Redis caching with 5-minute TTL:
+   - Cache by user ID
+   - Handle cache misses gracefully
+   - Log cache hit/miss metrics
+*/
+export class UserService {
+  // Implementation goes here
+}
+```
+
+**After Implementation**:
+```typescript
+/**
+ * User service with Redis caching (5-minute TTL).
+ * Tracks cache hit/miss metrics for monitoring.
+ */
+export class UserService {
+  private cache = new RedisCache({ ttl: 300 });
+
+  async getUser(id: string): Promise<User> {
+    const cached = await this.cache.get(id);
+    if (cached) {
+      this.metrics.increment('cache.hit');
+      return cached;
+    }
+
+    this.metrics.increment('cache.miss');
+    const user = await this.fetchUser(id);
+    await this.cache.set(id, user);
+    return user;
+  }
+}
+```
+
+## @docs Directive
+
+**Purpose**: Reference external documentation for implementation context.
+
+**Syntax**:
+```
+/* @docs <external-documentation-url> */
+```
+
+**Behavior**:
+1. Fetch the referenced documentation (use WebFetch tool)
+2. Verify URL safety (security check)
+3. Use documentation as implementation context
+4. Preserve the `@docs` reference in code
+5. Consider delegating to web-search-researcher agent for complex documentation exploration
+
+**Examples**:
+
+```typescript
+/*
+  Implements React Suspense for data loading.
+  @docs https://react.dev/reference/react/Suspense
+*/
+export function ProductList() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <ProductData />
+    </Suspense>
+  );
+}
+```
+
+```python
+# Payment processing with Stripe API
+# @docs https://stripe.com/docs/api/payment_intents
+async def process_payment(amount: int, customer_id: str):
+    # Implementation following Stripe patterns
+    pass
+```
+
+## Agent Integration
+
+**Use specialized agents with comment directives**:
+
+- `@implement` + **backend-developer**: Complex server-side implementations
+- `@implement` + **frontend-developer**: UI/UX implementations
+- `@implement` + **superstar-engineer**: Cross-stack features requiring coordination
+- `@docs` + **web-search-researcher**: Deep documentation exploration and research
+- `@docs` + **api-architect**: API design based on external specifications
+- `@docs` + **documentation-specialist**: Comprehensive documentation generation
+
+## Best Practices
+
+1. **Be Specific**: Provide clear, actionable details in `@implement` directives
+2. **Verify URLs**: Ensure `@docs` references point to official documentation
+3. **Update Documentation**: Transform `@implement` into proper docs after implementation
+4. **Keep References**: Preserve `@docs` comments for maintainability
+5. **Delegate Wisely**: Use specialized agents for complex implementations
+6. **Combine Directives**: Use both when external docs inform implementation
+
+**When to Use**:
+
+**@implement**:
+- Complex feature implementations
+- Refactoring tasks
+- Multi-step processes
+- Algorithm specifications
+
+**@docs**:
+- External library/API integration
+- Framework-specific patterns
+- Protocol/specification references
+- Design decision documentation
+
+**Rationale**: Comment directives reduce context switching, maintain implementation traceability, and streamline developer-AI collaboration while integrating seamlessly with the specialized agent ecosystem.
+</comment_directives>
 
 # Background Process Management
 
