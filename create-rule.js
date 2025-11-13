@@ -36,7 +36,7 @@ const TOOL_CONFIG = {
         ruleDir: 'claude-code',
         targetSubdir: '.claude',
         copyEntireFolder: true,
-        excludeFiles: ['settings.local.json'],
+        excludeFiles: ['settings.local.json', 'skills'],
         templateSubstitutions: {
             'CLAUDE.md': {
                 'TOOL_DIR': '.claude',
@@ -52,7 +52,7 @@ const TOOL_CONFIG = {
         ruleDir: 'claude-code-4.5',
         targetSubdir: '.claude',
         copyEntireFolder: true,
-        excludeFiles: ['settings.local.json'],
+        excludeFiles: ['settings.local.json', 'skills'],
         templateSubstitutions: {
             'CLAUDE.md': {
                 'TOOL_DIR': '.claude',
@@ -393,10 +393,22 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
         showProgress('Copying output-styles folder');
         const outputStylesSource = path.join(__dirname, 'claude-code', 'output-styles');
         const outputStylesDest = path.join(destDir, 'output-styles');
-        
+
         if (fs.existsSync(outputStylesSource)) {
             const outputStylesFiles = copyDirectoryRecursive(outputStylesSource, outputStylesDest, [], {});
             completeProgress(`Copied ${outputStylesFiles} output-styles files`);
+        }
+    }
+
+    // Copy skills folder for claude-code and claude-code-4.5
+    if (tool === 'claude-code' || tool === 'claude-code-4.5') {
+        showProgress('Copying skills folder');
+        const skillsSource = path.join(__dirname, config.ruleDir, 'skills');
+        const skillsDest = path.join(destDir, 'skills');
+
+        if (fs.existsSync(skillsSource)) {
+            const skillsFiles = copyDirectoryRecursive(skillsSource, skillsDest, [], config.templateSubstitutions || {});
+            completeProgress(`Copied ${skillsFiles} skill files`);
         }
     }
 
