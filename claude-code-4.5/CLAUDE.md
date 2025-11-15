@@ -177,11 +177,12 @@ async def process_payment(amount: int, customer_id: str):
 # Background Process Management
 
 <background_server_execution>
-CRITICAL: When starting any long-running server process (web servers, development servers, APIs, etc.), you MUST:
+CRITICAL: When starting any long-running server process (web servers, development servers, APIs, etc.), you MUST use tmux for persistence and management:
 
-1. **Always Run in Background**
+1. **Always Run in tmux Sessions**
    - NEVER run servers in foreground as this will block the agent process indefinitely
-   - Use background execution (`&` or `nohup`) or container-use background mode
+   - ALWAYS use tmux for background execution (provides persistence across disconnects)
+   - Fallback to container-use background mode if tmux unavailable
    - Examples of foreground-blocking commands:
      - `npm run dev` or `npm start`
      - `python app.py` or `flask run`
@@ -193,96 +194,164 @@ CRITICAL: When starting any long-running server process (web servers, developmen
    - ALWAYS use random/dynamic ports to avoid conflicts between parallel sessions
    - Generate random port: `PORT=$(shuf -i 3000-9999 -n 1)`
    - Pass port via environment variable or command line argument
-   - Document the assigned port in logs for reference
+   - Document the assigned port in session metadata
 
-3. **Mandatory Log Redirection**
-   - Redirect all output to log files: `command > app.log 2>&1 &`
+3. **tmux Session Naming Convention**
+   - Dev environments: `dev-{project}-{timestamp}`
+   - Spawned agents: `agent-{timestamp}`
+   - Monitoring: `monitor-{purpose}`
+   - Examples: `dev-myapp-1705161234`, `agent-1705161234`
+
+4. **Session Metadata**
+   - Save session info to `.tmux-dev-session.json` (per project)
+   - Include: session name, ports, services, created timestamp
+   - Use metadata for session discovery and conflict detection
+
+5. **Log Capture**
+   - Use `| tee logfile.log` to capture output to both tmux and file
    - Use descriptive log names: `server.log`, `api.log`, `dev-server.log`
    - Include port in log name when possible: `server-${PORT}.log`
-   - Capture both stdout and stderr for complete debugging information
-
-4. **Container-use Background Mode**
-   - When using container-use, ALWAYS set `background: true` for server commands
-   - Use `ports` parameter to expose the randomly assigned port
-   - Example: `mcp__container-use__environment_run_cmd` with `background: true, ports: [PORT]`
-
-5. **Log Monitoring**
-   - After starting background process, immediately check logs with `tail -f logfile.log`
-   - Use `cat logfile.log` to view full log contents
-   - Monitor startup messages to ensure server started successfully
-   - Look for port assignment confirmation in logs
+   - Logs visible in tmux pane AND saved to disk
 
 6. **Safe Process Management**
-   - NEVER kill by process name (`pkill node`, `pkill vite`, `pkill uv`) - this affects other parallel sessions
+   - NEVER kill by process name (`pkill node`, `pkill vite`, `pkill uv`) - affects other sessions
    - ALWAYS kill by port to target specific server: `lsof -ti:${PORT} | xargs kill -9`
-   - Alternative port-based killing: `fuser -k ${PORT}/tcp`
-   - Check what's running on port before killing: `lsof -i :${PORT}`
-   - Clean up port-specific processes before starting new servers on same port
+   - Alternative: Kill entire tmux session: `tmux kill-session -t {session-name}`
+   - Check what's running on port: `lsof -i :${PORT}`
 
 **Examples:**
 ```bash
-# ❌ WRONG - Will block forever and use default port
+# ❌ WRONG - Will block forever
 npm run dev
 
 # ❌ WRONG - Killing by process name affects other sessions
 pkill node
 
-# ✅ CORRECT - Complete workflow with random port
+# ❌ DEPRECATED - Using & background jobs (no persistence)
 PORT=$(shuf -i 3000-9999 -n 1)
-echo "Starting server on port $PORT"
 PORT=$PORT npm run dev > dev-server-${PORT}.log 2>&1 &
-tail -f dev-server-${PORT}.log
+
+# ✅ CORRECT - Complete tmux workflow with random port
+PORT=$(shuf -i 3000-9999 -n 1)
+SESSION="dev-$(basename $(pwd))-$(date +%s)"
+
+# Create tmux session
+tmux new-session -d -s "$SESSION" -n dev-server
+
+# Start server in tmux with log capture
+tmux send-keys -t "$SESSION:dev-server" "PORT=$PORT npm run dev | tee dev-server-${PORT}.log" C-m
+
+# Save metadata
+cat > .tmux-dev-session.json <<EOF
+{
+  "session": "$SESSION",
+  "port": $PORT,
+  "created": "$(date -Iseconds)"
+}
+EOF
+
+echo "✓ Dev server started in tmux session: $SESSION"
+echo "  Port: $PORT"
+echo "  Attach: tmux attach -t $SESSION"
+echo "  Logs: dev-server-${PORT}.log or view in tmux"
 
 # ✅ CORRECT - Safe killing by port
 lsof -ti:${PORT} | xargs kill -9
 
-# ✅ CORRECT - Check what's running on port first
-lsof -i :${PORT}
+# ✅ CORRECT - Or kill entire session
+tmux kill-session -t "$SESSION"
 
-# ✅ CORRECT - Alternative killing method
-fuser -k ${PORT}/tcp
+# ✅ CORRECT - Check session status
+tmux has-session -t "$SESSION" 2>/dev/null && echo "Session running"
 
-# ✅ CORRECT - Container-use with random port
+# ✅ CORRECT - Attach to monitor logs
+tmux attach -t "$SESSION"
+
+# ✅ CORRECT - Flask/Python in tmux
+PORT=$(shuf -i 5000-5999 -n 1)
+SESSION="dev-flask-$(date +%s)"
+tmux new-session -d -s "$SESSION" -n server
+tmux send-keys -t "$SESSION:server" "FLASK_RUN_PORT=$PORT flask run | tee flask-${PORT}.log" C-m
+
+# ✅ CORRECT - Next.js in tmux
+PORT=$(shuf -i 3000-3999 -n 1)
+SESSION="dev-nextjs-$(date +%s)"
+tmux new-session -d -s "$SESSION" -n server
+tmux send-keys -t "$SESSION:server" "PORT=$PORT npm run dev | tee nextjs-${PORT}.log" C-m
+```
+
+**Fallback: Container-use Background Mode** (when tmux unavailable):
+```bash
+# Only use if tmux is not available
 mcp__container-use__environment_run_cmd with:
   command: "PORT=${PORT} npm run dev"
   background: true
   ports: [PORT]
-
-# ✅ CORRECT - Flask/Python example
-PORT=$(shuf -i 3000-9999 -n 1)
-FLASK_RUN_PORT=$PORT python app.py > flask-${PORT}.log 2>&1 &
-
-# ✅ CORRECT - Next.js example  
-PORT=$(shuf -i 3000-9999 -n 1)
-PORT=$PORT npm run dev > nextjs-${PORT}.log 2>&1 &
 ```
 
-**Playwright Testing Background Execution:**
+**Playwright Testing in tmux:**
 
-- **ALWAYS run Playwright tests in background** to prevent agent blocking
-- **NEVER open test report servers** - they will block agent execution indefinitely
-- Use `--reporter=json` and `--reporter=line` for programmatic result parsing
-- Redirect all output to log files for later analysis
+- **Run Playwright tests in tmux** for persistence and log monitoring
+- **NEVER open test report servers** - they block agent execution
+- Use `--reporter=json` and `--reporter=line` for programmatic parsing
 - Examples:
 
 ```bash
-# ✅ CORRECT - Background Playwright execution
-npx playwright test --reporter=json > playwright-results.log 2>&1 &
+# ✅ CORRECT - Playwright in tmux session
+SESSION="test-playwright-$(date +%s)"
+tmux new-session -d -s "$SESSION" -n tests
+tmux send-keys -t "$SESSION:tests" "npx playwright test --reporter=json | tee playwright-results.log" C-m
 
-# ✅ CORRECT - Custom config with background execution  
-npx playwright test --config=custom.config.js --reporter=line > test-output.log 2>&1 &
+# Monitor progress
+tmux attach -t "$SESSION"
+
+# ❌ DEPRECATED - Background job (no persistence)
+npx playwright test --reporter=json > playwright-results.log 2>&1 &
 
 # ❌ WRONG - Will block agent indefinitely
 npx playwright test --reporter=html
 npx playwright show-report
 
 # ✅ CORRECT - Parse results programmatically
-cat playwright-results.json | jq '.stats'
-tail -20 test-output.log
+cat playwright-results.log | jq '.stats'
 ```
 
+**Using Generic /start-* Commands:**
 
-RATIONALE: Background execution with random ports prevents agent process deadlock while enabling parallel sessions to coexist without interference. Port-based process management ensures safe cleanup without affecting other concurrent development sessions. This maintains full visibility into server status through logs while ensuring continuous agent operation.
+For common development scenarios, use the generic commands:
+
+```bash
+# Start local web development (auto-detects framework)
+/start-local development  # Uses .env.development
+/start-local staging      # Uses .env.staging
+/start-local production   # Uses .env.production
+
+# Start iOS development (auto-detects project type)
+/start-ios Debug    # Uses .env.development
+/start-ios Staging  # Uses .env.staging
+/start-ios Release  # Uses .env.production
+
+# Start Android development (auto-detects project type)
+/start-android debug      # Uses .env.development
+/start-android staging    # Uses .env.staging
+/start-android release    # Uses .env.production
+```
+
+These commands automatically:
+- Create organized tmux sessions
+- Assign random ports
+- Start all required services
+- Save session metadata
+- Setup log monitoring
+
+**Session Persistence Benefits:**
+- Survives SSH disconnects
+- Survives terminal restarts
+- Easy reattachment: `tmux attach -t {session-name}`
+- Live log monitoring in split panes
+- Organized multi-window layouts
+
+RATIONALE: tmux provides persistence across disconnects, better visibility through split panes, and session organization. Random ports prevent conflicts between parallel sessions. Port-based or session-based process management ensures safe cleanup. Generic /start-* commands provide consistent, framework-agnostic development environments.
 </background_server_execution>
 
 # Session Management System
