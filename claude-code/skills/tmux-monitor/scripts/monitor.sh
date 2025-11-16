@@ -114,7 +114,7 @@ output_compact() {
     echo "${TOTAL_SESSIONS} active sessions:"
 
     # Dev environments
-    if [ ${#DEV_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v DEV_SESSIONS[@] ]] && [ ${#DEV_SESSIONS[@]} -gt 0 ]; then
         for session_data in "${DEV_SESSIONS[@]}"; do
             IFS='|' read -r SESSION_NAME WINDOW_COUNT PANE_COUNT ATTACHED <<< "$session_data"
             STATUS="detached"
@@ -132,7 +132,7 @@ output_compact() {
     fi
 
     # Agent sessions
-    if [ ${#AGENT_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v AGENT_SESSIONS[@] ]] && [ ${#AGENT_SESSIONS[@]} -gt 0 ]; then
         for session_data in "${AGENT_SESSIONS[@]}"; do
             IFS='|' read -r SESSION_NAME WINDOW_COUNT PANE_COUNT ATTACHED <<< "$session_data"
 
@@ -149,7 +149,7 @@ output_compact() {
     fi
 
     # Claude sessions
-    if [ ${#CLAUDE_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v CLAUDE_SESSIONS[@] ]] && [ ${#CLAUDE_SESSIONS[@]} -gt 0 ]; then
         for session_data in "${CLAUDE_SESSIONS[@]}"; do
             IFS='|' read -r SESSION_NAME WINDOW_COUNT PANE_COUNT ATTACHED <<< "$session_data"
             STATUS="detached"
@@ -159,7 +159,7 @@ output_compact() {
     fi
 
     # Other sessions
-    if [ ${#OTHER_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v OTHER_SESSIONS[@] ]] && [ ${#OTHER_SESSIONS[@]} -gt 0 ]; then
         for session_data in "${OTHER_SESSIONS[@]}"; do
             IFS='|' read -r SESSION_NAME WINDOW_COUNT PANE_COUNT ATTACHED <<< "$session_data"
             echo "- $SESSION_NAME ($WINDOW_COUNT windows)"
@@ -188,7 +188,7 @@ output_detailed() {
     echo ""
 
     # Dev environments
-    if [ ${#DEV_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v DEV_SESSIONS[@] ]] && [ ${#DEV_SESSIONS[@]} -gt 0 ]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "## Development Environments (${#DEV_SESSIONS[@]})"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -234,7 +234,7 @@ output_detailed() {
     fi
 
     # Agent sessions
-    if [ ${#AGENT_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v AGENT_SESSIONS[@] ]] && [ ${#AGENT_SESSIONS[@]} -gt 0 ]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "## Spawned Agents (${#AGENT_SESSIONS[@]})"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -280,7 +280,7 @@ output_detailed() {
     fi
 
     # Claude sessions
-    if [ ${#CLAUDE_SESSIONS[@]} -gt 0 ]; then
+    if [[ -v CLAUDE_SESSIONS[@] ]] && [ ${#CLAUDE_SESSIONS[@]} -gt 0 ]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "## Other Sessions (${#CLAUDE_SESSIONS[@]})"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
