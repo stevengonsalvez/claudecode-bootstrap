@@ -8,16 +8,24 @@ set -euo pipefail
 create_agent_worktree() {
     local AGENT_ID=$1
     local BASE_BRANCH=${2:-$(git branch --show-current)}
+    local TASK_SLUG=${3:-""}
 
-    local WORKTREE_DIR="worktrees/agent-${AGENT_ID}"
+    # Build directory name with optional task slug
+    if [ -n "$TASK_SLUG" ]; then
+        local WORKTREE_DIR="worktrees/agent-${AGENT_ID}-${TASK_SLUG}"
+    else
+        local WORKTREE_DIR="worktrees/agent-${AGENT_ID}"
+    fi
+
     local BRANCH_NAME="agent/agent-${AGENT_ID}"
 
     # Create worktrees directory if needed
     mkdir -p worktrees
 
-    # Create worktree with new branch
-    git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "$BASE_BRANCH"
+    # Create worktree with new branch (redirect git output to stderr)
+    git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "$BASE_BRANCH" >&2
 
+    # Echo only the directory path to stdout
     echo "$WORKTREE_DIR"
 }
 
@@ -26,11 +34,12 @@ cleanup_agent_worktree() {
     local AGENT_ID=$1
     local FORCE=${2:-false}
 
-    local WORKTREE_DIR="worktrees/agent-${AGENT_ID}"
+    # Find worktree directory (may have task slug suffix)
+    local WORKTREE_DIR=$(find worktrees -type d -name "agent-${AGENT_ID}*" 2>/dev/null | head -1)
     local BRANCH_NAME="agent/agent-${AGENT_ID}"
 
-    if [ ! -d "$WORKTREE_DIR" ]; then
-        echo "❌ Worktree not found: $WORKTREE_DIR"
+    if [ -z "$WORKTREE_DIR" ] || [ ! -d "$WORKTREE_DIR" ]; then
+        echo "❌ Worktree not found for agent: $AGENT_ID"
         return 1
     fi
 
@@ -71,30 +80,32 @@ merge_agent_work() {
 # Check if worktree exists
 worktree_exists() {
     local AGENT_ID=$1
-    local WORKTREE_DIR="worktrees/agent-${AGENT_ID}"
+    local WORKTREE_DIR=$(find worktrees -type d -name "agent-${AGENT_ID}*" 2>/dev/null | head -1)
 
-    [ -d "$WORKTREE_DIR" ]
+    [ -n "$WORKTREE_DIR" ] && [ -d "$WORKTREE_DIR" ]
 }
 
-# Main CLI
-case "${1:-help}" in
-    create)
-        create_agent_worktree "$2" "${3:-}"
-        ;;
-    cleanup)
-        cleanup_agent_worktree "$2" "${3:-false}"
-        ;;
-    list)
-        list_agent_worktrees
-        ;;
-    merge)
-        merge_agent_work "$2"
-        ;;
-    exists)
-        worktree_exists "$2"
-        ;;
-    *)
-        echo "Usage: git-worktree-utils.sh {create|cleanup|list|merge|exists} [args]"
-        exit 1
-        ;;
-esac
+# Main CLI (only run if executed directly, not sourced)
+if [ "${BASH_SOURCE[0]:-}" = "${0:-}" ]; then
+    case "${1:-help}" in
+        create)
+            create_agent_worktree "$2" "${3:-}" "${4:-}"
+            ;;
+        cleanup)
+            cleanup_agent_worktree "$2" "${3:-false}"
+            ;;
+        list)
+            list_agent_worktrees
+            ;;
+        merge)
+            merge_agent_work "$2"
+            ;;
+        exists)
+            worktree_exists "$2"
+            ;;
+        *)
+            echo "Usage: git-worktree-utils.sh {create|cleanup|list|merge|exists} [args]"
+            exit 1
+            ;;
+    esac
+fi

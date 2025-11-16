@@ -7,6 +7,8 @@ Spawn a Claude Code agent in a separate tmux session with optional handover cont
 ```bash
 /spawn-agent "implement user authentication"
 /spawn-agent "refactor the API layer" --with-handover
+/spawn-agent "implement feature X" --with-worktree
+/spawn-agent "review the PR" --with-worktree --with-handover
 ```
 
 ## Implementation
@@ -17,21 +19,68 @@ Spawn a Claude Code agent in a separate tmux session with optional handover cont
 # Parse arguments
 TASK="$1"
 WITH_HANDOVER=false
+WITH_WORKTREE=false
+shift
 
-if [[ "$2" == "--with-handover" ]]; then
-    WITH_HANDOVER=true
-fi
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-handover)
+            WITH_HANDOVER=true
+            shift
+            ;;
+        --with-worktree)
+            WITH_WORKTREE=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 if [ -z "$TASK" ]; then
     echo "❌ Task description required"
-    echo "Usage: /spawn-agent \"task description\" [--with-handover]"
+    echo "Usage: /spawn-agent \"task description\" [--with-handover] [--with-worktree]"
     exit 1
 fi
 
 # Generate session info
 TASK_ID=$(date +%s)
 SESSION="agent-${TASK_ID}"
-WORK_DIR=$(pwd)
+
+# Setup working directory (worktree or current)
+if [ "$WITH_WORKTREE" = true ]; then
+    # Detect transcrypt (informational only - works transparently with worktrees)
+    if git config --get-regexp '^transcrypt\.' >/dev/null 2>&1; then
+        echo "📦 Transcrypt detected - worktree will inherit encryption config automatically"
+        echo ""
+    fi
+
+    # Get current branch as base
+    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "HEAD")
+
+    # Generate task slug from task description
+    TASK_SLUG=$(echo "$TASK" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 -]//g' | tr -s ' ' '-' | cut -c1-40 | sed 's/-$//')
+
+    # Source worktree utilities
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "$SCRIPT_DIR/../utils/git-worktree-utils.sh"
+
+    # Create worktree with task slug
+    echo "🌳 Creating isolated git worktree..."
+    WORK_DIR=$(create_agent_worktree "$TASK_ID" "$CURRENT_BRANCH" "$TASK_SLUG")
+    AGENT_BRANCH="agent/agent-${TASK_ID}"
+
+    echo "✅ Worktree created:"
+    echo "   Directory: $WORK_DIR"
+    echo "   Branch: $AGENT_BRANCH"
+    echo "   Base: $CURRENT_BRANCH"
+    echo ""
+else
+    WORK_DIR=$(pwd)
+    AGENT_BRANCH=""
+fi
 
 echo "🚀 Spawning Claude agent in tmux session..."
 echo ""
@@ -126,7 +175,9 @@ cat > ~/.claude/agents/${SESSION}.json <<EOF
   "directory": "$WORK_DIR",
   "created": "$(date -Iseconds)",
   "status": "running",
-  "with_handover": $WITH_HANDOVER
+  "with_handover": $WITH_HANDOVER,
+  "with_worktree": $WITH_WORKTREE,
+  "worktree_branch": "$AGENT_BRANCH"
 }
 EOF
 
@@ -140,3 +191,13 @@ exit 0
 - Use `tmux attach -t agent-{timestamp}` to monitor
 - Use `tmux send-keys` to send additional prompts
 - Metadata saved to `~/.claude/agents/agent-{timestamp}.json`
+
+## Worktree Isolation
+
+- Use `--with-worktree` flag for isolated git workspace
+- Creates worktree in `worktrees/agent-{timestamp}-{task-slug}`
+  - Example: `worktrees/agent-1763250000-implement-user-auth`
+- Creates branch `agent/agent-{timestamp}` based on current branch
+- Transcrypt encryption inherited automatically (no special setup needed)
+- Use `/list-agent-worktrees` to see all worktrees
+- Use `/cleanup-agent-worktree {timestamp}` to remove when done
