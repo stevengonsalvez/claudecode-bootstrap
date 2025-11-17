@@ -16,6 +16,41 @@ Spawn a Claude Code agent in a separate tmux session with optional handover cont
 ```bash
 #!/bin/bash
 
+# Function: Wait for Claude Code to be ready for input
+wait_for_claude_ready() {
+    local SESSION=$1
+    local TIMEOUT=30
+    local START=$(date +%s)
+
+    echo "⏳ Waiting for Claude to initialize..."
+
+    while true; do
+        # Capture pane output (suppress errors if session not ready)
+        PANE_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null)
+
+        # Check for Claude prompt/splash (any of these indicates readiness)
+        if echo "$PANE_OUTPUT" | grep -qE "Claude Code|Welcome back|──────|Style:|bypass permissions"; then
+            # Verify not in error state
+            if ! echo "$PANE_OUTPUT" | grep -qiE "error|crash|failed|command not found"; then
+                echo "✅ Claude initialized successfully"
+                return 0
+            fi
+        fi
+
+        # Timeout check
+        local ELAPSED=$(($(date +%s) - START))
+        if [ $ELAPSED -gt $TIMEOUT ]; then
+            echo "❌ Timeout: Claude did not initialize within ${TIMEOUT}s"
+            echo "📋 Capturing debug output..."
+            tmux capture-pane -t "$SESSION" -p > "/tmp/spawn-agent-${SESSION}-failure.log" 2>&1
+            echo "Debug output saved to /tmp/spawn-agent-${SESSION}-failure.log"
+            return 1
+        fi
+
+        sleep 0.2
+    done
+}
+
 # Parse arguments
 TASK="$1"
 WITH_HANDOVER=false
@@ -126,26 +161,64 @@ fi
 # Create tmux session
 tmux new-session -d -s "$SESSION" -c "$WORK_DIR"
 
+# Verify session creation
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "❌ Failed to create tmux session"
+    exit 1
+fi
+
 echo "✅ Created tmux session: $SESSION"
 echo ""
 
 # Start Claude Code in the session
 tmux send-keys -t "$SESSION" "claude --dangerously-skip-permissions" C-m
 
-# Wait for Claude to start
-sleep 2
-
-# Send handover context if generated
-if [ "$WITH_HANDOVER" = true ]; then
-    echo "📤 Sending handover context to agent..."
-    # Send the handover content
-    tmux send-keys -t "$SESSION" "$HANDOVER_CONTENT" C-m
-    sleep 1
+# Wait for Claude to be ready (not just sleep!)
+if ! wait_for_claude_ready "$SESSION"; then
+    echo "❌ Failed to start Claude agent - cleaning up..."
+    tmux kill-session -t "$SESSION" 2>/dev/null
+    exit 1
 fi
 
-# Send the task
+# Additional small delay for UI stabilization
+sleep 0.5
+
+# Send handover context if generated (line-by-line to handle newlines)
+if [ "$WITH_HANDOVER" = true ]; then
+    echo "📤 Sending handover context to agent..."
+
+    # Send line-by-line to handle multi-line content properly
+    echo "$HANDOVER_CONTENT" | while IFS= read -r LINE || [ -n "$LINE" ]; do
+        # Use -l flag to send literal text (handles special characters)
+        tmux send-keys -t "$SESSION" -l "$LINE"
+        tmux send-keys -t "$SESSION" C-m
+        sleep 0.05  # Small delay between lines
+    done
+
+    # Final Enter to submit
+    tmux send-keys -t "$SESSION" C-m
+    sleep 0.5
+fi
+
+# Send the task (use literal mode for safety with special characters)
 echo "📤 Sending task to agent..."
-tmux send-keys -t "$SESSION" "$TASK" C-m
+tmux send-keys -t "$SESSION" -l "$TASK"
+tmux send-keys -t "$SESSION" C-m
+
+# Small delay for Claude to start processing
+sleep 1
+
+# Verify task was received by checking if Claude is processing
+CURRENT_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null)
+if echo "$CURRENT_OUTPUT" | grep -qE "Thought for|Forming|Creating|Implement|⏳|✽|∴"; then
+    echo "✅ Task received and processing"
+elif echo "$CURRENT_OUTPUT" | grep -qE "error|failed|crash"; then
+    echo "⚠️  Warning: Detected error in agent output"
+    echo "📋 Last 10 lines of output:"
+    tmux capture-pane -t "$SESSION" -p | tail -10
+else
+    echo "ℹ️  Task sent (unable to confirm receipt - agent may still be starting)"
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -191,6 +264,10 @@ exit 0
 - Use `tmux attach -t agent-{timestamp}` to monitor
 - Use `tmux send-keys` to send additional prompts
 - Metadata saved to `~/.claude/agents/agent-{timestamp}.json`
+- **NEW**: Robust readiness detection with 30s timeout
+- **NEW**: Multi-line input handled correctly via line-by-line sending
+- **NEW**: Verification that task was received and processing started
+- **NEW**: Debug logs saved to `/tmp/spawn-agent-{session}-failure.log` on failures
 
 ## Worktree Isolation
 
@@ -201,3 +278,12 @@ exit 0
 - Transcrypt encryption inherited automatically (no special setup needed)
 - Use `/list-agent-worktrees` to see all worktrees
 - Use `/cleanup-agent-worktree {timestamp}` to remove when done
+
+## Troubleshooting
+
+If spawn-agent fails:
+1. Check debug log: `/tmp/spawn-agent-{session}-failure.log`
+2. Verify Claude Code is installed: `which claude`
+3. Verify tmux is installed: `which tmux`
+4. Check existing sessions: `tmux list-sessions`
+5. Manually attach to debug: `tmux attach -t agent-{timestamp}`
