@@ -20,3 +20,11 @@ logs/user_prompt_submit.json
 *.bun-build
 claude-code/hooks/*.bun-build
 .code/
+# Orchestration runtime state (DO NOT COMMIT)
+.claude/orchestration/state/sessions.json
+.claude/orchestration/state/completed.json
+.claude/orchestration/state/dag-*.json
+.claude/orchestration/checkpoints/*.json
+
+# Keep config template
+!.claude/orchestration/state/config.json

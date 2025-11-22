@@ -141,6 +141,73 @@ def load_development_context(source):
     return "\n".join(context_parts)
 
 
+def load_tmux_sessions():
+    """Load and display active tmux development sessions."""
+    try:
+        # Find all tmux session metadata files
+        session_files = list(Path.cwd().glob('.tmux-*-session.json'))
+
+        if not session_files:
+            return "📋 No active development sessions found"
+
+        sessions = []
+        for file in session_files:
+            try:
+                with open(file, 'r') as f:
+                    data = json.load(f)
+
+                    # Verify session still exists
+                    session_name = data.get('session')
+                    if session_name:
+                        check_result = subprocess.run(
+                            ['tmux', 'has-session', '-t', session_name],
+                            capture_output=True,
+                            timeout=2
+                        )
+
+                        if check_result.returncode == 0:
+                            sessions.append({
+                                'type': file.stem.replace('.tmux-', '').replace('-session', ''),
+                                'data': data
+                            })
+            except Exception:
+                continue
+
+        if not sessions:
+            return "📋 No active development sessions found"
+
+        # Format as table
+        lines = [
+            "═══════════════════════════════════════════════════════════════",
+            "  Active Development Sessions",
+            "═══════════════════════════════════════════════════════════════",
+        ]
+
+        for sess in sessions:
+            data = sess['data']
+            lines.append(f"\n  [{sess['type'].upper()}] {data.get('session')}")
+            lines.append(f"  Project: {data.get('project_name', 'N/A')}")
+
+            branch = data.get('branch')
+            if branch and branch != 'main':
+                lines.append(f"  Branch: {branch}")
+
+            if 'dev_port' in data and data['dev_port']:
+                lines.append(f"  Port: http://localhost:{data['dev_port']}")
+
+            if 'environment' in data:
+                lines.append(f"  Environment: {data['environment']}")
+
+            lines.append(f"  Attach: tmux attach -t {data.get('session')}")
+
+        lines.append("\n═══════════════════════════════════════════════════════════════")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Failed to load tmux sessions: {e}"
+
+
 def main():
     try:
         # Parse command line arguments
@@ -196,17 +263,31 @@ def main():
             except Exception as e:
                 git_status_info.append(f"Failed to run git status: {e}")
             
-            # If we have git status info, output it as additional context
-            if git_status_info:
-                output = {
-                    "hookSpecificOutput": {
-                        "hookEventName": "SessionStart",
-                        "additionalContext": "\n\n".join(git_status_info)
-                    }
+            # Store git status for potential combination with tmux sessions
+            # (Don't exit yet, combine with tmux sessions below)
+
+        # Always load tmux sessions
+        tmux_sessions = load_tmux_sessions()
+
+        # Combine git status (if requested) with tmux sessions
+        context_parts = []
+        if args.git_status and git_status_info:
+            context_parts.extend(git_status_info)
+
+        if tmux_sessions:
+            context_parts.append(tmux_sessions)
+
+        # If we have any context to display, output it
+        if context_parts:
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "\n\n".join(context_parts)
                 }
-                print(json.dumps(output))
-                sys.exit(0)
-        
+            }
+            print(json.dumps(output))
+            sys.exit(0)
+
         # Load development context if requested
         if args.load_context:
             context = load_development_context(source)
