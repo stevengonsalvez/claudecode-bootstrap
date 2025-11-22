@@ -82,6 +82,7 @@ done
 
 ```bash
 PROJECT_NAME=$(basename "$(pwd)")
+BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 TIMESTAMP=$(date +%s)
 SESSION="dev-${PROJECT_NAME}-${TIMESTAMP}"
 
@@ -152,7 +153,8 @@ tmux send-keys -t "$SESSION:git" "git status" C-m
 cat > .tmux-dev-session.json <<EOF
 {
   "session": "$SESSION",
-  "project": "$PROJECT_NAME",
+  "project_name": "$PROJECT_NAME",
+  "branch": "$BRANCH",
   "type": "$PROJECT_TYPE",
   "environment": "$ENVIRONMENT",
   "env_file": "$ENV_FILE",

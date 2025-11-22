@@ -128,6 +128,7 @@ fi
 
 ```bash
 PROJECT_NAME=$(basename "$(pwd)")
+BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
 TIMESTAMP=$(date +%s)
 SESSION="android-${PROJECT_NAME}-${TIMESTAMP}"
 
@@ -183,7 +184,8 @@ tmux send-keys -t "$SESSION:git" "git status" C-m
 cat > .tmux-android-session.json <<EOF
 {
   "session": "$SESSION",
-  "project": "$PROJECT_NAME",
+  "project_name": "$PROJECT_NAME",
+  "branch": "$BRANCH",
   "type": "$PROJECT_TYPE",
   "variant": "$VARIANT",
   "environment": "$ENV_FILE",
@@ -191,6 +193,7 @@ cat > .tmux-android-session.json <<EOF
     "name": "$DEVICE",
     "serial": "$EMULATOR_SERIAL"
   },
+  "dev_port": ${DEV_PORT:-null},
   "poltergeist": $POLTERGEIST_AVAILABLE,
   "created": "$(date -Iseconds)"
 }
