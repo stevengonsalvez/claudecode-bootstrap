@@ -169,31 +169,46 @@ function getEffectiveExcludeFiles(tool, config) {
 
 function copyDirectoryRecursive(source, destination, excludeFiles = [], templateSubstitutions = {}) {
     const files = [];
-    
+
+    function shouldSkipItem(item, relativePath, isDirectory) {
+        // Skip node_modules and logs directories
+        if (isDirectory && (item === 'node_modules' || item === 'logs')) {
+            return true;
+        }
+
+        // Skip build artifacts and lock files
+        if (!isDirectory) {
+            // Skip Bun build temp files
+            if (item.startsWith('.') && item.includes('.bun-build')) {
+                return true;
+            }
+            // Skip lock files in bin directories
+            if (relativePath.includes('/bin/') && (item === 'bun.lockb' || item === 'bun.lock')) {
+                return true;
+            }
+        }
+
+        // Check explicit excludes
+        return excludeFiles.some(excludeFile =>
+            relativePath === excludeFile || item === excludeFile
+        );
+    }
+
     function getAllFiles(dir, basePath = '') {
         const items = readdirSync(dir);
         for (const item of items) {
             const fullPath = path.join(dir, item);
             const relativePath = path.join(basePath, item);
-            
-            if (statSync(fullPath).isDirectory()) {
-                // Check if this directory should be excluded
-                const shouldExcludeDir = excludeFiles.some(excludeFile => 
-                    relativePath === excludeFile || item === excludeFile
-                );
-                
-                if (!shouldExcludeDir) {
-                    getAllFiles(fullPath, relativePath);
-                }
+            const isDirectory = statSync(fullPath).isDirectory();
+
+            if (shouldSkipItem(item, relativePath, isDirectory)) {
+                continue;
+            }
+
+            if (isDirectory) {
+                getAllFiles(fullPath, relativePath);
             } else {
-                // Check if this file should be excluded
-                const shouldExclude = excludeFiles.some(excludeFile => 
-                    relativePath === excludeFile || item === excludeFile
-                );
-                
-                if (!shouldExclude) {
-                    files.push({ source: fullPath, dest: path.join(destination, relativePath), fileName: item, relativePath: relativePath });
-                }
+                files.push({ source: fullPath, dest: path.join(destination, relativePath), fileName: item, relativePath: relativePath });
             }
         }
     }
@@ -409,6 +424,81 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
         if (fs.existsSync(skillsSource)) {
             const skillsFiles = copyDirectoryRecursive(skillsSource, skillsDest, [], config.templateSubstitutions || {});
             completeProgress(`Copied ${skillsFiles} skill files`);
+        }
+
+        // Smart compilation for browser-tools in webapp-testing skill
+        const browserToolsDir = path.join(skillsDest, 'webapp-testing', 'bin');
+        const browserToolsTs = path.join(browserToolsDir, 'browser-tools.ts');
+        const browserToolsBinary = path.join(browserToolsDir, 'browser-tools');
+        const rebuildFlag = process.argv.includes('--rebuild');
+
+        if (fs.existsSync(browserToolsTs)) {
+            // For claude-code-4.5: compile the binary
+            if (tool === 'claude-code-4.5') {
+                let shouldCompile = rebuildFlag;
+
+                if (!fs.existsSync(browserToolsBinary)) {
+                    shouldCompile = true;
+                    showProgress('browser-tools binary missing, compiling');
+                } else if (!rebuildFlag) {
+                    const tsStats = statSync(browserToolsTs);
+                    const binaryStats = statSync(browserToolsBinary);
+                    if (tsStats.mtime > binaryStats.mtime) {
+                        shouldCompile = true;
+                        showProgress('browser-tools.ts is newer, recompiling');
+                    }
+                }
+
+                if (shouldCompile) {
+                    try {
+                        showProgress('Compiling browser-tools binary');
+                        const { execSync } = await import('child_process');
+
+                        // Try Bun first
+                        try {
+                            execSync('which bun', { stdio: 'pipe' });
+                            execSync(
+                                `cd "${browserToolsDir}" && bun install && bun build browser-tools.ts --compile --target bun --outfile browser-tools`,
+                                { stdio: 'pipe' }
+                            );
+                            completeProgress('Compiled browser-tools with Bun');
+                        } catch {
+                            // Fallback to esbuild
+                            try {
+                                execSync('which esbuild', { stdio: 'pipe' });
+                                execSync(
+                                    `cd "${browserToolsDir}" && npm install && esbuild browser-tools.ts --bundle --platform=node --outfile=browser-tools.js`,
+                                    { stdio: 'pipe' }
+                                );
+                                completeProgress('Compiled browser-tools with esbuild (JavaScript output)');
+                            } catch {
+                                completeProgress('Compilation failed, using existing binary if available');
+                            }
+                        }
+                    } catch (error) {
+                        completeProgress(`Compilation error: ${error.message}, using existing binary if available`);
+                    }
+                }
+            }
+            // For claude-code: copy binary from claude-code-4.5 source
+            else if (tool === 'claude-code') {
+                showProgress('Copying browser-tools binary from claude-code-4.5');
+                const sourceBinary = path.join(__dirname, 'claude-code-4.5', 'skills', 'webapp-testing', 'bin', 'browser-tools');
+
+                // Remove symlink if it exists (from git source)
+                if (fs.existsSync(browserToolsBinary)) {
+                    fs.unlinkSync(browserToolsBinary);
+                }
+
+                // Copy binary from claude-code-4.5 source
+                if (fs.existsSync(sourceBinary)) {
+                    fs.copyFileSync(sourceBinary, browserToolsBinary);
+                    fs.chmodSync(browserToolsBinary, 0o755); // Make executable
+                    completeProgress('Copied browser-tools binary from claude-code-4.5');
+                } else {
+                    completeProgress('Warning: browser-tools binary not found in claude-code-4.5');
+                }
+            }
         }
     }
 

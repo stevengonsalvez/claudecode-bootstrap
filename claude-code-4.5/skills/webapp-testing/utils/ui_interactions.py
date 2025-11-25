@@ -380,3 +380,75 @@ def wait_for_stable_dom(page: Page, stability_duration_ms: int = 1000, max_wait_
         return result
     except:
         return False
+
+
+def setup_page_with_csp_handling(page):
+    """
+    Set up page with automatic CSP error detection and helpful suggestions.
+
+    Monitors console for CSP violations and suggests fixes.
+    Call this once per page before navigation.
+
+    Args:
+        page: Playwright Page object
+
+    Example:
+        setup_page_with_csp_handling(page)
+        page.goto('http://localhost:7160')
+        # If CSP violation occurs:
+        # Output: ⚠️  CSP Violation detected: [error message]
+        #         💡 Suggestion: Use BrowserConfig.create_test_context() with auto CSP bypass
+
+    Usage with BrowserConfig:
+        from utils.browser_config import BrowserConfig
+
+        context = BrowserConfig.create_test_context(browser, 'http://localhost:3000')
+        page = context.new_page()
+        setup_page_with_csp_handling(page)
+    """
+    csp_violations = []
+
+    def handle_console(msg):
+        """Handler for console messages that detects CSP violations"""
+        text = msg.text.lower()
+
+        # Detect various CSP-related errors
+        csp_keywords = [
+            'content security policy',
+            'csp',
+            'refused to execute inline script',
+            'refused to load',
+            'blocked by content security policy',
+        ]
+
+        if any(keyword in text for keyword in csp_keywords):
+            # Avoid duplicate messages
+            if msg.text not in csp_violations:
+                csp_violations.append(msg.text)
+                print("\n" + "=" * 70)
+                print("⚠️  CSP VIOLATION DETECTED")
+                print("=" * 70)
+                print(f"Message: {msg.text[:200]}")
+                print("\n💡 SUGGESTION:")
+                print("   For localhost testing, use:")
+                print("   ")
+                print("   from utils.browser_config import BrowserConfig")
+                print("   context = BrowserConfig.create_test_context(")
+                print("       browser, 'http://localhost:3000'")
+                print("   )")
+                print("   # Auto-enables CSP bypass for localhost")
+                print("\n   Or manually:")
+                print("   context = browser.new_context(bypass_csp=True)")
+                print("=" * 70 + "\n")
+
+    # Attach console listener
+    page.on('console', handle_console)
+
+    # Also monitor for page errors related to CSP
+    def handle_page_error(error):
+        """Handler for page errors"""
+        error_text = str(error).lower()
+        if 'content security policy' in error_text or 'csp' in error_text:
+            print(f"\n⚠️  Page Error (CSP-related): {error}\n")
+
+    page.on('pageerror', handle_page_error)
