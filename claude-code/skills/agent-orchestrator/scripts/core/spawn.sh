@@ -14,9 +14,10 @@ TOOL_DIR="$(dirname "$(dirname "$SKILL_DIR")")"
 source "${TOOL_DIR}/utils/git-worktree-utils.sh"
 
 # Function: Wait for Claude Code to be ready for input
+# Handles interactive prompts that may appear during startup as fallback
 wait_for_claude_ready() {
     local SESSION=$1
-    local TIMEOUT=30
+    local TIMEOUT=60
     local START=$(date +%s)
 
     echo "Waiting for Claude to initialize..."
@@ -25,13 +26,48 @@ wait_for_claude_ready() {
         # Capture pane output (suppress errors if session not ready)
         PANE_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || echo "")
 
-        # Check for Claude prompt/splash (any of these indicates readiness)
-        if echo "$PANE_OUTPUT" | grep -qE "Claude Code|Welcome back|Style:|bypass permissions"; then
-            # Verify not in error state
+        # FIRST: Check for ACTUAL ready state (normal case - input prompt visible)
+        # Look for Claude's input box indicators or the main interface
+        if echo "$PANE_OUTPUT" | grep -qE "^>|Human:|╭─|│ >|╰─|Tips for getting|What would you like"; then
+            # Double-check we're not in an error state
             if ! echo "$PANE_OUTPUT" | grep -qiE "error|crash|failed|command not found"; then
-                echo "Claude initialized successfully"
+                echo "Claude ready for input"
                 return 0
             fi
+        fi
+
+        # FALLBACK: Handle interactive prompts if they appear (edge cases)
+
+        # Handle Style selection prompt (send Enter to accept default)
+        if echo "$PANE_OUTPUT" | grep -qE "Choose a style|Style:.*arrow|Use arrow keys"; then
+            echo "Handling style selection prompt..."
+            tmux send-keys -t "$SESSION" C-m  # Accept default style
+            sleep 1
+            continue
+        fi
+
+        # Handle trust prompt
+        if echo "$PANE_OUTPUT" | grep -qE "Trust this project|trust.*\[y/N\]|Do you trust"; then
+            echo "Handling trust prompt..."
+            tmux send-keys -t "$SESSION" "y" C-m
+            sleep 1
+            continue
+        fi
+
+        # Handle permission bypass confirmation
+        if echo "$PANE_OUTPUT" | grep -qE "bypass permission.*Continue|dangerously.*\[y/N\]|skip.*permission"; then
+            echo "Handling permission bypass prompt..."
+            tmux send-keys -t "$SESSION" "y" C-m
+            sleep 1
+            continue
+        fi
+
+        # Handle any other y/N prompt as fallback
+        if echo "$PANE_OUTPUT" | grep -qE "\[y/N\]|\[Y/n\]"; then
+            echo "Handling unknown y/N prompt..."
+            tmux send-keys -t "$SESSION" "y" C-m
+            sleep 1
+            continue
         fi
 
         # Timeout check
@@ -41,11 +77,55 @@ wait_for_claude_ready() {
             echo "Capturing debug output..."
             tmux capture-pane -t "$SESSION" -p > "/tmp/spawn-agent-${SESSION}-failure.log" 2>&1
             echo "Debug output saved to /tmp/spawn-agent-${SESSION}-failure.log"
+            echo "Last captured output:"
+            echo "$PANE_OUTPUT" | tail -20
             return 1
         fi
 
-        sleep 0.2
+        sleep 0.5
     done
+}
+
+# Function: Send task to Claude with robust handling for long/multi-line content
+send_task_to_claude() {
+    local SESSION=$1
+    local TASK=$2
+    local MAX_LINE_LENGTH=500
+
+    # Calculate task length
+    local TASK_LENGTH=${#TASK}
+
+    echo "Sending task to agent (${TASK_LENGTH} chars)..."
+
+    # For short tasks, send directly with -l flag
+    if [ "$TASK_LENGTH" -lt "$MAX_LINE_LENGTH" ]; then
+        tmux send-keys -t "$SESSION" -l "$TASK"
+        tmux send-keys -t "$SESSION" C-m
+        return 0
+    fi
+
+    # For longer tasks, send line by line with small delays
+    echo "Task is long, sending line by line..."
+
+    # Write task to temp file for reliable line processing
+    local TASK_FILE=$(mktemp)
+    echo "$TASK" > "$TASK_FILE"
+
+    # Send each line
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Send the line using literal mode
+        tmux send-keys -t "$SESSION" -l "$line"
+        tmux send-keys -t "$SESSION" C-m
+        sleep 0.05  # Small delay between lines
+    done < "$TASK_FILE"
+
+    # Final Enter to submit the complete task
+    tmux send-keys -t "$SESSION" C-m
+
+    # Cleanup
+    rm -f "$TASK_FILE"
+
+    return 0
 }
 
 # Parse arguments
@@ -275,10 +355,8 @@ CRITICAL REQUIREMENTS:
 When finished, commit all changes and output 'TASK COMPLETE' to signal completion."
 fi
 
-# Send the task (use literal mode for safety with special characters)
-echo "Sending task to agent..."
-tmux send-keys -t "$SESSION" -l "$FULL_TASK"
-tmux send-keys -t "$SESSION" C-m
+# Send the task using robust helper function
+send_task_to_claude "$SESSION" "$FULL_TASK"
 
 # Small delay for Claude to start processing
 sleep 1

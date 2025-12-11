@@ -17,6 +17,108 @@ Act as an **orchestrator** that manages parallel agent execution, monitors progr
 2. **Session must be created**: Via `/m-plan` or manually
 3. **Git worktrees setup**: Project must support git worktrees
 
+## Arguments
+
+- `<session-id>`: Required. The orchestration session ID from /m-plan
+- `--isolated`: Optional. Use tmux-based agents instead of Task tool subagents
+- `--resume`: Optional. Resume a paused session
+
+---
+
+## ISOLATED MODE (`--isolated` flag)
+
+When the `--isolated` flag is detected in the command arguments, you MUST follow these instructions instead of the default process.
+
+### CRITICAL INSTRUCTIONS FOR ISOLATED MODE
+
+You are in **ISOLATED** execution mode. This means:
+
+#### DO NOT USE:
+- ❌ The **Task tool** for spawning agents
+- ❌ Any subagent spawning via Task tool
+- ❌ Background Task invocations
+
+#### YOU MUST USE:
+- ✅ The **agent-orchestrator** skill scripts
+- ✅ Direct **bash execution** of the scripts below
+- ✅ **tmux** for all agent management
+
+#### WHY THIS WORKS:
+
+The "Claude Code is interactive" problem is **SOLVED**. The spawn.sh script:
+1. Uses `--dangerously-skip-permissions` to skip interactive prompts
+2. Uses `wait_for_claude_ready()` to detect when Claude is initialized AND handle any prompts
+3. Uses `send_task_to_claude()` for robust multi-line task sending
+4. Sends tasks via `tmux send-keys -l` for proper escaping
+
+### EXACT COMMANDS TO RUN:
+
+```bash
+SKILL_DIR="$HOME/.claude/skills/agent-orchestrator/scripts"
+SESSION_ID="<session-id>"
+
+# For each wave in the DAG:
+bash "$SKILL_DIR/orchestration/wave-spawn.sh" "$SESSION_ID" <wave-number>
+bash "$SKILL_DIR/orchestration/wave-monitor.sh" "$SESSION_ID" <wave-number>
+
+# After all waves complete:
+bash "$SKILL_DIR/orchestration/merge-waves.sh" "$SESSION_ID"
+```
+
+### EXECUTION FLOW:
+
+1. Load DAG from `~/.claude/orchestration/state/dag-<session-id>.json`
+2. For each wave (1 to N):
+   a. Run: `bash "$SKILL_DIR/orchestration/wave-spawn.sh" "$SESSION_ID" $wave`
+   b. Run: `bash "$SKILL_DIR/orchestration/wave-monitor.sh" "$SESSION_ID" $wave`
+   c. If wave fails, STOP and report
+3. After all waves complete:
+   a. Run: `bash "$SKILL_DIR/orchestration/merge-waves.sh" "$SESSION_ID"`
+4. Report final status
+
+### SPAWNING INDIVIDUAL AGENTS:
+
+For more control, use the core spawn script directly:
+
+```bash
+bash "$SKILL_DIR/core/spawn.sh" "$TASK" \
+    --with-worktree \
+    --orchestration-session "$SESSION_ID" \
+    --wave "$WAVE_NUMBER" \
+    --workstream "$WORKSTREAM" \
+    --agent-type "$AGENT_TYPE"
+```
+
+### MONITORING AGENTS:
+
+```bash
+# Check status
+bash "$SKILL_DIR/orchestration/session-status.sh" "$SESSION_ID" --detailed
+
+# Attach to specific agent
+tmux attach -t agent-<workstream>-<timestamp>
+
+# View agent output without attaching
+tmux capture-pane -t agent-<workstream>-<timestamp> -p -S -50
+
+# List all agent sessions
+tmux ls | grep agent-
+```
+
+### IF SOMETHING FAILS:
+
+**DO NOT** fall back to Task tool. Instead:
+1. Check the tmux session: `tmux ls`
+2. Attach and debug: `tmux attach -t <session>`
+3. Check logs: `cat /tmp/spawn-agent-<session>-failure.log`
+4. Report the error to the user
+
+---
+
+## DEFAULT MODE (no `--isolated` flag)
+
+If `--isolated` is NOT present, follow the default process below.
+
 ## Process
 
 ### Step 1: Load DAG and Session
@@ -332,12 +434,13 @@ Press Ctrl+C to pause monitoring (agents continue in background)
 3. Check which agents are still running
 4. Continue from where it left off
 
-## CLI Options (Future)
+## CLI Options
 
 ```bash
 /m-implement <session-id> [options]
 
 Options:
+  --isolated            Use tmux-based agents instead of Task tool subagents
   --resume              Resume from last checkpoint
   --from-wave N         Start from specific wave number
   --dry-run             Show what would be executed
