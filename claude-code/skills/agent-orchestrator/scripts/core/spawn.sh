@@ -19,6 +19,7 @@ wait_for_claude_ready() {
     local SESSION=$1
     local TIMEOUT=60
     local START=$(date +%s)
+    local LAST_PROMPT_HASH=""
 
     echo "Waiting for Claude to initialize..."
 
@@ -26,48 +27,62 @@ wait_for_claude_ready() {
         # Capture pane output (suppress errors if session not ready)
         PANE_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || echo "")
 
-        # FIRST: Check for ACTUAL ready state (normal case - input prompt visible)
-        # Look for Claude's input box indicators or the main interface
-        if echo "$PANE_OUTPUT" | grep -qE "^>|Human:|╭─|│ >|╰─|Tips for getting|What would you like"; then
-            # Double-check we're not in an error state
-            if ! echo "$PANE_OUTPUT" | grep -qiE "error|crash|failed|command not found"; then
-                echo "Claude ready for input"
-                return 0
+        # FIRST: Check for ACTUAL ready state - Claude Code's main interface
+        # Look for Claude Code specific UI elements (version banner, model info, input prompt)
+        if echo "$PANE_OUTPUT" | grep -qE "Claude Code v[0-9]|Opus|Sonnet|Haiku"; then
+            # Also verify we see the input prompt area (not just the banner)
+            if echo "$PANE_OUTPUT" | grep -qE "Style:|bypass permissions|> $"; then
+                # Double-check we're not in an error state
+                if ! echo "$PANE_OUTPUT" | grep -qiE "error.*claude|crash|failed to start"; then
+                    echo "Claude ready for input"
+                    return 0
+                fi
             fi
         fi
 
-        # FALLBACK: Handle interactive prompts if they appear (edge cases)
+        # Calculate hash of current output to detect changes (avoid repeated handling)
+        local CURRENT_HASH=$(echo "$PANE_OUTPUT" | md5sum | cut -d' ' -f1)
 
-        # Handle Style selection prompt (send Enter to accept default)
-        if echo "$PANE_OUTPUT" | grep -qE "Choose a style|Style:.*arrow|Use arrow keys"; then
-            echo "Handling style selection prompt..."
-            tmux send-keys -t "$SESSION" C-m  # Accept default style
-            sleep 1
-            continue
-        fi
+        # Only handle prompts if output has changed (prevents repeated sends)
+        if [ "$CURRENT_HASH" != "$LAST_PROMPT_HASH" ]; then
+            LAST_PROMPT_HASH="$CURRENT_HASH"
 
-        # Handle trust prompt
-        if echo "$PANE_OUTPUT" | grep -qE "Trust this project|trust.*\[y/N\]|Do you trust"; then
-            echo "Handling trust prompt..."
-            tmux send-keys -t "$SESSION" "y" C-m
-            sleep 1
-            continue
-        fi
+            # FALLBACK: Handle interactive prompts if they appear (edge cases)
 
-        # Handle permission bypass confirmation
-        if echo "$PANE_OUTPUT" | grep -qE "bypass permission.*Continue|dangerously.*\[y/N\]|skip.*permission"; then
-            echo "Handling permission bypass prompt..."
-            tmux send-keys -t "$SESSION" "y" C-m
-            sleep 1
-            continue
-        fi
+            # Handle Style selection prompt (send Enter to accept default)
+            if echo "$PANE_OUTPUT" | grep -qE "Choose a style|Style:.*arrow|Use arrow keys"; then
+                echo "Handling style selection prompt..."
+                tmux send-keys -t "$SESSION" C-m  # Accept default style
+                sleep 1
+                continue
+            fi
 
-        # Handle any other y/N prompt as fallback
-        if echo "$PANE_OUTPUT" | grep -qE "\[y/N\]|\[Y/n\]"; then
-            echo "Handling unknown y/N prompt..."
-            tmux send-keys -t "$SESSION" "y" C-m
-            sleep 1
-            continue
+            # Handle trust prompt
+            if echo "$PANE_OUTPUT" | grep -qE "Trust this project|trust.*\[y/N\]|Do you trust"; then
+                echo "Handling trust prompt..."
+                tmux send-keys -t "$SESSION" "y" C-m
+                sleep 1
+                continue
+            fi
+
+            # Handle permission bypass confirmation (only if prompt is fresh)
+            if echo "$PANE_OUTPUT" | grep -qE "bypass permission.*Continue|dangerously.*\[y/N\]|skip.*permission"; then
+                echo "Handling permission bypass prompt..."
+                tmux send-keys -t "$SESSION" "y" C-m
+                sleep 2  # Longer wait for this prompt
+                continue
+            fi
+
+            # Handle any other y/N prompt as fallback (but NOT after Claude is up)
+            # Only if we haven't seen the Claude banner yet
+            if ! echo "$PANE_OUTPUT" | grep -qE "Claude Code v[0-9]"; then
+                if echo "$PANE_OUTPUT" | grep -qE "\[y/N\]|\[Y/n\]"; then
+                    echo "Handling unknown y/N prompt..."
+                    tmux send-keys -t "$SESSION" "y" C-m
+                    sleep 1
+                    continue
+                fi
+            fi
         fi
 
         # Timeout check
