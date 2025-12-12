@@ -1,5 +1,8 @@
 # AI Coder Rules CLI
 
+[![Run in Smithery](https://smithery.ai/badge/skills/stevengonsalvez)](https://smithery.ai/skills?ns=stevengonsalvez&utm_source=github&utm_medium=badge)
+
+
 ## CLI Usage
 
 This project provides a CLI tool to help you set up and manage rule files for various AI coding tools (AmazonQ, Cline, Roo, Cursor, Claude Desktop, etc.).
