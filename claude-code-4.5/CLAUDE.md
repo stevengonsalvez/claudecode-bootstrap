@@ -354,6 +354,144 @@ These commands automatically:
 RATIONALE: tmux provides persistence across disconnects, better visibility through split panes, and session organization. Random ports prevent conflicts between parallel sessions. Port-based or session-based process management ensures safe cleanup. Generic /start-* commands provide consistent, framework-agnostic development environments.
 </background_server_execution>
 
+# Screenshot & Image Manipulation
+
+<image_manipulation_protocol>
+When analyzing screenshots or images (especially long scrolled webpage captures), automatically detect when ImageMagick manipulation would improve analysis accuracy. This is particularly useful when users paste full-page screenshots and ask to fix specific UI elements.
+
+**Prerequisites:**
+```bash
+# Verify ImageMagick is installed
+magick -version
+
+# Install if missing (macOS)
+brew install imagemagick
+
+# Install if missing (Linux)
+sudo apt-get install imagemagick
+```
+
+**Automatic Detection Logic:**
+
+| Condition | Action | Rationale |
+|-----------|--------|-----------|
+| Image height > 4000px | Split into ~3000px sections | Too much context at once; focused analysis per section |
+| User mentions specific region/element | Crop around that area + zoom 150% | Zoom in on the problem area |
+| Text appears blurry or small | Apply `-auto-level -adaptive-sharpen 0x1.5` | Enhance readability for accurate analysis |
+| User says "focus on X" or "look at Y" | Crop X/Y region, enhance, then analyze | Direct attention to specific UI component |
+| Width >> Height (normal screenshot) | No processing needed | Standard screenshot - analyze directly |
+
+**Core ImageMagick Commands:**
+
+```bash
+# 1. Get dimensions (for decision making)
+magick identify -format "%w %h" image.png
+width=$(magick identify -format "%w" image.png)
+height=$(magick identify -format "%h" image.png)
+
+# 2. Crop region: WIDTHxHEIGHT+X_OFFSET+Y_OFFSET
+magick convert image.png -crop 400x300+100+200 +repage cropped.png
+
+# 3. Split tall image into manageable sections
+magick convert tall.png -crop 100%x3000 +repage section_%d.png
+
+# 4. Enhance readability (text/UI)
+magick convert image.png -auto-level -adaptive-sharpen 0x1.5 enhanced.png
+
+# 5. Combined: crop + zoom + enhance
+magick convert image.png \
+  -crop 500x400+200+1500 +repage \
+  -resize 150% \
+  -auto-level \
+  focused.png
+
+# 6. Gravity-based crop (e.g., top-right corner)
+magick convert image.png -gravity NorthEast -crop 300x150+0+0 +repage corner.png
+```
+
+**Workflow Examples:**
+
+```bash
+# ❌ WRONG - Analyzing huge scrolled image without processing
+# Claude tries to understand 10000px tall screenshot at once
+# Results in missed details and confusion
+
+# ✅ CORRECT - Auto-split and analyze sections
+TMPDIR="/tmp/claude-img-$(date +%s)"
+mkdir -p "$TMPDIR"
+height=$(magick identify -format "%h" screenshot.png)
+
+if [ "$height" -gt 4000 ]; then
+  echo "Large image detected - splitting into sections..."
+  magick convert screenshot.png -crop 100%x3000 +repage "$TMPDIR/section_%d.png"
+  # Analyze each section separately
+  for section in "$TMPDIR"/section_*.png; do
+    echo "Analyzing: $section"
+    # Claude reads and analyzes each section
+  done
+fi
+
+# Cleanup after analysis
+rm -rf "$TMPDIR"
+```
+
+```bash
+# ✅ CORRECT - User says "fix the header navigation"
+TMPDIR="/tmp/claude-img-$(date +%s)"
+mkdir -p "$TMPDIR"
+
+# Crop top portion (header area) and zoom for detail
+magick convert screenshot.png \
+  -gravity North \
+  -crop 100%x400+0+0 +repage \
+  -resize 150% \
+  -auto-level \
+  "$TMPDIR/header_focus.png"
+
+# Analyze the focused header image
+# ... implement fix based on detailed analysis ...
+
+# Cleanup
+rm -rf "$TMPDIR"
+```
+
+```bash
+# ✅ CORRECT - User points to coordinates "around y=2000"
+TMPDIR="/tmp/claude-img-$(date +%s)"
+mkdir -p "$TMPDIR"
+width=$(magick identify -format "%w" screenshot.png)
+
+# Crop 600px tall region centered at y=2000
+magick convert screenshot.png \
+  -crop ${width}x600+0+1700 +repage \
+  -resize 150% \
+  "$TMPDIR/focused_region.png"
+
+# Analyze and fix
+rm -rf "$TMPDIR"
+```
+
+**Temp File Management:**
+- Always create temp directory: `/tmp/claude-img-<timestamp>/`
+- Use descriptive names: `section_0.png`, `header_focus.png`, `focused_region.png`
+- **Auto-cleanup**: Delete temp directory immediately after analysis completes
+- Cleanup command: `rm -rf /tmp/claude-img-*`
+
+**When NOT to Use:**
+- Small images (< 2000px height) - analyze directly
+- User explicitly says "analyze as-is" or "don't modify"
+- Already clear, high-contrast screenshots
+- Non-UI images (photos, diagrams) where processing may distort
+
+**Critical Notes:**
+- Always use `+repage` after crop operations to reset virtual canvas
+- Use `-adaptive-sharpen` (not `-sharpen`) for UI text - preserves edges better
+- Crop BEFORE resize for efficiency
+- PNG format preserves quality for UI analysis
+
+RATIONALE: Long scrolled webpage screenshots contain too much information for effective single-pass analysis. By automatically detecting when manipulation would help and focusing on specific regions, Claude can provide more accurate UI fixes and detailed analysis. Auto-cleanup prevents temp file accumulation.
+</image_manipulation_protocol>
+
 # Session Management System
 
 <health_check_protocol>
