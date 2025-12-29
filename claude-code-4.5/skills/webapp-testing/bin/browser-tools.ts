@@ -20,6 +20,54 @@ import puppeteer from 'puppeteer-core';
 /** Utility type so TypeScript knows the async function constructor */
 type AsyncFunctionCtor = new (...args: string[]) => (...fnArgs: unknown[]) => Promise<unknown>;
 
+/**
+ * Convert Playwright-style selectors to native JavaScript equivalents.
+ * Playwright has custom pseudo-selectors like :has-text() that don't work
+ * with native document.querySelector().
+ *
+ * This function transforms code containing these selectors to use
+ * Array.from().find() patterns instead.
+ */
+function convertPlaywrightSelectorsToNative(code: string): string {
+  // Pattern: selector:has-text("text") or selector:has-text('text')
+  // Example: button:has-text("Accept") -> Array.from(document.querySelectorAll('button')).find(el => el.textContent?.includes('Accept'))
+  const hasTextPattern = /(['"`])([^'"`]*):has-text\((['"])([^'"]*)\3\)\1/g;
+
+  let result = code;
+
+  // Replace :has-text() patterns in querySelector calls
+  result = result.replace(
+    /document\.querySelector\s*\(\s*(['"`])([^'"`]*):has-text\((['"])([^'"]*)\3\)([^'"`]*)\1\s*\)/g,
+    (_, quote, baseSelector, _textQuote, textContent, restSelector) => {
+      const fullBase = baseSelector + (restSelector || '');
+      // If there's a base selector, use it; otherwise search all elements
+      const selectorPart = fullBase.trim() || '*';
+      return `Array.from(document.querySelectorAll('${selectorPart}')).find(el => el.textContent?.includes('${textContent}'))`;
+    }
+  );
+
+  // Also handle querySelectorAll with :has-text()
+  result = result.replace(
+    /document\.querySelectorAll\s*\(\s*(['"`])([^'"`]*):has-text\((['"])([^'"]*)\3\)([^'"`]*)\1\s*\)/g,
+    (_, quote, baseSelector, _textQuote, textContent, restSelector) => {
+      const fullBase = baseSelector + (restSelector || '');
+      const selectorPart = fullBase.trim() || '*';
+      return `Array.from(document.querySelectorAll('${selectorPart}')).filter(el => el.textContent?.includes('${textContent}'))`;
+    }
+  );
+
+  // Handle standalone selectors in quotes that contain :has-text (for cases where the selector is passed to other functions)
+  // Pattern: 'button:has-text("Accept")' -> warn and suggest alternative
+  if (result.includes(':has-text(') && !result.includes('Array.from')) {
+    // If there are still :has-text patterns, it's probably a standalone selector string
+    // We can't automatically convert these without knowing the context
+    console.warn('Warning: :has-text() is a Playwright-specific selector and may not work with native querySelector.');
+    console.warn('Consider using: Array.from(document.querySelectorAll("selector")).find(el => el.textContent?.includes("text"))');
+  }
+
+  return result;
+}
+
 const DEFAULT_PORT = 9222;
 const DEFAULT_PROFILE_DIR = path.join(os.homedir(), '.cache', 'scraping');
 const DEFAULT_CHROME_BIN = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -138,7 +186,8 @@ program
   .option('--port <number>', 'Debugger port (default: 9222)', (value) => Number.parseInt(value, 10), DEFAULT_PORT)
   .option('--pretty-print', 'Format array/object results with indentation.', false)
   .action(async (code: string[], options) => {
-    const snippet = code.join(' ');
+    // Join code and convert any Playwright-specific selectors to native JS
+    const snippet = convertPlaywrightSelectorsToNative(code.join(' '));
     const port = options.port as number;
     const pretty = Boolean(options.prettyPrint);
     const useColor = process.stdout.isTTY;
