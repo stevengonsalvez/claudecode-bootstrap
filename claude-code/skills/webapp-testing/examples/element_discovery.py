@@ -7,7 +7,7 @@ with sync_playwright() as p:
     page = browser.new_page()
 
     # Navigate to page and wait for it to fully load
-    page.goto('http://localhost:5173')
+    page.goto('http://localhost:3000')  # Replace with your app URL
     page.wait_for_load_state('networkidle')
 
     # Discover all buttons on the page
