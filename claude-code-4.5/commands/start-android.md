@@ -160,13 +160,13 @@ esac
 # Dev server (if needed)
 if [ "$PROJECT_TYPE" = "react-native" ] || grep -q "\"dev\":" package.json 2>/dev/null; then
     tmux new-window -t "$SESSION" -n dev-server
-    tmux send-keys -t "$SESSION:dev-server" "PORT=$DEV_PORT npm start | tee dev-server.log" C-m
+    tmux send-keys -t "$SESSION:dev-server" "PORT=$DEV_PORT npm start 2>&1 | tee dev-server.log" C-m
 fi
 
 # Poltergeist (if available)
 if [ "$POLTERGEIST_AVAILABLE" = true ]; then
     tmux new-window -t "$SESSION" -n poltergeist
-    tmux send-keys -t "$SESSION:poltergeist" "poltergeist watch --platform android | tee poltergeist.log" C-m
+    tmux send-keys -t "$SESSION:poltergeist" "poltergeist watch --platform android 2>&1 | tee poltergeist.log" C-m
 fi
 
 # Logs

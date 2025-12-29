@@ -92,7 +92,7 @@ def register_user_complete_flow():
             # Step 3: Navigate to registration
             print("\n[3/8] Navigating to registration page...")
             page.goto(REGISTER_URL, wait_until='networkidle')
-            time.sleep(2)
+            smart_navigation_wait(page)  # Use smart wait instead of time.sleep(2)
 
             # Handle cookie banner
             if dismiss_cookie_banner(page):
@@ -143,16 +143,16 @@ def register_user_complete_flow():
                 # Custom filling logic for first step (invite code)
                 if 'custom_fill' in step:
                     step['custom_fill']()
-                    time.sleep(1)
+                    combined_wait(page, timeout=2000)  # Brief wait for UI update
 
                     if 'custom_submit' in step:
                         step['custom_submit']()
                     else:
                         page.locator('button:has-text("CONTINUE")').first.click()
 
-                    time.sleep(4)
-                    page.wait_for_load_state('networkidle')
-                    time.sleep(2)
+                    # Wait for navigation/API response
+                    combined_wait(page, timeout=5000)
+                    smart_navigation_wait(page)
 
                 # Standard form filling for other steps
                 elif 'fields' in step:
@@ -181,13 +181,12 @@ def register_user_complete_flow():
                         page.locator('input[type="checkbox"]').first.check()
                         print("      ✓ Terms accepted")
 
-                    time.sleep(1)
+                    combined_wait(page, timeout=1000)  # Brief wait for form validation
 
                     # Click continue
                     page.locator('button:has-text("CONTINUE")').first.click()
-                    time.sleep(4)
-                    page.wait_for_load_state('networkidle')
-                    time.sleep(2)
+                    combined_wait(page, timeout=5000)  # Wait for step transition
+                    smart_navigation_wait(page)
 
                 # Final step - click COMPLETE
                 elif step.get('complete'):
@@ -195,9 +194,9 @@ def register_user_complete_flow():
                     complete_btn.click()
                     print("      ✓ Clicked COMPLETE")
 
-                    time.sleep(8)
-                    page.wait_for_load_state('networkidle')
-                    time.sleep(3)
+                    # Wait for registration to complete (may involve API calls)
+                    combined_wait(page, timeout=10000)
+                    smart_navigation_wait(page)
 
                 # Screenshot after each step
                 page.screenshot(path=f'/tmp/reg_step{i+1}_complete.png', full_page=True)
@@ -217,7 +216,7 @@ def register_user_complete_flow():
 
             # Step 6: Verify email via database
             print("\n[6/8] Verifying email via database...")
-            time.sleep(2)  # Brief wait for user to be created in DB
+            combined_wait(page, timeout=2000)  # Brief wait for user to be created in DB
 
             user_id = db_client.find_user_by_email(TEST_EMAIL)
             if user_id:
@@ -238,12 +237,11 @@ def register_user_complete_flow():
 
                 filler.fill_email_field(page, TEST_EMAIL)
                 filler.fill_password_fields(page, TEST_PASSWORD, confirm=False)
-                time.sleep(1)
+                combined_wait(page, timeout=1000)
 
                 page.locator('button[type="submit"]').first.click()
-                time.sleep(6)
-                page.wait_for_load_state('networkidle')
-                time.sleep(3)
+                combined_wait(page, timeout=8000)  # Wait for login API
+                smart_navigation_wait(page)
 
                 print("    ✓ Logged in")
             else:
@@ -255,7 +253,7 @@ def register_user_complete_flow():
             # Navigate to dashboard/perform if not already there
             if 'perform' not in page.url.lower() and 'dashboard' not in page.url.lower():
                 page.goto(f"{APP_URL}/perform", wait_until='networkidle')
-                time.sleep(3)
+                smart_navigation_wait(page)
 
             page.screenshot(path='/tmp/reg_final_dashboard.png', full_page=True)
             print("    ✓ Screenshot: /tmp/reg_final_dashboard.png")

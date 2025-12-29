@@ -97,16 +97,16 @@ PANE_COUNT=0
 # Main dev server
 case $PROJECT_TYPE in
     nextjs|vite|cra|vue)
-        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "PORT=$DEV_PORT npm run dev | tee dev-server-${DEV_PORT}.log" C-m
+        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "PORT=$DEV_PORT npm run dev 2>&1 | tee dev-server-${DEV_PORT}.log" C-m
         ;;
     django)
-        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "python manage.py runserver $DEV_PORT | tee dev-server-${DEV_PORT}.log" C-m
+        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "python manage.py runserver $DEV_PORT 2>&1 | tee dev-server-${DEV_PORT}.log" C-m
         ;;
     flask)
-        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "FLASK_RUN_PORT=$DEV_PORT flask run | tee dev-server-${DEV_PORT}.log" C-m
+        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "FLASK_RUN_PORT=$DEV_PORT flask run 2>&1 | tee dev-server-${DEV_PORT}.log" C-m
         ;;
     *)
-        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "PORT=$DEV_PORT npm run dev | tee dev-server-${DEV_PORT}.log" C-m
+        tmux send-keys -t "$SESSION:servers.${PANE_COUNT}" "PORT=$DEV_PORT npm run dev 2>&1 | tee dev-server-${DEV_PORT}.log" C-m
         ;;
 esac
 

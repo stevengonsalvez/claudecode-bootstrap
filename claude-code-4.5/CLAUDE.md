@@ -239,7 +239,7 @@ SESSION="dev-$(basename $(pwd))-$(date +%s)"
 tmux new-session -d -s "$SESSION" -n dev-server
 
 # Start server in tmux with log capture
-tmux send-keys -t "$SESSION:dev-server" "PORT=$PORT npm run dev | tee dev-server-${PORT}.log" C-m
+tmux send-keys -t "$SESSION:dev-server" "PORT=$PORT npm run dev 2>&1 | tee dev-server-${PORT}.log" C-m
 
 # Save metadata
 cat > .tmux-dev-session.json <<EOF
@@ -271,13 +271,13 @@ tmux attach -t "$SESSION"
 PORT=$(shuf -i 5000-5999 -n 1)
 SESSION="dev-flask-$(date +%s)"
 tmux new-session -d -s "$SESSION" -n server
-tmux send-keys -t "$SESSION:server" "FLASK_RUN_PORT=$PORT flask run | tee flask-${PORT}.log" C-m
+tmux send-keys -t "$SESSION:server" "FLASK_RUN_PORT=$PORT flask run 2>&1 | tee flask-${PORT}.log" C-m
 
 # ✅ CORRECT - Next.js in tmux
 PORT=$(shuf -i 3000-3999 -n 1)
 SESSION="dev-nextjs-$(date +%s)"
 tmux new-session -d -s "$SESSION" -n server
-tmux send-keys -t "$SESSION:server" "PORT=$PORT npm run dev | tee nextjs-${PORT}.log" C-m
+tmux send-keys -t "$SESSION:server" "PORT=$PORT npm run dev 2>&1 | tee nextjs-${PORT}.log" C-m
 ```
 
 **Fallback: Container-use Background Mode** (when tmux unavailable):
@@ -300,7 +300,7 @@ mcp__container-use__environment_run_cmd with:
 # ✅ CORRECT - Playwright in tmux session
 SESSION="test-playwright-$(date +%s)"
 tmux new-session -d -s "$SESSION" -n tests
-tmux send-keys -t "$SESSION:tests" "npx playwright test --reporter=json | tee playwright-results.log" C-m
+tmux send-keys -t "$SESSION:tests" "npx playwright test --reporter=json 2>&1 | tee playwright-results.log" C-m
 
 # Monitor progress
 tmux attach -t "$SESSION"

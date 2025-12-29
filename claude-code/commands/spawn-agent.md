@@ -121,7 +121,7 @@ echo "🚀 Spawning Claude agent in tmux session..."
 echo ""
 
 # Generate handover if requested
-HANDOVER_CONTENT=""
+HANDOVER_FILE=""
 if [ "$WITH_HANDOVER" = true ]; then
     echo "📝 Generating handover context..."
 
@@ -130,15 +130,16 @@ if [ "$WITH_HANDOVER" = true ]; then
     RECENT_COMMITS=$(git log --oneline -5 2>/dev/null || echo "No git history")
     GIT_STATUS=$(git status -sb 2>/dev/null || echo "Not a git repo")
 
-    # Create handover content
-    HANDOVER_CONTENT=$(cat << EOF
-
-# Handover Context
+    # Write handover to file in workspace (not sent via send-keys)
+    HANDOVER_FILE="${WORK_DIR}/.claude-handover.md"
+    cat > "$HANDOVER_FILE" << EOF
+# Agent Handover Context
 
 ## Current State
 - Branch: $CURRENT_BRANCH
 - Directory: $WORK_DIR
 - Time: $(date)
+- Parent Session: Spawned by orchestrator
 
 ## Recent Commits
 $RECENT_COMMITS
@@ -151,10 +152,10 @@ $TASK
 
 ---
 Please review the above context and proceed with the task.
+When complete, commit your changes and report status.
 EOF
-)
 
-    echo "✅ Handover generated"
+    echo "✅ Handover written to: $HANDOVER_FILE"
     echo ""
 fi
 
@@ -183,26 +184,17 @@ fi
 # Additional small delay for UI stabilization
 sleep 0.5
 
-# Send handover context if generated (line-by-line to handle newlines)
-if [ "$WITH_HANDOVER" = true ]; then
-    echo "📤 Sending handover context to agent..."
+# Build the task message
+FULL_TASK="$TASK"
 
-    # Send line-by-line to handle multi-line content properly
-    echo "$HANDOVER_CONTENT" | while IFS= read -r LINE || [ -n "$LINE" ]; do
-        # Use -l flag to send literal text (handles special characters)
-        tmux send-keys -t "$SESSION" -l "$LINE"
-        tmux send-keys -t "$SESSION" C-m
-        sleep 0.05  # Small delay between lines
-    done
-
-    # Final Enter to submit
-    tmux send-keys -t "$SESSION" C-m
-    sleep 0.5
+# If handover was generated, instruct agent to read it first
+if [ -n "$HANDOVER_FILE" ]; then
+    FULL_TASK="Please read the handover context from .claude-handover.md first, then proceed with: $TASK"
 fi
 
 # Send the task (use literal mode for safety with special characters)
 echo "📤 Sending task to agent..."
-tmux send-keys -t "$SESSION" -l "$TASK"
+tmux send-keys -t "$SESSION" -l "$FULL_TASK"
 tmux send-keys -t "$SESSION" C-m
 
 # Small delay for Claude to start processing
@@ -249,6 +241,7 @@ cat > ~/.claude/agents/${SESSION}.json <<EOF
   "created": "$(date -Iseconds)",
   "status": "running",
   "with_handover": $WITH_HANDOVER,
+  "handover_file": "${HANDOVER_FILE:-null}",
   "with_worktree": $WITH_WORKTREE,
   "worktree_branch": "$AGENT_BRANCH"
 }
