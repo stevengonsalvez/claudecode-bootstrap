@@ -632,27 +632,58 @@ When health reaches 🟡, proactively:
 3. **API Direct**: For web services without CLI, use curl to call APIs directly
    - Examples: Use Jira API, GitHub API, etc.
 
-# When you need to call tools from the shell, **use this rubric**:
+<code_search_requirements>
+CRITICAL: For ALL code searches, use ast-grep via Bash tool instead of the built-in Grep tool.
 
+**ast-grep is REQUIRED for:**
+- Finding function/method definitions
+- Finding class/struct definitions
+- Finding imports/exports
+- Finding call sites
+- Any structural code query
+
+**Command patterns by language:**
+```bash
+# Rust
+ast-grep --lang rust -p 'fn $NAME($$$) { $$$ }'
+ast-grep --lang rust -p 'struct $NAME { $$$ }'
+ast-grep --lang rust -p 'impl $TYPE { $$$ }'
+
+# Go
+ast-grep --lang go -p 'func $NAME($$$) $RET { $$$ }'
+ast-grep --lang go -p 'func ($R $TYPE) $NAME($$$) $RET { $$$ }'
+ast-grep --lang go -p 'type $NAME struct { $$$ }'
+
+# TypeScript/JavaScript
+ast-grep --lang ts -p 'function $NAME($$$) { $$$ }'
+ast-grep --lang ts -p 'const $NAME = ($$$) => { $$$ }'
+ast-grep --lang tsx -p '<$COMPONENT $$$>$$$</$COMPONENT>'
+
+# Python
+ast-grep --lang python -p 'def $NAME($$$):'
+ast-grep --lang python -p 'class $NAME($$$):'
+```
+
+**Supported Languages:**
+- System: C, Cpp, Rust
+- Backend: Go, Java, Python, C-sharp
+- Frontend: JS, JSX, TS, TSX, HTML, CSS
+- Mobile: Kotlin, Swift
+- Config: Json, YAML
+- Other: Lua, Thrift
+
+**Only use ripgrep (rg) or built-in Grep tool for:**
+- Plain text searches (comments, strings, log messages)
+- Non-code files (markdown, config, documentation)
+- When ast-grep doesn't support the language
+- Simple literal string matching
+
+**Other CLI tools:**
 - Find Files: `fd`
-- Find Text: `rg` (ripgrep)
-- Find Code Structure (TS/TSX): `ast-grep`
-  - **Default to TypeScript:**  
-    - `.ts` → `ast-grep --lang ts -p '<pattern>'`  
-    - `.tsx` (React) → `ast-grep --lang tsx -p '<pattern>'`
-  - For other languages, set `--lang` appropriately (e.g., `--lang rust`).
-  - **Supported Languages by Domain:**
-    - System Programming: C, Cpp, Rust
-    - Server Side Programming: Go, Java, Python, C-sharp
-    - Web Development: JS(X), TS(X), HTML, CSS
-    - Mobile App Development: Kotlin, Swift
-    - Configuration: Json, YAML
-    - Scripting, Protocols, etc.: Lua, Thrift
 - Select among matches: pipe to `fzf`
 - JSON: `jq`
 - YAML/XML: `yq`
 
-If ast-grep is available avoid tools `rg` or `grep` unless a plain‑text search is explicitly requested.
-
 **If a CLI tool is not available, install it and use it.**
+</code_search_requirements>
 </tool_selection_hierarchy>
