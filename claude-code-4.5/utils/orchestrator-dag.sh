@@ -2,6 +2,7 @@
 
 # DAG (Directed Acyclic Graph) Utility
 # Handles dependency resolution and wave calculation
+# Compatible with bash 3.x (macOS default)
 
 set -euo pipefail
 
@@ -9,57 +10,107 @@ STATE_DIR="${HOME}/.claude/orchestration/state"
 
 # topological_sort <dag_file>
 # Returns nodes in topological order (waves)
+# Uses pure jq implementation for bash 3.x compatibility
 topological_sort() {
     local dag_file="$1"
 
-    # Extract nodes and edges
-    local nodes=$(jq -r '.nodes | keys[]' "$dag_file")
-    local edges=$(jq -r '.edges' "$dag_file")
+    # Use jq to perform Kahn's algorithm
+    jq -r '
+        .nodes as $nodes |
+        .edges as $edges |
+        ($nodes | keys) as $all_nodes |
 
-    # Calculate in-degree for each node
-    declare -A indegree
-    for node in $nodes; do
-        local deps=$(jq -r --arg n "$node" '.edges[] | select(.to == $n) | .from' "$dag_file" | wc -l)
-        indegree[$node]=$deps
-    done
+        # Calculate initial in-degrees
+        (reduce $all_nodes[] as $n (
+            {};
+            . + {($n): ([$edges[] | select(.to == $n)] | length)}
+        )) as $initial_indegrees |
 
-    # Topological sort using Kahn's algorithm
-    local wave=1
-    local result=""
+        # Kahn algorithm
+        {
+            indegrees: $initial_indegrees,
+            waves: [],
+            remaining: $all_nodes
+        } |
+        until(.remaining | length == 0;
+            .indegrees as $ind |
+            # Find nodes with indegree 0 from remaining
+            [.remaining[] | select($ind[.] == 0)] as $wave_nodes |
 
-    while [ ${#indegree[@]} -gt 0 ]; do
-        local wave_nodes=""
+            if ($wave_nodes | length) == 0 then
+                error("Cycle detected in DAG")
+            else
+                # Add wave
+                .waves += [$wave_nodes] |
 
-        # Find all nodes with indegree 0
-        for node in "${!indegree[@]}"; do
-            if [ "${indegree[$node]}" -eq 0 ]; then
-                wave_nodes="$wave_nodes $node"
-            fi
-        done
+                # Remove processed nodes from remaining
+                .remaining = (.remaining - $wave_nodes) |
 
-        if [ -z "$wave_nodes" ]; then
-            echo "Error: Cycle detected in DAG" >&2
-            return 1
-        fi
+                # Update indegrees for dependent nodes
+                reduce ($wave_nodes[]) as $processed (.;
+                    reduce ([$edges[] | select(.from == $processed) | .to][]) as $dep (.;
+                        .indegrees[$dep] = (.indegrees[$dep] - 1)
+                    )
+                )
+            end
+        ) |
+        .waves | to_entries | map("Wave \(.key + 1): \(.value | join(", "))") | .[]
+    ' "$dag_file"
+}
 
-        # Output wave
-        echo "$wave:$wave_nodes"
+# calculate_waves <dag_file>
+# Returns JSON array of waves with their nodes
+calculate_waves() {
+    local dag_file="$1"
 
-        # Remove processed nodes and update indegrees
-        for node in $wave_nodes; do
-            unset indegree[$node]
+    jq '
+        .nodes as $nodes |
+        .edges as $edges |
+        ($nodes | keys) as $all_nodes |
 
-            # Decrease indegree for dependent nodes
-            local dependents=$(jq -r --arg n "$node" '.edges[] | select(.from == $n) | .to' "$dag_file")
-            for dep in $dependents; do
-                if [ -n "${indegree[$dep]:-}" ]; then
-                    indegree[$dep]=$((indegree[$dep] - 1))
-                fi
-            done
-        done
+        # Calculate initial in-degrees
+        (reduce $all_nodes[] as $n (
+            {};
+            . + {($n): ([$edges[] | select(.to == $n)] | length)}
+        )) as $initial_indegrees |
 
-        ((wave++))
-    done
+        # Kahn algorithm to group into waves
+        {
+            indegrees: $initial_indegrees,
+            waves: [],
+            remaining: $all_nodes
+        } |
+        until(.remaining | length == 0;
+            .indegrees as $ind |
+            # Find nodes with indegree 0 from remaining
+            [.remaining[] | select($ind[.] == 0)] as $wave_nodes |
+
+            if ($wave_nodes | length) == 0 then
+                error("Cycle detected in DAG")
+            else
+                # Create wave object
+                {
+                    wave_number: ((.waves | length) + 1),
+                    nodes: $wave_nodes,
+                    status: "pending"
+                } as $wave |
+
+                # Add wave to results
+                .waves += [$wave] |
+
+                # Remove processed nodes from remaining
+                .remaining = (.remaining - $wave_nodes) |
+
+                # Update indegrees for dependent nodes
+                reduce ($wave_nodes[]) as $processed (.;
+                    reduce ([$edges[] | select(.from == $processed) | .to][]) as $dep (.;
+                        .indegrees[$dep] = (.indegrees[$dep] - 1)
+                    )
+                )
+            end
+        ) |
+        .waves
+    ' "$dag_file"
 }
 
 # check_dependencies <dag_file> <node_id>
@@ -68,23 +119,24 @@ check_dependencies() {
     local dag_file="$1"
     local node_id="$2"
 
-    local deps=$(jq -r --arg n "$node_id" '.edges[] | select(.to == $n) | .from' "$dag_file")
+    jq -r --arg n "$node_id" '
+        .edges as $edges |
+        .nodes as $nodes |
 
-    if [ -z "$deps" ]; then
-        echo "true"
-        return 0
-    fi
+        # Get all dependencies (nodes that must complete before this one)
+        [$edges[] | select(.to == $n) | .from] as $deps |
 
-    # Check if all dependencies are complete
-    for dep in $deps; do
-        local status=$(jq -r --arg n "$dep" '.nodes[$n].status' "$dag_file")
-        if [ "$status" != "complete" ]; then
-            echo "false"
-            return 1
-        fi
-    done
-
-    echo "true"
+        if ($deps | length) == 0 then
+            "true"
+        else
+            # Check if all dependencies are complete
+            if ([$deps[] | $nodes[.].status] | all(. == "complete")) then
+                "true"
+            else
+                "false"
+            end
+        end
+    ' "$dag_file"
 }
 
 # get_next_wave <dag_file>
@@ -92,21 +144,62 @@ check_dependencies() {
 get_next_wave() {
     local dag_file="$1"
 
-    local nodes=$(jq -r '.nodes | to_entries[] | select(.value.status == "pending") | .key' "$dag_file")
+    jq -r '
+        .edges as $edges |
+        .nodes as $nodes |
 
-    local wave_nodes=""
-    for node in $nodes; do
-        if [ "$(check_dependencies "$dag_file" "$node")" = "true" ]; then
-            wave_nodes="$wave_nodes $node"
-        fi
-    done
+        # Get pending nodes
+        [$nodes | to_entries[] | select(.value.status == "pending") | .key] as $pending |
 
-    echo "$wave_nodes" | tr -s ' '
+        # Filter to those with all dependencies complete
+        [
+            $pending[] |
+            . as $n |
+            [$edges[] | select(.to == $n) | .from] as $deps |
+            if ($deps | length) == 0 then
+                $n
+            elif ([$deps[] | $nodes[.].status] | all(. == "complete")) then
+                $n
+            else
+                empty
+            end
+        ] | join(" ")
+    ' "$dag_file"
+}
+
+# validate_dag <dag_file>
+# Validates DAG structure
+validate_dag() {
+    local dag_file="$1"
+
+    # Check file exists
+    if [ ! -f "$dag_file" ]; then
+        echo "Error: DAG file not found: $dag_file" >&2
+        return 1
+    fi
+
+    # Validate JSON structure
+    if ! jq -e '.nodes and .edges' "$dag_file" &>/dev/null; then
+        echo "Error: Invalid DAG structure (missing nodes or edges)" >&2
+        return 1
+    fi
+
+    # Check for cycles (if topo-sort succeeds, no cycles)
+    if ! calculate_waves "$dag_file" &>/dev/null; then
+        echo "Error: DAG contains cycles" >&2
+        return 1
+    fi
+
+    echo "DAG is valid"
+    return 0
 }
 
 case "${1:-}" in
     topo-sort)
         topological_sort "$2"
+        ;;
+    calculate-waves)
+        calculate_waves "$2"
         ;;
     check-deps)
         check_dependencies "$2" "$3"
@@ -114,12 +207,18 @@ case "${1:-}" in
     next-wave)
         get_next_wave "$2"
         ;;
+    validate)
+        validate_dag "$2"
+        ;;
     *)
         echo "Usage: orchestrator-dag.sh <command> [args...]"
+        echo ""
         echo "Commands:"
-        echo "  topo-sort <dag_file>"
-        echo "  check-deps <dag_file> <node_id>"
-        echo "  next-wave <dag_file>"
+        echo "  topo-sort <dag_file>           - Output nodes in topological order"
+        echo "  calculate-waves <dag_file>     - Calculate execution waves (JSON)"
+        echo "  check-deps <dag_file> <node>   - Check if node dependencies met"
+        echo "  next-wave <dag_file>           - Get next ready-to-execute nodes"
+        echo "  validate <dag_file>            - Validate DAG structure"
         exit 1
         ;;
 esac
