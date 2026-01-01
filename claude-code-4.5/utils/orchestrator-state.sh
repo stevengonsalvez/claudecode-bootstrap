@@ -7,6 +7,7 @@ set -euo pipefail
 
 # Paths
 STATE_DIR="${HOME}/.claude/orchestration/state"
+CHECKPOINTS_DIR="${HOME}/.claude/orchestration/checkpoints"
 SESSIONS_FILE="${STATE_DIR}/sessions.json"
 COMPLETED_FILE="${STATE_DIR}/completed.json"
 CONFIG_FILE="${STATE_DIR}/config.json"
@@ -26,32 +27,49 @@ fi
 create_session() {
     local session_id="$1"
     local tmux_session="$2"
-    local custom_config="${3:-{}}"
+    local custom_config
+    if [ -n "${3:-}" ]; then
+        custom_config="$3"
+    else
+        custom_config='{}'
+    fi
 
     # Load default config
-    local default_config=$(jq -r '.orchestrator' "$CONFIG_FILE")
+    local default_config
+    default_config=$(jq -c '.orchestrator // {}' "$CONFIG_FILE")
 
-    # Merge custom config with defaults
-    local merged_config=$(echo "$default_config" | jq ". + $custom_config")
+    # Merge custom config with defaults (use --argjson for safe JSON handling)
+    local merged_config
+    merged_config=$(jq -c --argjson custom "$custom_config" '. + $custom' <<< "$default_config")
 
-    # Create session object
-    local session=$(cat <<EOF
-{
-  "session_id": "$session_id",
-  "created_at": "$(date -Iseconds)",
-  "status": "active",
-  "tmux_session": "$tmux_session",
-  "config": $merged_config,
-  "agents": {},
-  "waves": [],
-  "total_cost_usd": 0,
-  "metadata": {}
-}
-EOF
-)
+    # Create timestamp once
+    local timestamp
+    timestamp=$(date -Iseconds)
+
+    # Create session object using jq for safety
+    local session
+    session=$(jq -n \
+        --arg sid "$session_id" \
+        --arg ts "$timestamp" \
+        --arg tmux "$tmux_session" \
+        --argjson cfg "$merged_config" \
+        '{
+            session_id: $sid,
+            created_at: $ts,
+            status: "active",
+            tmux_session: $tmux,
+            config: $cfg,
+            agents: {},
+            waves: [],
+            total_cost_usd: 0,
+            metadata: {}
+        }')
 
     # Add to active sessions
-    local updated=$(jq ".active_sessions += [$session] | .last_updated = \"$(date -Iseconds)\"" "$SESSIONS_FILE")
+    local updated
+    updated=$(jq --argjson sess "$session" --arg ts "$timestamp" \
+        '.active_sessions += [$sess] | .last_updated = $ts' \
+        "$SESSIONS_FILE")
     echo "$updated" > "$SESSIONS_FILE"
 
     echo "$session_id"
@@ -357,13 +375,120 @@ pretty_print_session() {
     get_session "$session_id" | jq '.'
 }
 
+# update_agent_multi <session_id> <agent_id> <--status status> <--cost cost> <--last-active timestamp>
+# Updates multiple agent fields at once
+update_agent_multi() {
+    local session_id="$1"
+    local agent_id="$2"
+    shift 2
+
+    local status=""
+    local cost=""
+    local last_active=""
+
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --status)
+                status="$2"
+                shift 2
+                ;;
+            --cost)
+                cost="$2"
+                shift 2
+                ;;
+            --last-active)
+                last_active="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Build update object dynamically
+    local update_obj="{}"
+    if [ -n "$status" ]; then
+        update_obj=$(echo "$update_obj" | jq --arg st "$status" '. + {status: $st}')
+    fi
+    if [ -n "$cost" ]; then
+        update_obj=$(echo "$update_obj" | jq --arg c "$cost" '. + {cost_usd: ($c | tonumber)}')
+    fi
+    if [ -n "$last_active" ]; then
+        update_obj=$(echo "$update_obj" | jq --arg la "$last_active" '. + {last_active: $la}')
+    fi
+    # Always add last_updated
+    update_obj=$(echo "$update_obj" | jq --arg ts "$(date -Iseconds)" '. + {last_updated: $ts}')
+
+    # Apply update to the agent
+    local updated=$(jq \
+        --arg sid "$session_id" \
+        --arg aid "$agent_id" \
+        --argjson upd "$update_obj" \
+        '(.active_sessions[] | select(.session_id == $sid).agents[$aid]) += $upd | .last_updated = "'$(date -Iseconds)'"' \
+        "$SESSIONS_FILE")
+
+    echo "$updated" > "$SESSIONS_FILE"
+
+    # Update total cost if cost was updated
+    if [ -n "$cost" ]; then
+        update_session_total_cost "$session_id"
+    fi
+}
+
+# add_agent_to_wave <session_id> <wave_number> <agent_id>
+# Adds an agent ID to a wave's agents list
+add_agent_to_wave() {
+    local session_id="$1"
+    local wave_number="$2"
+    local agent_id="$3"
+
+    local updated=$(jq \
+        --arg sid "$session_id" \
+        --arg wn "$wave_number" \
+        --arg aid "$agent_id" \
+        '(.active_sessions[] | select(.session_id == $sid).waves[] | select(.wave_number == ($wn | tonumber)).agents) += [$aid] | .last_updated = "'$(date -Iseconds)'"' \
+        "$SESSIONS_FILE")
+
+    echo "$updated" > "$SESSIONS_FILE"
+}
+
+# get_last_completed_wave <session_id>
+# Returns the highest completed wave number
+get_last_completed_wave() {
+    local session_id="$1"
+
+    jq -r \
+        --arg sid "$session_id" \
+        '[.active_sessions[] | select(.session_id == $sid).waves[] | select(.status == "complete").wave_number] | max // 0' \
+        "$SESSIONS_FILE"
+}
+
+# mark_wave_checkpoint <session_id> <wave_number>
+# Saves a checkpoint for a completed wave
+mark_wave_checkpoint() {
+    local session_id="$1"
+    local wave_number="$2"
+
+    # Create checkpoint directory if needed
+    mkdir -p "$CHECKPOINTS_DIR"
+
+    # Save session state to checkpoint
+    local checkpoint_file="${CHECKPOINTS_DIR}/${session_id}-wave-${wave_number}.json"
+    get_session "$session_id" > "$checkpoint_file"
+
+    echo "Checkpoint saved: $checkpoint_file"
+}
+
 # ============================================================================
 # Main CLI Interface
 # ============================================================================
 
+_DEFAULT_CONFIG='{}'
 case "${1:-}" in
     create)
-        create_session "$2" "$3" "${4:-{}}"
+        create_session "$2" "$3" "${4:-$_DEFAULT_CONFIG}"
         ;;
     get)
         get_session "$2"
@@ -407,6 +532,18 @@ case "${1:-}" in
     print)
         pretty_print_session "$2"
         ;;
+    update-agent)
+        update_agent_multi "$2" "$3" "${@:4}"
+        ;;
+    get-last-completed-wave)
+        get_last_completed_wave "$2"
+        ;;
+    mark-wave-checkpoint)
+        mark_wave_checkpoint "$2" "$3"
+        ;;
+    add-agent-to-wave)
+        add_agent_to_wave "$2" "$3" "$4"
+        ;;
     *)
         echo "Usage: orchestrator-state.sh <command> [args...]"
         echo ""
@@ -419,11 +556,15 @@ case "${1:-}" in
         echo "  add-agent <session_id> <agent_id> <agent_config>"
         echo "  update-agent-status <session_id> <agent_id> <status>"
         echo "  update-agent-cost <session_id> <agent_id> <cost_usd>"
+        echo "  update-agent <session_id> <agent_id> [--status status] [--cost cost] [--last-active timestamp]"
         echo "  get-agent <session_id> <agent_id>"
         echo "  list-agents <session_id>"
         echo "  add-wave <session_id> <wave_number> <agent_ids_json_array>"
         echo "  update-wave-status <session_id> <wave_number> <status>"
         echo "  get-current-wave <session_id>"
+        echo "  get-last-completed-wave <session_id>"
+        echo "  mark-wave-checkpoint <session_id> <wave_number>"
+        echo "  add-agent-to-wave <session_id> <wave_number> <agent_id>"
         echo "  check-budget <session_id>"
         echo "  print <session_id>"
         exit 1

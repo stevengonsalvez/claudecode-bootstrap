@@ -32,22 +32,6 @@ const TOOL_CONFIG = {
         ruleDir: 'cursor',
         targetSubdir: '.claude/rules',
     },
-    'claude-code': {
-        ruleDir: 'claude-code',
-        targetSubdir: '.claude',
-        copyEntireFolder: true,
-        excludeFiles: ['settings.local.json', 'skills'],
-        templateSubstitutions: {
-            'CLAUDE.md': {
-                'TOOL_DIR': '.claude',
-                'HOME_TOOL_DIR': '~/.claude'
-            },
-            '**/*.md': {
-                'TOOL_DIR': '.claude',
-                'HOME_TOOL_DIR': '~/.claude'
-            }
-        }
-    },
     'claude-code-4.5': {
         ruleDir: 'claude-code-4.5',
         targetSubdir: '.claude',
@@ -68,7 +52,7 @@ const TOOL_CONFIG = {
         ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
         targetSubdir: '.gemini',
-        sharedContentDir: 'claude-code',
+        sharedContentDir: 'claude-code-4.5',
         copySharedContent: true,
         excludeFiles: ['CLAUDE.md', 'settings.local.json'],
         settingsFile: 'gemini/settings.json',
@@ -85,7 +69,7 @@ const TOOL_CONFIG = {
         targetSubdir: '.amazonq/rules',
         mcpFile: 'amazonq/mcp.json',
         mcpTarget: '.amazonq/mcp.json',
-        sharedContentDir: 'claude-code',
+        sharedContentDir: 'claude-code-4.5',
         specialCopies: [
             {
                 source: 'amazonq/AmazonQ.md',
@@ -158,12 +142,12 @@ function substituteTemplate(content, substitutions) {
 
 function getEffectiveExcludeFiles(tool, config) {
     const excludeFiles = [...(config.excludeFiles || [])];
-    
-    // Exclude agents folder for all tools except claude-code
-    if (tool !== 'claude-code') {
+
+    // Exclude agents folder for all tools except claude-code-4.5
+    if (tool !== 'claude-code-4.5') {
         excludeFiles.push('agents');
     }
-    
+
     return excludeFiles;
 }
 
@@ -275,7 +259,7 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     if (fs.existsSync(toolSpecificPath)) {
         // For GEMINI.md, copy CLAUDE.md and apply substitutions
         if (config.ruleGlob === 'GEMINI.md') {
-            const claudePath = path.join(__dirname, 'claude-code', 'CLAUDE.md');
+            const claudePath = path.join(__dirname, 'claude-code-4.5', 'CLAUDE.md');
             let content = fs.readFileSync(claudePath, 'utf8');
             if (config.templateSubstitutions && config.templateSubstitutions['GEMINI.md']) {
                 content = substituteTemplate(content, config.templateSubstitutions['GEMINI.md']);
@@ -403,20 +387,8 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ${displayPath}`);
 
-    // Copy output-styles folder for claude-code
-    if (tool === 'claude-code') {
-        showProgress('Copying output-styles folder');
-        const outputStylesSource = path.join(__dirname, 'claude-code', 'output-styles');
-        const outputStylesDest = path.join(destDir, 'output-styles');
-
-        if (fs.existsSync(outputStylesSource)) {
-            const outputStylesFiles = copyDirectoryRecursive(outputStylesSource, outputStylesDest, [], {});
-            completeProgress(`Copied ${outputStylesFiles} output-styles files`);
-        }
-    }
-
-    // Copy skills folder for claude-code and claude-code-4.5
-    if (tool === 'claude-code' || tool === 'claude-code-4.5') {
+    // Copy skills folder for claude-code-4.5
+    if (tool === 'claude-code-4.5') {
         showProgress('Copying skills folder');
         const skillsSource = path.join(__dirname, config.ruleDir, 'skills');
         const skillsDest = path.join(destDir, 'skills');
@@ -478,25 +450,6 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
                     } catch (error) {
                         completeProgress(`Compilation error: ${error.message}, using existing binary if available`);
                     }
-                }
-            }
-            // For claude-code: copy binary from claude-code-4.5 source
-            else if (tool === 'claude-code') {
-                showProgress('Copying browser-tools binary from claude-code-4.5');
-                const sourceBinary = path.join(__dirname, 'claude-code-4.5', 'skills', 'webapp-testing', 'bin', 'browser-tools');
-
-                // Remove symlink if it exists (from git source)
-                if (fs.existsSync(browserToolsBinary)) {
-                    fs.unlinkSync(browserToolsBinary);
-                }
-
-                // Copy binary from claude-code-4.5 source
-                if (fs.existsSync(sourceBinary)) {
-                    fs.copyFileSync(sourceBinary, browserToolsBinary);
-                    fs.chmodSync(browserToolsBinary, 0o755); // Make executable
-                    completeProgress('Copied browser-tools binary from claude-code-4.5');
-                } else {
-                    completeProgress('Warning: browser-tools binary not found in claude-code-4.5');
                 }
             }
         }

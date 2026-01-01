@@ -4,7 +4,8 @@
     "idle_timeout_minutes": 15,
     "checkpoint_interval_minutes": 5,
     "max_retry_attempts": 3,
-    "polling_interval_seconds": 30
+    "polling_interval_seconds": 30,
+    "default_agent_mode": "tmux"
   },
   "merge": {
     "default_strategy": "sequential",
