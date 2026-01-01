@@ -24,6 +24,7 @@ Execute a pre-planned DAG by spawning agents in waves with automated monitoring.
 SESSION_ID="${1:-}"
 RESUME_FLAG=""
 FROM_WAVE_FLAG=""
+FROM_WAVE_NUM=""
 
 shift
 while [[ $# -gt 0 ]]; do
@@ -33,6 +34,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --from-wave)
+            if [[ -z "${2:-}" ]]; then
+                echo "❌ Error: --from-wave requires a wave number." >&2
+                exit 1
+            fi
+            FROM_WAVE_NUM="$2"
             FROM_WAVE_FLAG="--from-wave $2"
             shift 2
             ;;
@@ -78,7 +84,7 @@ echo "   Session: $SESSION_ID"
 if [ -n "$RESUME_FLAG" ]; then
     echo "   Mode: Resume from last completed wave"
 elif [ -n "$FROM_WAVE_FLAG" ]; then
-    echo "   Mode: Start from wave $(echo $FROM_WAVE_FLAG | awk '{print $2}')"
+    echo "   Mode: Start from wave $FROM_WAVE_NUM"
 else
     echo "   Mode: Fresh start"
 fi

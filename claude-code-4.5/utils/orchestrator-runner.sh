@@ -27,6 +27,7 @@ ORCH_AGENT="${UTILS_DIR}/orchestrator-agent.sh"
 # ============================================================================
 
 # Parse ISO8601 timestamp to epoch seconds (cross-platform)
+# Returns 0 on parse failure to avoid incorrect time calculations
 parse_iso_to_epoch() {
     local ts="$1"
     # Remove timezone suffix for parsing
@@ -35,10 +36,10 @@ parse_iso_to_epoch() {
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_ts" +%s 2>/dev/null || date +%s
+        date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_ts" +%s 2>/dev/null || echo "0"
     else
         # Linux
-        date -d "$clean_ts" +%s 2>/dev/null || date +%s
+        date -d "$clean_ts" +%s 2>/dev/null || echo "0"
     fi
 }
 
