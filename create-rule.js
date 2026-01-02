@@ -48,6 +48,31 @@ const TOOL_CONFIG = {
             }
         }
     },
+    'packages': {
+        ruleDir: 'packages',
+        targetSubdir: '.claude',
+        copyEntireFolder: true,
+        usePackagesStructure: true,
+        packageMappings: {
+            'skills': 'skills',
+            'agents': 'agents',
+            'workflows/single-agent/commands': 'commands',
+            'workflows/multi-agent/commands': 'commands',
+            'workflows/multi-agent/utils': 'utils',
+            'workflows/multi-agent/orchestration': 'orchestration',
+            'utilities/commands': 'commands',
+            'utilities/hooks': 'hooks',
+            'utilities/templates': 'templates',
+            'utilities/output-styles': 'output-styles'
+        },
+        excludeFiles: [],
+        templateSubstitutions: {
+            '**/*.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            }
+        }
+    },
     gemini: {
         ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
@@ -358,6 +383,76 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     console.log(`Files copied to: ${destDir}`);
 }
 
+async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null, targetFolder = null) {
+    let destDir;
+    let displayPath;
+
+    if (targetFolder) {
+        destDir = path.join(targetFolder, config.targetSubdir);
+        displayPath = path.join(targetFolder, config.targetSubdir);
+    } else {
+        const homeDir = overrideHomeDir || os.homedir();
+        destDir = path.join(homeDir, config.targetSubdir);
+        displayPath = `~/${config.targetSubdir}`;
+    }
+
+    showProgress(`Checking ${displayPath} directory`);
+    if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+        completeProgress(`Created ${displayPath} directory`);
+    } else {
+        completeProgress(`Found ${displayPath} directory`);
+    }
+
+    const packagesDir = path.join(__dirname, 'packages');
+    let totalFilesCopied = 0;
+
+    // Copy using package mappings
+    for (const [source, target] of Object.entries(config.packageMappings)) {
+        const sourceDir = path.join(packagesDir, source);
+        const targetDir = path.join(destDir, target);
+
+        if (fs.existsSync(sourceDir)) {
+            showProgress(`Copying ${source} to ${target}`);
+            fs.mkdirSync(targetDir, { recursive: true });
+            const filesCopied = copyDirectoryRecursive(sourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+            totalFilesCopied += filesCopied;
+            completeProgress(`Copied ${filesCopied} files from ${source}`);
+        }
+    }
+
+    // Copy CLAUDE.md from claude-code-4.5 if it exists
+    const claudeMdSource = path.join(__dirname, 'claude-code-4.5', 'CLAUDE.md');
+    if (fs.existsSync(claudeMdSource)) {
+        showProgress('Copying CLAUDE.md');
+        let content = fs.readFileSync(claudeMdSource, 'utf8');
+        if (config.templateSubstitutions && config.templateSubstitutions['**/*.md']) {
+            content = substituteTemplate(content, config.templateSubstitutions['**/*.md']);
+        }
+        fs.writeFileSync(path.join(destDir, 'CLAUDE.md'), content);
+        totalFilesCopied++;
+        completeProgress('Copied CLAUDE.md');
+    }
+
+    // Copy settings.json from claude-code-4.5 if it exists
+    const settingsSource = path.join(__dirname, 'claude-code-4.5', 'settings.json');
+    if (fs.existsSync(settingsSource)) {
+        showProgress('Copying settings.json');
+        fs.copyFileSync(settingsSource, path.join(destDir, 'settings.json'));
+        totalFilesCopied++;
+        completeProgress('Copied settings.json');
+    }
+
+    console.log(`\n\x1b[32m🎉 packages setup complete!\x1b[0m`);
+    console.log(`Files copied to: ${destDir} (${totalFilesCopied} files)`);
+    console.log(`\nPackages structure installed. Components available:`);
+    console.log(`  - Skills: ${destDir}/skills/`);
+    console.log(`  - Agents: ${destDir}/agents/`);
+    console.log(`  - Commands: ${destDir}/commands/`);
+    console.log(`  - Hooks: ${destDir}/hooks/`);
+    console.log(`  - Utils: ${destDir}/utils/`);
+}
+
 async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, targetFolder = null) {
     let destDir;
     let displayPath;
@@ -518,6 +613,12 @@ async function main() {
     }
 
     const config = TOOL_CONFIG[tool];
+
+    // Handle packages structure (new catalog-based structure)
+    if (config.usePackagesStructure) {
+        await handlePackagesStructureCopy(tool, config, overrideHomeDir, targetFolder);
+        return;
+    }
 
     if (config.copyEntireFolder) {
         await handleFullDirectoryCopy(tool, config, overrideHomeDir, targetFolder);
