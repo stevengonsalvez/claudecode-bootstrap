@@ -9,7 +9,7 @@
         "test": "jest"
     },
     "dependencies": {
-        "inquirer": "^9.0.0",
+        "inquirer": "^9.3.8",
         "js-yaml": "^4.1.0"
     },
     "devDependencies": {
