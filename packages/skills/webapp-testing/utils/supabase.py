@@ -55,30 +55,45 @@ class SupabaseTestClient:
         else:
             self.db_host = db_host
 
-    def _run_sql(self, sql: str) -> Dict[str, Any]:
+    def _run_sql(self, sql: str, params: Dict[str, str] = None) -> Dict[str, Any]:
         """
-        Execute SQL directly against the database.
+        Execute SQL directly against the database using parameterized queries.
 
         Args:
-            sql: SQL query to execute
+            sql: SQL query to execute (use :param_name for placeholders)
+            params: Dictionary of parameter names to values
 
         Returns:
             Dictionary with 'success', 'output', 'error' keys
+
+        Note:
+            Uses psql -v option to safely pass parameters and prevent SQL injection.
+            Example: _run_sql("SELECT * FROM users WHERE email = :email", {"email": "test@example.com"})
         """
         if not self.db_password:
             return {'success': False, 'error': 'Database password not provided'}
 
         try:
+            cmd = [
+                'psql',
+                '-h', self.db_host,
+                '-p', '5432',
+                '-U', 'postgres',
+                '-t',  # Tuples only
+                '-A',  # Unaligned output
+            ]
+
+            # Add parameterized variables safely using psql -v option
+            if params:
+                for key, value in params.items():
+                    # Escape single quotes in values and wrap in quotes for psql
+                    escaped_value = str(value).replace("'", "''")
+                    cmd.extend(['-v', f"{key}='{escaped_value}'"])
+
+            cmd.extend(['-c', sql])
+
             result = subprocess.run(
-                [
-                    'psql',
-                    '-h', self.db_host,
-                    '-p', '5432',
-                    '-U', 'postgres',
-                    '-c', sql,
-                    '-t',  # Tuples only
-                    '-A',  # Unaligned output
-                ],
+                cmd,
                 env={'PGPASSWORD': self.db_password},
                 capture_output=True,
                 text=True,
@@ -167,13 +182,14 @@ class SupabaseTestClient:
             ```
         """
         if user_id:
-            sql = f"UPDATE auth.users SET email_confirmed_at = NOW() WHERE id = '{user_id}';"
+            sql = "UPDATE auth.users SET email_confirmed_at = NOW() WHERE id = :user_id;"
+            result = self._run_sql(sql, {"user_id": user_id})
         elif email:
-            sql = f"UPDATE auth.users SET email_confirmed_at = NOW() WHERE email = '{email}';"
+            sql = "UPDATE auth.users SET email_confirmed_at = NOW() WHERE email = :email;"
+            result = self._run_sql(sql, {"email": email})
         else:
             return False
 
-        result = self._run_sql(sql)
         return result['success']
 
     def delete_user(self, user_id: str = None, email: str = None) -> bool:
@@ -194,7 +210,10 @@ class SupabaseTestClient:
         """
         # Get user ID if email provided
         if email and not user_id:
-            result = self._run_sql(f"SELECT id FROM auth.users WHERE email = '{email}';")
+            result = self._run_sql(
+                "SELECT id FROM auth.users WHERE email = :email;",
+                {"email": email}
+            )
             if result['success'] and result['output']:
                 user_id = result['output'].strip()
             else:
@@ -204,10 +223,16 @@ class SupabaseTestClient:
             return False
 
         # Delete from profiles first (foreign key)
-        self._run_sql(f"DELETE FROM public.profiles WHERE id = '{user_id}';")
+        self._run_sql(
+            "DELETE FROM public.profiles WHERE id = :user_id;",
+            {"user_id": user_id}
+        )
 
         # Delete from auth.users
-        result = self._run_sql(f"DELETE FROM auth.users WHERE id = '{user_id}';")
+        result = self._run_sql(
+            "DELETE FROM auth.users WHERE id = :user_id;",
+            {"user_id": user_id}
+        )
 
         return result['success']
 
@@ -243,8 +268,9 @@ class SupabaseTestClient:
 
         for table in tables:
             # Try both user_id and id columns
-            sql = f"DELETE FROM public.{table} WHERE user_id = '{user_id}' OR id = '{user_id}';"
-            result = self._run_sql(sql)
+            # Note: table name is from trusted internal list, not user input
+            sql = f"DELETE FROM public.{table} WHERE user_id = :user_id OR id = :user_id;"
+            result = self._run_sql(sql, {"user_id": user_id})
             results[table] = result['success']
 
         return results
@@ -268,11 +294,11 @@ class SupabaseTestClient:
         """
         sql = f"""
         INSERT INTO public.invite_codes (code, code_type, is_valid, max_uses, expires_at)
-        VALUES ('{code}', '{code_type}', true, {max_uses}, NOW() + INTERVAL '30 days')
+        VALUES (:code, :code_type, true, {max_uses}, NOW() + INTERVAL '30 days')
         ON CONFLICT (code) DO UPDATE SET is_valid=true, max_uses={max_uses}, use_count=0;
         """
 
-        result = self._run_sql(sql)
+        result = self._run_sql(sql, {"code": code, "code_type": code_type})
         return result['success']
 
     def find_user_by_email(self, email: str) -> Optional[str]:
@@ -285,8 +311,8 @@ class SupabaseTestClient:
         Returns:
             User ID if found, None otherwise
         """
-        sql = f"SELECT id FROM auth.users WHERE email = '{email}';"
-        result = self._run_sql(sql)
+        sql = "SELECT id FROM auth.users WHERE email = :email;"
+        result = self._run_sql(sql, {"email": email})
 
         if result['success'] and result['output']:
             return result['output'].strip()
@@ -302,8 +328,8 @@ class SupabaseTestClient:
         Returns:
             List of privileges if found, None otherwise
         """
-        sql = f"SELECT privileges FROM public.profiles WHERE id = '{user_id}';"
-        result = self._run_sql(sql)
+        sql = "SELECT privileges FROM public.profiles WHERE id = :user_id;"
+        result = self._run_sql(sql, {"user_id": user_id})
 
         if result['success'] and result['output']:
             # Parse PostgreSQL array format

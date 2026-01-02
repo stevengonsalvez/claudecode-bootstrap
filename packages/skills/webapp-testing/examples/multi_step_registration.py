@@ -39,14 +39,20 @@ def register_user_complete_flow():
     7. Cleanup (optional)
     """
 
-    # Configuration - adjust for your app
-    APP_URL = "http://localhost:3000"
+    # Configuration - load from environment variables
+    # Set these before running: export SUPABASE_URL=... DB_PASSWORD=... SERVICE_KEY=...
+    APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
     REGISTER_URL = f"{APP_URL}/register"
 
-    # Database config (adjust for your project)
-    DB_PASSWORD = "your-db-password"
-    SUPABASE_URL = "https://project.supabase.co"
-    SERVICE_KEY = "your-service-role-key"
+    # Database config - MUST be set via environment variables
+    DB_PASSWORD = os.environ.get("DB_PASSWORD")
+    SUPABASE_URL = os.environ.get("SUPABASE_URL")
+    SERVICE_KEY = os.environ.get("SERVICE_KEY")
+
+    if not all([DB_PASSWORD, SUPABASE_URL, SERVICE_KEY]):
+        print("Error: Missing required environment variables.")
+        print("Set: SUPABASE_URL, DB_PASSWORD, SERVICE_KEY")
+        return
 
     # Test user data
     TEST_EMAIL = "test.user@example.com"

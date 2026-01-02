@@ -66,6 +66,8 @@ def main():
             print(f"Starting server {i+1}/{len(servers)}: {server['cmd']}")
 
             # Use shell=True to support commands with cd and &&
+            # Security note: Commands come from CLI arguments which are considered trusted
+            # input from the user running this script. This is intentional for flexibility.
             process = subprocess.Popen(
                 server['cmd'],
                 shell=True,
