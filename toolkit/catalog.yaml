@@ -1,0 +1,169 @@
+apiVersion: catalog/v1
+metadata:
+  name: claudecode-bootstrap
+  version: 2.0.0
+  description: Complete AI coding agent toolkit with skills, workflows, and agents
+  author: stevengonsalvez
+  repository: https://github.com/stevengonsalvez/ai-coder-rules
+  license: Apache-2.0
+
+components:
+  skills:
+    - name: webapp-testing
+      path: packages/skills/webapp-testing
+      version: 1.2.0
+      description: Playwright-based toolkit for testing local web applications
+
+    - name: crypto-research
+      path: packages/skills/crypto-research
+      version: 1.0.0
+      description: Cryptocurrency market research using specialized AI agents
+
+    - name: tmux-monitor
+      path: packages/skills/tmux-monitor
+      version: 1.0.0
+      description: Monitor and report status of all tmux sessions
+
+    - name: frontend-design
+      path: packages/skills/frontend-design
+      version: 1.0.0
+      description: Generate distinctive, production-grade frontend interfaces
+
+    - name: retro-pdf
+      path: packages/skills/retro-pdf
+      version: 1.0.0
+      description: Convert markdown to professional LaTeX-style PDFs
+
+  workflows:
+    - name: single-agent-workflow
+      path: packages/workflows/single-agent
+      version: 1.0.0
+      description: Sequential research-plan-implement-validate pipeline
+      commands:
+        - research
+        - plan
+        - implement
+        - validate
+        - workflow
+
+    - name: multi-agent-workflow
+      path: packages/workflows/multi-agent
+      version: 1.0.0
+      description: DAG-based parallel agent execution with wave orchestration
+      commands:
+        - m-plan
+        - m-implement
+        - m-monitor
+        - m-workflow
+        - spawn-agent
+        - attach-agent-worktree
+        - cleanup-agent-worktree
+        - list-agent-worktrees
+        - merge-agent-work
+
+  agents:
+    # Agents use flat file structure: category/agent-name.md
+    # Root-level agents are at packages/agents/*.md
+    path: packages/agents
+
+    root:
+      - distinguished-engineer
+      - web-search-researcher
+
+    universal:
+      - backend-developer
+      - frontend-developer
+      - superstar-engineer
+
+    orchestrators:
+      - tech-lead-orchestrator
+      - project-analyst
+      - team-configurator
+
+    engineering:
+      - api-architect
+      - architecture-reviewer
+      - code-archaeologist
+      - code-reviewer
+      - dev-cleanup-wizard
+      - devops-automator
+      - documentation-specialist
+      - gatekeeper
+      - integration-tests
+      - lead-orchestrator
+      - migration
+      - performance-optimizer
+      - planner
+      - playwright-test-validator
+      - property-mutation
+      - release-manager
+      - security-agent
+      - service-codegen
+      - solution-architect
+      - tailwind-css-expert
+      - test-analyser
+      - test-writer-fixer
+
+    design:
+      - ui-designer
+
+    meta:
+      - agentmaker
+
+  utilities:
+    templates:
+      - codereview-checklist-template
+      - handover-template
+
+    output-styles:
+      - direct-objective
+      - fun-casual
+
+    commands:
+      session:
+        - prime
+        - health-check
+        - session-metrics
+        - session-summary
+        - handover
+      git:
+        - commit
+      github:
+        - gh-issue
+        - do-issues
+        - make-github-issues
+        - find-missing-tests
+        - plan-gh
+        - plan-tdd
+      ideation:
+        - brainstorm
+        - critique
+      devenv:
+        - start-local
+        - start-ios
+        - start-android
+        - expose
+        - tmux-status
+      crypto:
+        - crypto_research
+        - crypto_research_haiku
+        - cook_crypto_research_only
+
+    hooks:
+      lifecycle:
+        - session_start
+        - stop
+        - subagent_stop
+      tool:
+        - pre_tool_use
+        - post_tool_use
+      compact:
+        - pre_compact
+      prompt:
+        - user_prompt_submit
+      display:
+        - statusline
+        - combined-statusline
+        - action-summary
+      notification:
+        - notification
