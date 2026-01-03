@@ -98,7 +98,8 @@ Task: "Find external resources about [topic]"
 
 **CRITICAL for Web Research Tasks**:
 - Always use the WebSearch tool (DO NOT rely on internal knowledge)
-- Save complete search results to a timestamped file
+- Save complete search results to `/tmp/web-research-results-$(date +%s).txt`
+- Save agent response with URLs to `/tmp/agent-outputs-$(date +%s)-$$.txt`
 - Include ALL URLs found (especially GitHub, GitLab, Bitbucket)
 - Include repository URLs from citations and references
 - Return the file path with search results for URL detection
@@ -120,9 +121,11 @@ Task: "Analyze test coverage for [component]"
 
 ### Step 3.5: External Repository Discovery Follow-up
 
+⚠️ **CRITICAL: YOU MUST EXECUTE THE BASH SCRIPT BELOW** ⚠️
+
 **AUTOMATIC DETECTION** (runs if web research was performed):
 
-After web research completes, automatically scan ALL web research results for external repository URLs:
+After web research completes, **EXECUTE this bash script** to scan ALL web research results for external repository URLs:
 
 ```bash
 # Detect repository URLs from all web research results
@@ -136,13 +139,13 @@ done
 
 # Also scan agent outputs for any repository URLs they mentioned
 # (agents may include GitHub URLs in their responses even without WebSearch)
-if [ -f /tmp/agent-outputs.txt ]; then
-    AGENT_URLS=$(bash ~/.claude/utils/detect-repo-urls.sh /tmp/agent-outputs.txt)
+# Scan all recent agent output files (timestamped to avoid session collisions)
+find /tmp -name "agent-outputs-*-$$.txt" -mmin -60 2>/dev/null | while IFS= read -r file; do
+    AGENT_URLS=$(bash ~/.claude/utils/detect-repo-urls.sh "$file" 2>/dev/null || echo "")
     if [ -n "$AGENT_URLS" ]; then
-        REPO_URLS="$REPO_URLS
-$AGENT_URLS"
+        REPO_URLS+="${AGENT_URLS}"$'\n'
     fi
-fi
+done
 
 # Deduplicate and display
 REPO_URLS=$(echo "$REPO_URLS" | sort -u | grep -v '^$')
@@ -179,6 +182,7 @@ fi
 ### Step 4: Wait and Synthesize
 
 - **IMPORTANT**: Wait for ALL sub-agent tasks to complete
+- **SAVE AGENT OUTPUTS**: Save all agent responses to `/tmp/agent-outputs-$(date +%s)-$$.txt` for repository URL detection in Step 3.5
 - Compile all sub-agent results
 - Prioritize live codebase findings as primary source of truth
 - Connect findings across different components
@@ -188,9 +192,11 @@ fi
 
 ### Step 3.6: Parallel External Repository Analysis
 
+⚠️ **CRITICAL: YOU MUST EXECUTE THE BASH SCRIPT BELOW IF REPOS WERE DETECTED** ⚠️
+
 **AUTOMATIC EXECUTION** (runs if repositories detected in Step 3.5):
 
-When external repositories are discovered, analyze them in parallel:
+When external repositories are discovered, **EXECUTE this bash script** to analyze them in parallel:
 
 ```bash
 # Check if repositories were detected in Step 3.5
