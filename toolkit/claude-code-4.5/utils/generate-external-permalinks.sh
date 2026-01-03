@@ -119,8 +119,8 @@ batch_convert_file() {
 
     # Process file line by line
     while IFS= read -r line; do
-        # Look for file:line patterns
-        if [[ "$line" =~ ([a-zA-Z0-9/_.-]+\.[a-z]+):([0-9]+(-[0-9]+)?) ]]; then
+        # Look for file:line patterns (includes files without extensions like Makefile, Dockerfile)
+        if [[ "$line" =~ ([a-zA-Z0-9/_.-]+):([0-9]+(-[0-9]+)?) ]]; then
             local reference="${BASH_REMATCH[0]}"
             local permalink
             permalink=$(convert_reference "$repo_path" "$reference" 2>/dev/null || echo "$reference")

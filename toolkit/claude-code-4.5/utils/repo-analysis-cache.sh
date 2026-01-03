@@ -48,8 +48,8 @@ get_cache_key() {
 get_query_hash() {
     local query_text="$1"
 
-    # Simple hash using md5 (first 8 chars)
-    echo -n "$query_text" | md5 | cut -c1-8
+    # Simple hash using md5 (first 8 chars) - portable between Linux and macOS
+    echo -n "$query_text" | (md5sum 2>/dev/null || md5) | cut -c1-8
 }
 
 # Check if cache entry exists and is valid
@@ -146,7 +146,7 @@ cache_save() {
   "created_date": "$(date -Iseconds)",
   "ttl_seconds": $CACHE_TTL,
   "expires_at": $((current_time + CACHE_TTL)),
-  "expires_date": "$(date -Iseconds -r $((current_time + CACHE_TTL)) 2>/dev/null || date -Iseconds)"
+  "expires_date": "$(date -d \"@$((current_time + CACHE_TTL))\" -Iseconds 2>/dev/null || date -r \"$((current_time + CACHE_TTL))\" -Iseconds 2>/dev/null || date -Iseconds)"
 }
 METADATA
 

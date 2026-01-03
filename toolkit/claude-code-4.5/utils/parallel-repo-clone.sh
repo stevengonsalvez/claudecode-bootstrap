@@ -54,9 +54,9 @@ parallel_repo_clone() {
         # Skip empty lines
         [ -z "$repo_url" ] && continue
 
-        # Extract repo name for directory
+        # Extract owner-repo for unique directory name
         local repo_name
-        repo_name=$(echo "$repo_url" | sed -E 's|https?://[^/]+/[^/]+/([^/]+).*|\1|' | sed 's/\.git$//')
+        repo_name=$(echo "$repo_url" | sed -E 's|https?://[^/]+/([^/]+)/([^/]+).*|\1-\2|' | sed 's/\.git$//')
 
         # Target directory for this repository
         local target_dir="$base_target_dir/$repo_name"

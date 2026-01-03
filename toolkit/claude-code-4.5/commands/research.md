@@ -125,16 +125,12 @@ Task: "Analyze test coverage for [component]"
 After web research completes, automatically scan ALL web research results for external repository URLs:
 
 ```bash
-# Find all web research result files from Step 3C
-WEB_RESEARCH_FILES=$(find /tmp -name "web-research-results-*.txt" -mmin -60 2>/dev/null)
-
 # Detect repository URLs from all web research results
 REPO_URLS=""
-for file in $WEB_RESEARCH_FILES; do
+find /tmp -name "web-research-results-*.txt" -mmin -60 2>/dev/null | while IFS= read -r file; do
     URLS=$(bash ~/.claude/utils/detect-repo-urls.sh "$file")
     if [ -n "$URLS" ]; then
-        REPO_URLS="$REPO_URLS
-$URLS"
+        REPO_URLS+="${URLS}"$'\n'
     fi
 done
 
@@ -155,8 +151,10 @@ if [ -n "$REPO_URLS" ]; then
     echo "📦 Detected external repositories from web research:"
     echo "$REPO_URLS"
 
-    # Save to file for Step 3.6
-    echo "$REPO_URLS" > /tmp/detected-repos-$(date +%s).txt
+    # Save to file for Step 3.6 with unique identifier (timestamp + PID)
+    DETECTED_REPOS_FILE="/tmp/detected-repos-$(date +%s)-$$.txt"
+    echo "$REPO_URLS" > "$DETECTED_REPOS_FILE"
+    echo "  Saved to: $DETECTED_REPOS_FILE"
 fi
 ```
 
@@ -196,7 +194,10 @@ When external repositories are discovered, analyze them in parallel:
 
 ```bash
 # Check if repositories were detected in Step 3.5
-DETECTED_REPOS_FILE=$(find /tmp -name "detected-repos-*.txt" -mmin -60 2>/dev/null | head -1)
+# DETECTED_REPOS_FILE is set by Step 3.5, or find most recent if not set
+if [ -z "$DETECTED_REPOS_FILE" ]; then
+    DETECTED_REPOS_FILE=$(find /tmp -name "detected-repos-*-$$.txt" 2>/dev/null | sort -r | head -1)
+fi
 
 if [ -z "$DETECTED_REPOS_FILE" ] || [ ! -f "$DETECTED_REPOS_FILE" ]; then
     echo "ℹ No external repositories detected, skipping repository analysis"
@@ -206,18 +207,19 @@ else
     echo "🔬 Starting parallel repository analysis..."
 
     # Setup
+    CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
     TEMP_CLONE_DIR=$(mktemp -d -t "external-repos-XXXXXXXX")
-    CACHE_DIR="$HOME/.claude/research-cache"
+    CACHE_DIR="$CLAUDE_HOME/research-cache"
     mkdir -p "$CACHE_DIR"
 
     # Source utilities
-    source ~/.claude/utils/cleanup-handler.sh
-    source ~/.claude/utils/repo-analysis-cache.sh
+    source "$CLAUDE_HOME/utils/cleanup-handler.sh"
+    source "$CLAUDE_HOME/utils/repo-analysis-cache.sh"
     install_cleanup_traps
     register_cleanup_dir "$TEMP_CLONE_DIR"
 
     # Initialize cache
-    bash ~/.claude/utils/repo-analysis-cache.sh init
+    bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" init
 
     # Build list of repos to clone (after cache checking)
     REPOS_TO_CLONE="$TEMP_CLONE_DIR/repos-to-clone.txt"
@@ -234,7 +236,7 @@ else
     done < "$DETECTED_REPOS_FILE"
 
     # Clone repositories in parallel (shallow)
-    bash ~/.claude/utils/parallel-repo-clone.sh \
+    bash "$CLAUDE_HOME/utils/parallel-repo-clone.sh" \
         "$REPOS_TO_CLONE" \
         "$TEMP_CLONE_DIR" \
         4  # max parallel clones
@@ -246,12 +248,12 @@ else
             COMMIT_HASH=$(git -C "$repo_dir" rev-parse HEAD)
 
             # Generate cache key
-            CACHE_KEY=$(bash ~/.claude/utils/repo-analysis-cache.sh key "$REPO_URL" "$COMMIT_HASH")
+            CACHE_KEY=$(bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" key "$REPO_URL" "$COMMIT_HASH")
 
             # Check if cached analysis exists
-            if bash ~/.claude/utils/repo-analysis-cache.sh exists "$CACHE_KEY"; then
+            if bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" exists "$CACHE_KEY"; then
                 # Use cached analysis
-                CACHED_PATH=$(bash ~/.claude/utils/repo-analysis-cache.sh get "$CACHE_KEY")
+                CACHED_PATH=$(bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" get "$CACHE_KEY")
                 echo "$CACHED_PATH|$REPO_URL|$COMMIT_HASH" >> "$CACHED_ANALYSES"
                 echo "✓ Using cached analysis: $CACHE_KEY"
             else
@@ -266,10 +268,10 @@ else
         while IFS='|' read -r repo_path repo_url; do
             # Get commit hash for caching
             COMMIT_HASH=$(git -C "$repo_path" rev-parse HEAD)
-            CACHE_KEY=$(bash ~/.claude/utils/repo-analysis-cache.sh key "$repo_url" "$COMMIT_HASH")
+            CACHE_KEY=$(bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" key "$repo_url" "$COMMIT_HASH")
 
             # Build analyzer prompt
-            PROMPT=$(bash ~/.claude/utils/build-analyzer-prompt.sh \
+            PROMPT=$(bash "$CLAUDE_HOME/utils/build-analyzer-prompt.sh" \
                 "$repo_path" \
                 "$repo_url" \
                 "$RESEARCH_QUERY" \
@@ -284,9 +286,9 @@ else
             #   run_in_background: false
 
             # After analysis completes, save to cache
-            ANALYSIS_FILE="$HOME/.claude/research-cache/$CACHE_KEY/analysis.md"
+            ANALYSIS_FILE="$CLAUDE_HOME/research-cache/$CACHE_KEY/analysis.md"
             if [ -f "$ANALYSIS_FILE" ]; then
-                bash ~/.claude/utils/repo-analysis-cache.sh save \
+                bash "$CLAUDE_HOME/utils/repo-analysis-cache.sh" save \
                     "$CACHE_KEY" \
                     "$ANALYSIS_FILE" \
                     "$repo_url" \
@@ -305,7 +307,7 @@ fi
 - Total: ~30-40 minutes for all repos combined
 
 **Cache Strategy:**
-- Save analysis to: `~/.claude/research-cache/<repo>-<commit>/analysis.md`
+- Save analysis to: `$CLAUDE_HOME/research-cache/<repo>-<commit>/analysis.md` (default: `~/.claude/research-cache/`)
 - Check cache before cloning (7-day TTL)
 - Reuse cached analysis if query similar (query hash matching)
 
@@ -372,7 +374,7 @@ For each analyzed external repository:
 #### Repository: [owner/repo-name]
 **URL**: [https://github.com/owner/repo](permalink)
 **Commit**: `abc1234`
-**Analysis**: [Link to cached analysis](~/.claude/research-cache/repo-abc1234/analysis.md)
+**Analysis**: [Link to cached analysis]($CLAUDE_HOME/research-cache/repo-abc1234/analysis.md)
 
 **Key Findings:**
 - **Implementation Pattern**: [How they implemented feature X] ([permalink to code])
