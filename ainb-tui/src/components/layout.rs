@@ -20,8 +20,9 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
-    ConfirmationDialogComponent, HelpComponent, HomeScreenComponent, LiveLogsStreamComponent,
-    LogsViewerComponent, NewSessionComponent, SessionListComponent, TmuxPreviewPane,
+    ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
+    LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, SessionListComponent,
+    TmuxPreviewPane,
 };
 use crate::app::{AppState, state::View};
 
@@ -39,6 +40,7 @@ pub struct LayoutComponent {
     // AINB 2.0 components
     home_screen: HomeScreenComponent,
     agent_selection: AgentSelectionComponent,
+    config_screen: ConfigScreenComponent,
 }
 
 impl LayoutComponent {
@@ -57,6 +59,7 @@ impl LayoutComponent {
             // AINB 2.0 components
             home_screen: HomeScreenComponent::new(),
             agent_selection: AgentSelectionComponent::new(),
+            config_screen: ConfigScreenComponent::new(),
         }
     }
 
@@ -101,6 +104,18 @@ impl LayoutComponent {
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on AgentSelection");
+                self.help.render(frame, frame.size());
+            }
+            return;
+        }
+
+        // AINB 2.0: Config screen (full screen)
+        if state.current_view == View::Config {
+            tracing::debug!("Rendering Config view");
+            self.config_screen.render(frame, frame.size(), state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on Config");
                 self.help.render(frame, frame.size());
             }
             return;
@@ -231,8 +246,8 @@ impl LayoutComponent {
             Span::styled(" re-auth ", Style::default().fg(MUTED_GRAY)),
             Span::styled("?", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::BOLD)),
             Span::styled(" help ", Style::default().fg(MUTED_GRAY)),
-            Span::styled("q", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
-            Span::styled("uit", Style::default().fg(MUTED_GRAY)),
+            Span::styled("q", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
+            Span::styled(" home", Style::default().fg(MUTED_GRAY)),
         ];
 
         let menu_line = Line::from(menu_spans);

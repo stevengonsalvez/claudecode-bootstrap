@@ -13,10 +13,12 @@ use std::path::{Path, PathBuf};
 pub mod container;
 pub mod mcp;
 pub mod mcp_init;
+pub mod presets;
 
 pub use container::{ContainerTemplate, ContainerTemplateConfig};
 pub use mcp::{McpInitStrategy, McpServerConfig};
 pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
+pub use presets::{PermissionSet, PresetManager, RepositoryPreset, create_default_presets};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {

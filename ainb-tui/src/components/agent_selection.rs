@@ -17,6 +17,7 @@ const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
 const WARNING_ORANGE: Color = Color::Rgb(255, 165, 0);
 const DARK_BG: Color = Color::Rgb(25, 25, 35);
 const PANEL_BG: Color = Color::Rgb(30, 30, 40);
+#[allow(dead_code)]
 const LIST_HIGHLIGHT_BG: Color = Color::Rgb(40, 40, 60);
 const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);

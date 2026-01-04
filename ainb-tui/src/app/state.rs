@@ -745,6 +745,322 @@ impl AgentSelectionState {
     }
 }
 
+// ============================================================================
+// Configuration Screen State
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConfigCategory {
+    Authentication,
+    Workspace,
+    AgentDefaults,
+    Plugins,
+    Permissions,
+    Appearance,
+    Analytics,
+}
+
+impl ConfigCategory {
+    pub fn all() -> Vec<ConfigCategory> {
+        vec![
+            ConfigCategory::Authentication,
+            ConfigCategory::Workspace,
+            ConfigCategory::AgentDefaults,
+            ConfigCategory::Plugins,
+            ConfigCategory::Permissions,
+            ConfigCategory::Appearance,
+            ConfigCategory::Analytics,
+        ]
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            ConfigCategory::Authentication => "Authentication",
+            ConfigCategory::Workspace => "Workspace",
+            ConfigCategory::AgentDefaults => "Agent Defaults",
+            ConfigCategory::Plugins => "Plugins",
+            ConfigCategory::Permissions => "Permissions",
+            ConfigCategory::Appearance => "Appearance",
+            ConfigCategory::Analytics => "Analytics",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ConfigCategory::Authentication => "🔐",
+            ConfigCategory::Workspace => "📁",
+            ConfigCategory::AgentDefaults => "🤖",
+            ConfigCategory::Plugins => "🔌",
+            ConfigCategory::Permissions => "🛡️",
+            ConfigCategory::Appearance => "🎨",
+            ConfigCategory::Analytics => "📊",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            ConfigCategory::Authentication => "API keys, OAuth, GitHub PAT",
+            ConfigCategory::Workspace => "Default paths, git settings",
+            ConfigCategory::AgentDefaults => "Model, temperature, max tokens",
+            ConfigCategory::Plugins => "Installed plugins, enable/disable",
+            ConfigCategory::Permissions => "File write, shell, git approval",
+            ConfigCategory::Appearance => "Theme, colors, layout",
+            ConfigCategory::Analytics => "Usage tracking, cost alerts",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigSetting {
+    pub key: String,
+    pub label: String,
+    pub value: ConfigValue,
+    pub description: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfigValue {
+    Text(String),
+    Secret(String),      // Masked display
+    Bool(bool),
+    Choice(Vec<String>, usize), // Options and selected index
+    Number(i64),
+}
+
+impl ConfigValue {
+    pub fn display(&self) -> String {
+        match self {
+            ConfigValue::Text(s) => s.clone(),
+            ConfigValue::Secret(s) => {
+                if s.is_empty() {
+                    "Not configured".to_string()
+                } else {
+                    format!("{}••••••••", &s[..std::cmp::min(8, s.len())])
+                }
+            }
+            ConfigValue::Bool(b) => if *b { "✓ Enabled" } else { "✗ Disabled" }.to_string(),
+            ConfigValue::Choice(options, idx) => options.get(*idx).cloned().unwrap_or_default(),
+            ConfigValue::Number(n) => n.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigScreenState {
+    pub selected_category: usize,
+    pub selected_setting: usize,
+    pub categories: Vec<ConfigCategory>,
+    pub settings: std::collections::HashMap<ConfigCategory, Vec<ConfigSetting>>,
+    pub editing: bool,
+    pub edit_buffer: String,
+}
+
+impl Default for ConfigScreenState {
+    fn default() -> Self {
+        let mut settings = std::collections::HashMap::new();
+
+        // Authentication settings
+        settings.insert(ConfigCategory::Authentication, vec![
+            ConfigSetting {
+                key: "anthropic_api_key".to_string(),
+                label: "Anthropic API Key".to_string(),
+                value: ConfigValue::Secret(String::new()),
+                description: "Your Anthropic API key for Claude API access".to_string(),
+            },
+            ConfigSetting {
+                key: "oauth_status".to_string(),
+                label: "OAuth Status".to_string(),
+                value: ConfigValue::Text("Not configured".to_string()),
+                description: "OAuth enables container auth without exposing API keys".to_string(),
+            },
+            ConfigSetting {
+                key: "github_pat".to_string(),
+                label: "GitHub PAT".to_string(),
+                value: ConfigValue::Secret(String::new()),
+                description: "Required for GitHub operations in agent sessions".to_string(),
+            },
+        ]);
+
+        // Workspace settings
+        settings.insert(ConfigCategory::Workspace, vec![
+            ConfigSetting {
+                key: "default_workspace".to_string(),
+                label: "Default Workspace".to_string(),
+                value: ConfigValue::Text("~/projects".to_string()),
+                description: "Default directory for new sessions".to_string(),
+            },
+            ConfigSetting {
+                key: "scan_depth".to_string(),
+                label: "Scan Depth".to_string(),
+                value: ConfigValue::Number(3),
+                description: "How deep to scan for git repositories".to_string(),
+            },
+        ]);
+
+        // Agent defaults
+        settings.insert(ConfigCategory::AgentDefaults, vec![
+            ConfigSetting {
+                key: "default_model".to_string(),
+                label: "Default Model".to_string(),
+                value: ConfigValue::Choice(
+                    vec!["Opus 4.5".to_string(), "Sonnet 4.5".to_string(), "Haiku 4.5".to_string()],
+                    1, // Sonnet default
+                ),
+                description: "Default Claude model for new sessions".to_string(),
+            },
+            ConfigSetting {
+                key: "auto_approve".to_string(),
+                label: "Auto-Approve Actions".to_string(),
+                value: ConfigValue::Bool(false),
+                description: "Automatically approve file writes and commands".to_string(),
+            },
+        ]);
+
+        // Permissions
+        settings.insert(ConfigCategory::Permissions, vec![
+            ConfigSetting {
+                key: "allow_file_write".to_string(),
+                label: "Allow File Write".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Allow agents to write files".to_string(),
+            },
+            ConfigSetting {
+                key: "allow_shell".to_string(),
+                label: "Allow Shell Commands".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Allow agents to run shell commands".to_string(),
+            },
+            ConfigSetting {
+                key: "allow_git".to_string(),
+                label: "Allow Git Operations".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Allow agents to perform git operations".to_string(),
+            },
+        ]);
+
+        // Appearance
+        settings.insert(ConfigCategory::Appearance, vec![
+            ConfigSetting {
+                key: "theme".to_string(),
+                label: "Theme".to_string(),
+                value: ConfigValue::Choice(
+                    vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
+                    0,
+                ),
+                description: "Color theme for the TUI".to_string(),
+            },
+        ]);
+
+        // Plugins (empty for now)
+        settings.insert(ConfigCategory::Plugins, vec![
+            ConfigSetting {
+                key: "installed_plugins".to_string(),
+                label: "Installed Plugins".to_string(),
+                value: ConfigValue::Text("None installed".to_string()),
+                description: "Manage installed plugins from the Catalog".to_string(),
+            },
+        ]);
+
+        // Analytics
+        settings.insert(ConfigCategory::Analytics, vec![
+            ConfigSetting {
+                key: "track_usage".to_string(),
+                label: "Track Usage".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Track session duration and token usage".to_string(),
+            },
+            ConfigSetting {
+                key: "cost_alerts".to_string(),
+                label: "Cost Alerts".to_string(),
+                value: ConfigValue::Bool(false),
+                description: "Alert when spending exceeds threshold".to_string(),
+            },
+        ]);
+
+        Self {
+            selected_category: 0,
+            selected_setting: 0,
+            categories: ConfigCategory::all(),
+            settings,
+            editing: false,
+            edit_buffer: String::new(),
+        }
+    }
+}
+
+impl ConfigScreenState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn current_category(&self) -> Option<&ConfigCategory> {
+        self.categories.get(self.selected_category)
+    }
+
+    pub fn current_settings(&self) -> Vec<&ConfigSetting> {
+        self.current_category()
+            .and_then(|cat| self.settings.get(cat))
+            .map(|s| s.iter().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn current_setting(&self) -> Option<&ConfigSetting> {
+        self.current_settings().get(self.selected_setting).copied()
+    }
+
+    pub fn select_next_category(&mut self) {
+        if !self.categories.is_empty() {
+            self.selected_category = (self.selected_category + 1) % self.categories.len();
+            self.selected_setting = 0;
+        }
+    }
+
+    pub fn select_prev_category(&mut self) {
+        if !self.categories.is_empty() {
+            self.selected_category = if self.selected_category == 0 {
+                self.categories.len() - 1
+            } else {
+                self.selected_category - 1
+            };
+            self.selected_setting = 0;
+        }
+    }
+
+    pub fn select_next_setting(&mut self) {
+        let settings_count = self.current_settings().len();
+        if settings_count > 0 {
+            self.selected_setting = (self.selected_setting + 1) % settings_count;
+        }
+    }
+
+    pub fn select_prev_setting(&mut self) {
+        let settings_count = self.current_settings().len();
+        if settings_count > 0 {
+            self.selected_setting = if self.selected_setting == 0 {
+                settings_count - 1
+            } else {
+                self.selected_setting - 1
+            };
+        }
+    }
+
+    pub fn toggle_current_setting(&mut self) {
+        if let Some(category) = self.current_category().cloned() {
+            if let Some(settings) = self.settings.get_mut(&category) {
+                if let Some(setting) = settings.get_mut(self.selected_setting) {
+                    match &mut setting.value {
+                        ConfigValue::Bool(ref mut b) => *b = !*b,
+                        ConfigValue::Choice(options, ref mut idx) => {
+                            *idx = (*idx + 1) % options.len();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthMethod {
     OAuth,
@@ -902,6 +1218,7 @@ pub struct AppState {
     // AINB 2.0: Home screen and agent selection
     pub home_screen_state: HomeScreenState,
     pub agent_selection_state: AgentSelectionState,
+    pub config_screen_state: ConfigScreenState,
 }
 
 #[derive(Debug)]
@@ -1051,6 +1368,7 @@ impl Default for AppState {
             // AINB 2.0: Home screen and agent selection
             home_screen_state: HomeScreenState::default(),
             agent_selection_state: AgentSelectionState::default(),
+            config_screen_state: ConfigScreenState::default(),
         }
     }
 }
