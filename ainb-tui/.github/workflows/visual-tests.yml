@@ -1,0 +1,50 @@
+name: Visual Tests
+
+on:
+  push:
+    branches: [ main, feat/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run E2E PTY Tests (Silent)
+        run: cargo test --test e2e_pty_tests -- --ignored --test-threads=1
+
+      - name: Run vt100 Tests
+        run: cargo test --features vt100-tests -- --ignored --test-threads=1
+
+  vhs-demos:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install VHS
+        run: |
+          go install github.com/charmbracelet/vhs@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Build Release
+        run: cargo build --release
+
+      - name: Record Demos
+        run: ./scripts/record-demos.sh
+
+      - name: Upload Recordings
+        uses: actions/upload-artifact@v3
+        with:
+          name: tui-demos
+          path: tests/recordings/*.gif

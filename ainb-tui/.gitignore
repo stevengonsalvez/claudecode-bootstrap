@@ -1,0 +1,45 @@
+# Rust
+/target/
+Cargo.lock
+*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+.code/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Agents Box specific
+.agents-box/
+.claude/
+worktrees/
+
+# Testing
+test-repos/
+temp/
+docker/agents-dev/.claude.json
+logs/
+tests/old-scripts-backup/
+
+# Amazonq
+.amazonq/
+AmazonQ.md
+.claude/action-summaries
+
+# Test artifacts
+test-logs/
+tests/recordings/

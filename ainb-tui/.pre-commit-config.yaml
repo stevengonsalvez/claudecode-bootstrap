@@ -1,0 +1,66 @@
+# Pre-commit configuration for claude-in-a-box
+# See https://pre-commit.com for more information
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Rust-specific hooks
+  - repo: local
+    hooks:
+      # Cargo check - ensure code compiles (BLOCKS commit)
+      - id: cargo-check
+        name: Cargo Check
+        entry: bash -c 'RUSTFLAGS="-A warnings" cargo check --all-targets --all-features --quiet || (echo "❌ Cargo check failed - code does not compile" && exit 1)'
+        language: system
+        files: \.(rs|toml)$
+        pass_filenames: false
+
+      # Cargo test - run all tests (BLOCKS commit)
+      - id: cargo-test
+        name: Cargo Test
+        entry: bash -c 'RUSTFLAGS="-A warnings" cargo test --all-targets --all-features --quiet || (echo "❌ Some tests failed" && exit 1)'
+        language: system
+        files: \.(rs|toml)$
+        pass_filenames: false
+
+      # Cargo fmt - format code (auto-formats on commit)
+      - id: cargo-fmt
+        name: Cargo Format
+        entry: bash -c 'RUSTFLAGS="-A warnings" cargo fmt --all --quiet'
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      # Cargo clippy - linting (WARNS but doesn't block)
+      - id: cargo-clippy
+        name: Cargo Clippy
+        entry: bash -c 'RUSTFLAGS="-A warnings" cargo clippy --all-targets --all-features --quiet -- -W clippy::all || echo "⚠️  Clippy warnings found but not blocking commit"'
+        language: system
+        files: \.(rs|toml)$
+        pass_filenames: false
+
+# Configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

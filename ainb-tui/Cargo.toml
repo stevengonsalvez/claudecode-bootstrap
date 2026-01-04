@@ -1,0 +1,99 @@
+[package]
+name = "agents-box"
+version = "0.1.0"
+edition = "2021"
+authors = ["Agents-in-a-Box Team"]
+description = "Terminal-based development environment manager for Claude Code containers"
+license = "MIT"
+repository = "https://github.com/your-org/agents-box"
+keywords = ["claude", "docker", "tui", "development", "containers"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+# Core
+tokio = { version = "1.36", features = ["full"] }
+ratatui = "0.26"
+crossterm = "0.27"
+
+# Docker
+bollard = "0.16"
+futures-util = "0.3"
+tar = "0.4"
+
+# Tmux/PTY support
+portable-pty = "0.8"
+
+# Git operations
+git2 = "0.18"
+
+# Data persistence
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Claude API integration
+reqwest = { version = "0.11", features = ["json", "stream"] }
+async-stream = "0.3"
+tokio-stream = "0.1"
+
+# Utils
+anyhow = "1.0"
+thiserror = "1.0"
+directories = "5.0"
+dirs = "5.0"
+uuid = { version = "1.5", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.4", features = ["derive"] }
+tempfile = "3.8"
+nix = { version = "0.27", features = ["user"] }
+arboard = "3.3"  # Cross-platform clipboard support
+regex = "1.10"
+lazy_static = "1.4"
+
+# Markdown and syntax highlighting
+pulldown-cmark = "0.9"  # Markdown parsing
+syntect = "5.0"  # Syntax highlighting for code blocks
+ansi-to-tui = "4"
+
+[features]
+default = []
+visual-debug = []  # Enable live terminal during tests
+vt100-tests = []   # Enable vt100 screen verification
+
+[dev-dependencies]
+mockall = "0.12"
+pretty_assertions = "1.4"
+
+# PTY-based end-to-end testing (like expect for Rust)
+rexpect = "0.5"
+
+# VT100 terminal emulation for visual verification
+vt100 = "0.15"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+
+# Linting configuration
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+dead_code = "warn"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+# Allow some pedantic lints that can be overly strict
+module_name_repetitions = "allow"
+similar_names = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

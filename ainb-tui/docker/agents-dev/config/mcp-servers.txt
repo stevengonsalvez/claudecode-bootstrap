@@ -1,0 +1,23 @@
+# MCP Server Installation Commands
+# Format: One command per line
+# Use ${ENV_VAR} for environment variables
+# Comments start with #
+# Always use -s user to make servers available across all projects!
+
+# Filesystem access - allows reading/writing files
+#claude mcp add -s user filesystem -- npx -y @modelcontextprotocol/server-filesystem
+
+# GitHub integration - requires GITHUB_TOKEN
+# claude mcp add-json github -s user '{"command":"npx","args":["-y","@modelcontextprotocol/server-github"],"env":{"GITHUB_TOKEN":"${GITHUB_TOKEN}"}}'
+
+# Memory/knowledge base - persistent memory across conversations
+# claude mcp add -s user memory -- npx -y @modelcontextprotocol/server-memory
+
+# Browser automation - for web scraping and testing
+# claude mcp add -s user browser -- npx -y @modelcontextprotocol/server-browser
+
+# PostgreSQL database - requires DATABASE_URL
+# claude mcp add-json postgres -s user '{"command":"npx","args":["-y","@modelcontextprotocol/server-postgres"],"env":{"POSTGRES_URL":"${DATABASE_URL}"}}'
+
+# Twilio SMS notifications - requires TWILIO_* env vars
+# claude mcp add-json twilio -s user '{"command":"npx","args":["-y","@modelcontextprotocol/server-twilio"],"env":{"TWILIO_AUTH_TOKEN":"${TWILIO_AUTH_TOKEN}","TWILIO_ACCOUNT_SID":"${TWILIO_ACCOUNT_SID}","TWILIO_FROM_PHONE":"${TWILIO_FROM_PHONE}"}}'

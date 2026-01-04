@@ -1,0 +1,27 @@
+{
+  "name": "claude-oauth-tests",
+  "version": "1.0.0",
+  "description": "Test suite for Claude OAuth implementation",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage test/*.test.js",
+    "test:oauth-start": "node --test test/oauth-start.test.js",
+    "test:oauth-finish": "node --test test/oauth-finish.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "oauth",
+    "claude",
+    "authentication",
+    "test-driven-development"
+  ],
+  "author": "Claude Code",
+  "license": "MIT"
+}

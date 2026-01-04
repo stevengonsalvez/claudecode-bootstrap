@@ -1,0 +1,141 @@
+# ainb-tui
+
+Terminal-based development environment manager for Claude Code agents. Built with Rust + ratatui.
+
+## Quick Reference
+
+```bash
+# From monorepo root
+cd ainb-tui
+
+# Build & Run
+cargo build                    # Debug build
+cargo build --release          # Release build
+cargo run                      # Run TUI
+cargo run -- auth              # Run auth setup
+
+# Test & Lint
+cargo test                     # Run tests
+cargo test -- --nocapture      # Tests with output
+cargo clippy -- -D warnings    # Lint
+cargo fmt                      # Format
+
+# Just commands (if just installed)
+just check                     # fmt + lint + test
+just fix                       # Auto-fix formatting & lint
+```
+
+## Architecture
+
+```
+src/
+├── main.rs              # Entry point, CLI parsing, TUI loop
+├── lib.rs               # Public API exports
+├── app/                 # Application state & event handling
+│   ├── state.rs         # App state machine
+│   ├── events.rs        # Event definitions
+│   └── attach_handler.rs
+├── components/          # TUI screen components
+│   ├── layout.rs        # Main layout orchestration
+│   ├── session_list.rs  # Session list view
+│   ├── git_view.rs      # Git operations panel
+│   ├── logs_viewer.rs   # Log streaming view
+│   └── ...
+├── widgets/             # Reusable UI widgets
+│   ├── message_router.rs
+│   ├── syntax_highlighter.rs
+│   └── ...
+├── docker/              # Container management
+│   ├── container_manager.rs
+│   ├── session_lifecycle.rs
+│   └── agents_dev.rs
+├── tmux/                # Tmux/PTY integration
+│   ├── session.rs
+│   ├── capture.rs
+│   └── pty_wrapper.rs
+├── git/                 # Git operations
+│   ├── repository.rs
+│   ├── operations.rs
+│   └── worktree_manager.rs
+├── claude/              # Claude API client
+├── models/              # Data models
+├── config/              # Configuration handling
+└── agent_parsers/       # Parse agent output
+```
+
+## TUI Style Guide
+
+All components MUST follow the color palette in `../.claude/skills/tui-screen/SKILL.md`:
+
+```rust
+// Primary
+const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);  // Borders
+const GOLD: Color = Color::Rgb(255, 215, 0);               // Titles, CTAs
+const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);  // Active state
+
+// Backgrounds
+const DARK_BG: Color = Color::Rgb(25, 25, 35);
+const PANEL_BG: Color = Color::Rgb(30, 30, 40);
+const LIST_HIGHLIGHT_BG: Color = Color::Rgb(40, 40, 60);
+
+// Text
+const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
+const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
+```
+
+**Mandatory patterns:**
+- `BorderType::Rounded` on all panels
+- Gold emoji + gold bold text for titles
+- `▶` selection indicator with `SELECTION_GREEN`
+- Bottom help bar: gold keys + muted descriptions
+
+## Key Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| `ratatui` | TUI framework |
+| `crossterm` | Terminal handling |
+| `tokio` | Async runtime |
+| `bollard` | Docker API |
+| `git2` | Git operations |
+| `portable-pty` | PTY/tmux integration |
+
+## Development Patterns
+
+### Adding a New Component
+
+1. Create `src/components/my_component.rs`
+2. Add state struct + render impl following template in skill
+3. Add to `src/components/mod.rs`
+4. Add events to `src/app/events.rs`
+5. Wire into `src/components/layout.rs`
+
+### Adding a New Widget
+
+1. Create `src/widgets/my_widget.rs`
+2. Add to `src/widgets/mod.rs`
+3. Use in components via `message_router.rs`
+
+## Testing
+
+```bash
+# Unit tests
+cargo test
+
+# With visual debug output
+cargo test --features visual-debug
+
+# VT100 screen verification
+cargo test --features vt100-tests
+
+# E2E PTY tests
+cargo test --test e2e_pty_tests
+```
+
+## Monorepo Context
+
+This TUI can reference packages from the parent `toolkit/` directory. Git operations work against the monorepo root.
+
+---
+
+*Parent context: @../CLAUDE.md for commit conventions and global instructions*
