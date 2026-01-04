@@ -15,6 +15,7 @@ const SESSIONS_PANE_WIDTH_PERCENTAGE: f32 = 0.4;
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Quit,
+    GoToHomeScreen,  // Return to home screen from any view
     NextSession,
     PreviousSession,
     NextWorkspace,
@@ -152,6 +153,19 @@ pub enum AppEvent {
     AgentSelectionPrevModel,     // Navigate to previous model
     AgentSelectionToggleExpand,  // Toggle provider expand
     AgentSelectionSelect,        // Select current agent (Enter)
+    // AINB 2.0: Config screen events
+    ConfigBack,                  // Return to home screen (Esc)
+    ConfigNextCategory,          // Navigate to next category
+    ConfigPrevCategory,          // Navigate to previous category
+    ConfigNextSetting,           // Navigate to next setting
+    ConfigPrevSetting,           // Navigate to previous setting
+    ConfigSwitchPane,            // Switch between category and settings pane (Tab)
+    ConfigEditSetting,           // Start editing current setting (Enter)
+    ConfigSaveEdit,              // Save current edit (Enter while editing)
+    ConfigCancelEdit,            // Cancel current edit (Esc while editing)
+    ConfigEditChar(char),        // Input character while editing
+    ConfigEditBackspace,         // Backspace while editing
+    ConfigSaveAll,               // Save all settings (S)
 }
 
 pub struct EventHandler;
@@ -273,6 +287,11 @@ impl EventHandler {
             return Self::handle_agent_selection_keys(key_event, state);
         }
 
+        // AINB 2.0: Handle config screen view
+        if state.current_view == View::Config {
+            return Self::handle_config_screen_keys(key_event, state);
+        }
+
         // Handle new session creation view
         if state.current_view == View::NewSession {
             return Self::handle_new_session_keys(key_event, state);
@@ -326,7 +345,8 @@ impl EventHandler {
         use crate::app::state::FocusedPane;
 
         match key_event.code {
-            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
+            // Return to home screen (quit only available from HomeScreen)
+            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::GoToHomeScreen),
             KeyCode::Tab => {
                 tracing::debug!(
                     "Tab key pressed, current focused_pane: {:?}",
@@ -715,7 +735,7 @@ impl EventHandler {
         _state: &mut AppState,
     ) -> Option<AppEvent> {
         match key_event.code {
-            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
+            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::GoToHomeScreen),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             _ => None,
         }
@@ -935,9 +955,42 @@ impl EventHandler {
         }
     }
 
+    fn handle_config_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        let config_state = &state.config_screen_state;
+        tracing::debug!("Config screen key handler: {:?}, editing: {}", key_event.code, config_state.editing);
+
+        if config_state.editing {
+            // Editing mode - handle text input
+            match key_event.code {
+                KeyCode::Enter => Some(AppEvent::ConfigSaveEdit),
+                KeyCode::Esc => Some(AppEvent::ConfigCancelEdit),
+                KeyCode::Backspace => Some(AppEvent::ConfigEditBackspace),
+                KeyCode::Char(c) => Some(AppEvent::ConfigEditChar(c)),
+                _ => None,
+            }
+        } else {
+            // Navigation mode
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::ConfigBack),
+                KeyCode::Tab => Some(AppEvent::ConfigSwitchPane),
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ConfigPrevSetting),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigNextSetting),
+                KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::ConfigPrevCategory),
+                KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::ConfigNextCategory),
+                KeyCode::Enter => Some(AppEvent::ConfigEditSetting),
+                KeyCode::Char('s') | KeyCode::Char('S') => Some(AppEvent::ConfigSaveAll),
+                _ => None,
+            }
+        }
+    }
+
     pub fn process_event(event: AppEvent, state: &mut AppState) {
         match event {
             AppEvent::Quit => state.quit(),
+            AppEvent::GoToHomeScreen => {
+                tracing::info!("Navigating to HomeScreen");
+                state.current_view = View::HomeScreen;
+            }
             AppEvent::ToggleHelp => state.toggle_help(),
             AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
             AppEvent::ToggleExpandAll => state.toggle_expand_all_workspaces(),
@@ -1515,7 +1568,11 @@ impl EventHandler {
                             tracing::info!("Toggling help overlay visible");
                             state.help_visible = true;
                         }
-                        HomeTile::Catalog | HomeTile::Config | HomeTile::Stats => {
+                        HomeTile::Config => {
+                            tracing::info!("Navigating to Config view");
+                            state.current_view = View::Config;
+                        }
+                        HomeTile::Catalog | HomeTile::Stats => {
                             tracing::info!("Tile {:?} - Coming Soon", tile);
                             // Coming soon - show notification
                             state.add_info_notification(format!(
@@ -1577,6 +1634,102 @@ impl EventHandler {
                 } else {
                     state.add_warning_notification("This agent is not available yet.".to_string());
                 }
+            }
+            // AINB 2.0: Config screen events
+            AppEvent::ConfigBack => {
+                tracing::info!("Navigating back from Config to HomeScreen");
+                state.current_view = View::HomeScreen;
+            }
+            AppEvent::ConfigNextCategory => {
+                let num_categories = state.config_screen_state.categories.len();
+                if num_categories > 0 {
+                    state.config_screen_state.selected_category =
+                        (state.config_screen_state.selected_category + 1) % num_categories;
+                    state.config_screen_state.selected_setting = 0;
+                }
+            }
+            AppEvent::ConfigPrevCategory => {
+                let num_categories = state.config_screen_state.categories.len();
+                if num_categories > 0 {
+                    state.config_screen_state.selected_category =
+                        state.config_screen_state.selected_category
+                            .checked_sub(1)
+                            .unwrap_or(num_categories - 1);
+                    state.config_screen_state.selected_setting = 0;
+                }
+            }
+            AppEvent::ConfigNextSetting => {
+                let current_category = &state.config_screen_state.categories[state.config_screen_state.selected_category];
+                if let Some(settings) = state.config_screen_state.settings.get(current_category) {
+                    if !settings.is_empty() {
+                        state.config_screen_state.selected_setting =
+                            (state.config_screen_state.selected_setting + 1) % settings.len();
+                    }
+                }
+            }
+            AppEvent::ConfigPrevSetting => {
+                let current_category = &state.config_screen_state.categories[state.config_screen_state.selected_category];
+                if let Some(settings) = state.config_screen_state.settings.get(current_category) {
+                    if !settings.is_empty() {
+                        state.config_screen_state.selected_setting =
+                            state.config_screen_state.selected_setting
+                                .checked_sub(1)
+                                .unwrap_or(settings.len() - 1);
+                    }
+                }
+            }
+            AppEvent::ConfigSwitchPane => {
+                // Toggle focus between categories and settings - for now just toggle category/setting focus
+                tracing::debug!("Config switch pane - toggling focus");
+            }
+            AppEvent::ConfigEditSetting => {
+                let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
+                if let Some(settings) = state.config_screen_state.settings.get(&current_category) {
+                    if let Some(setting) = settings.get(state.config_screen_state.selected_setting) {
+                        state.config_screen_state.editing = true;
+                        state.config_screen_state.edit_buffer = setting.value.display();
+                        tracing::info!("Started editing setting: {}", setting.label);
+                    }
+                }
+            }
+            AppEvent::ConfigSaveEdit => {
+                let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
+                if let Some(settings) = state.config_screen_state.settings.get_mut(&current_category) {
+                    if let Some(setting) = settings.get_mut(state.config_screen_state.selected_setting) {
+                        let new_value = state.config_screen_state.edit_buffer.clone();
+                        // Update the value based on the type
+                        setting.value = match &setting.value {
+                            crate::app::state::ConfigValue::Text(_) => crate::app::state::ConfigValue::Text(new_value),
+                            crate::app::state::ConfigValue::Secret(_) => crate::app::state::ConfigValue::Secret(new_value),
+                            crate::app::state::ConfigValue::Bool(_) => crate::app::state::ConfigValue::Bool(new_value.to_lowercase() == "true"),
+                            crate::app::state::ConfigValue::Number(_) => crate::app::state::ConfigValue::Number(new_value.parse().unwrap_or(0)),
+                            crate::app::state::ConfigValue::Choice(options, _) => {
+                                // Try to find the index of the entered value
+                                let idx = options.iter().position(|o| o == &new_value).unwrap_or(0);
+                                crate::app::state::ConfigValue::Choice(options.clone(), idx)
+                            }
+                        };
+                        tracing::info!("Saved setting: {} = {}", setting.label, setting.value.display());
+                    }
+                }
+                state.config_screen_state.editing = false;
+                state.config_screen_state.edit_buffer.clear();
+            }
+            AppEvent::ConfigCancelEdit => {
+                state.config_screen_state.editing = false;
+                state.config_screen_state.edit_buffer.clear();
+                tracing::info!("Cancelled editing");
+            }
+            AppEvent::ConfigEditChar(c) => {
+                state.config_screen_state.edit_buffer.push(c);
+            }
+            AppEvent::ConfigEditBackspace => {
+                state.config_screen_state.edit_buffer.pop();
+            }
+            AppEvent::ConfigSaveAll => {
+                // TODO: Implement saving all settings to config file
+                state.add_success_notification("Settings saved!".to_string());
+                tracing::info!("All settings saved");
             }
             // Mouse events are handled directly in the main event loop
             AppEvent::MouseClick { .. } |
