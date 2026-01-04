@@ -388,6 +388,11 @@ pub enum FocusedPane {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
+    HomeScreen,      // Default landing page with tile navigation
+    AgentSelection,  // Choose agent provider and model
+    Config,          // Settings and configuration
+    Catalog,         // Browse marketplace/catalog
+    Analytics,       // Usage statistics and cost tracking
     SessionList,
     Logs,
     Terminal,
@@ -413,6 +418,331 @@ pub struct ConfirmationDialog {
 pub enum ConfirmAction {
     DeleteSession(Uuid),
     KillOtherTmux(String), // Kill a non-agents-in-a-box tmux session by name
+}
+
+// ============================================================================
+// Home Screen State
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeTile {
+    Agents,    // Agent selection
+    Catalog,   // Browse catalog/marketplace
+    Config,    // Settings & presets
+    Sessions,  // Session manager
+    Stats,     // Analytics & usage
+    Help,      // Docs & guides
+}
+
+impl HomeTile {
+    pub fn all() -> Vec<HomeTile> {
+        vec![
+            HomeTile::Agents,
+            HomeTile::Catalog,
+            HomeTile::Config,
+            HomeTile::Sessions,
+            HomeTile::Stats,
+            HomeTile::Help,
+        ]
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            HomeTile::Agents => "Agents",
+            HomeTile::Catalog => "Catalog",
+            HomeTile::Config => "Config",
+            HomeTile::Sessions => "Sessions",
+            HomeTile::Stats => "Stats",
+            HomeTile::Help => "Help",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            HomeTile::Agents => "Select & Configure",
+            HomeTile::Catalog => "Browse & Bootstrap",
+            HomeTile::Config => "Settings & Presets",
+            HomeTile::Sessions => "Manage Active",
+            HomeTile::Stats => "Usage & Analytics",
+            HomeTile::Help => "Docs & Guides",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            HomeTile::Agents => "🤖",
+            HomeTile::Catalog => "📦",
+            HomeTile::Config => "⚙️",
+            HomeTile::Sessions => "🚀",
+            HomeTile::Stats => "📊",
+            HomeTile::Help => "❓",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HomeScreenState {
+    pub selected_tile: usize,
+    pub tiles: Vec<HomeTile>,
+}
+
+impl Default for HomeScreenState {
+    fn default() -> Self {
+        Self {
+            selected_tile: 0,
+            tiles: HomeTile::all(),
+        }
+    }
+}
+
+impl HomeScreenState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn selected(&self) -> Option<&HomeTile> {
+        self.tiles.get(self.selected_tile)
+    }
+
+    pub fn select_next(&mut self) {
+        if !self.tiles.is_empty() {
+            self.selected_tile = (self.selected_tile + 1) % self.tiles.len();
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        if !self.tiles.is_empty() {
+            self.selected_tile = if self.selected_tile == 0 {
+                self.tiles.len() - 1
+            } else {
+                self.selected_tile - 1
+            };
+        }
+    }
+
+    pub fn select_right(&mut self) {
+        // 2x3 grid: move right wraps within row
+        let col = self.selected_tile % 3;
+        let row = self.selected_tile / 3;
+        let new_col = (col + 1) % 3;
+        self.selected_tile = row * 3 + new_col;
+    }
+
+    pub fn select_left(&mut self) {
+        // 2x3 grid: move left wraps within row
+        let col = self.selected_tile % 3;
+        let row = self.selected_tile / 3;
+        let new_col = if col == 0 { 2 } else { col - 1 };
+        self.selected_tile = row * 3 + new_col;
+    }
+
+    pub fn select_down(&mut self) {
+        // 2x3 grid: move down wraps to top
+        let col = self.selected_tile % 3;
+        let row = self.selected_tile / 3;
+        let new_row = (row + 1) % 2;
+        self.selected_tile = new_row * 3 + col;
+    }
+
+    pub fn select_up(&mut self) {
+        // 2x3 grid: move up wraps to bottom
+        let col = self.selected_tile % 3;
+        let row = self.selected_tile / 3;
+        let new_row = if row == 0 { 1 } else { 0 };
+        self.selected_tile = new_row * 3 + col;
+    }
+}
+
+// ============================================================================
+// Agent Selection State
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderStatus {
+    Available,
+    ComingSoon,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CostTier {
+    Low,
+    Medium,
+    High,
+    Premium,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentModel {
+    pub name: String,
+    pub description: String,
+    pub cost_tier: CostTier,
+    pub is_recommended: bool,
+}
+
+impl AgentModel {
+    pub fn new(name: &str, description: &str, cost_tier: CostTier, is_recommended: bool) -> Self {
+        Self {
+            name: name.to_string(),
+            description: description.to_string(),
+            cost_tier,
+            is_recommended,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentProvider {
+    pub name: String,
+    pub vendor: String,
+    pub models: Vec<AgentModel>,
+    pub status: ProviderStatus,
+}
+
+impl AgentProvider {
+    pub fn claude() -> Self {
+        Self {
+            name: "Claude Code".to_string(),
+            vendor: "Anthropic".to_string(),
+            models: vec![
+                AgentModel::new("Opus 4.5", "Best reasoning, complex tasks", CostTier::Premium, false),
+                AgentModel::new("Sonnet 4.5", "Balanced (Recommended)", CostTier::High, true),
+                AgentModel::new("Haiku 4.5", "Fast, lightweight", CostTier::Medium, false),
+            ],
+            status: ProviderStatus::Available,
+        }
+    }
+
+    pub fn codex() -> Self {
+        Self {
+            name: "Codex CLI".to_string(),
+            vendor: "OpenAI".to_string(),
+            models: vec![
+                AgentModel::new("GPT-5.2-Codex", "Latest Codex model", CostTier::High, true),
+                AgentModel::new("o3-mini", "Reasoning focused", CostTier::Medium, false),
+            ],
+            status: ProviderStatus::ComingSoon,
+        }
+    }
+
+    pub fn gemini() -> Self {
+        Self {
+            name: "Gemini CLI".to_string(),
+            vendor: "Google".to_string(),
+            models: vec![
+                AgentModel::new("Gemini 2.0 Pro", "1M context window", CostTier::High, true),
+            ],
+            status: ProviderStatus::ComingSoon,
+        }
+    }
+
+    pub fn local() -> Self {
+        Self {
+            name: "Local Models".to_string(),
+            vendor: "Ollama".to_string(),
+            models: vec![
+                AgentModel::new("Configurable", "Self-hosted models", CostTier::Low, true),
+            ],
+            status: ProviderStatus::ComingSoon,
+        }
+    }
+
+    pub fn all() -> Vec<AgentProvider> {
+        vec![
+            Self::claude(),
+            Self::codex(),
+            Self::gemini(),
+            Self::local(),
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentSelectionState {
+    pub selected_provider: usize,
+    pub selected_model: usize,
+    pub providers: Vec<AgentProvider>,
+    pub expanded_provider: Option<usize>, // Which provider is expanded to show models
+}
+
+impl Default for AgentSelectionState {
+    fn default() -> Self {
+        Self {
+            selected_provider: 0,
+            selected_model: 0,
+            providers: AgentProvider::all(),
+            expanded_provider: Some(0), // Claude expanded by default
+        }
+    }
+}
+
+impl AgentSelectionState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn current_provider(&self) -> Option<&AgentProvider> {
+        self.providers.get(self.selected_provider)
+    }
+
+    pub fn current_model(&self) -> Option<&AgentModel> {
+        self.current_provider()
+            .and_then(|p| p.models.get(self.selected_model))
+    }
+
+    pub fn select_next_provider(&mut self) {
+        if !self.providers.is_empty() {
+            self.selected_provider = (self.selected_provider + 1) % self.providers.len();
+            self.selected_model = 0;
+            self.expanded_provider = Some(self.selected_provider);
+        }
+    }
+
+    pub fn select_prev_provider(&mut self) {
+        if !self.providers.is_empty() {
+            self.selected_provider = if self.selected_provider == 0 {
+                self.providers.len() - 1
+            } else {
+                self.selected_provider - 1
+            };
+            self.selected_model = 0;
+            self.expanded_provider = Some(self.selected_provider);
+        }
+    }
+
+    pub fn select_next_model(&mut self) {
+        if let Some(provider) = self.current_provider() {
+            if !provider.models.is_empty() {
+                self.selected_model = (self.selected_model + 1) % provider.models.len();
+            }
+        }
+    }
+
+    pub fn select_prev_model(&mut self) {
+        if let Some(provider) = self.current_provider() {
+            if !provider.models.is_empty() {
+                self.selected_model = if self.selected_model == 0 {
+                    provider.models.len() - 1
+                } else {
+                    self.selected_model - 1
+                };
+            }
+        }
+    }
+
+    pub fn toggle_expand(&mut self) {
+        if self.expanded_provider == Some(self.selected_provider) {
+            self.expanded_provider = None;
+        } else {
+            self.expanded_provider = Some(self.selected_provider);
+        }
+    }
+
+    pub fn is_current_available(&self) -> bool {
+        self.current_provider()
+            .map(|p| p.status == ProviderStatus::Available)
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -568,6 +898,10 @@ pub struct AppState {
     pub other_tmux_sessions: Vec<crate::models::OtherTmuxSession>,
     pub other_tmux_expanded: bool,
     pub selected_other_tmux_index: Option<usize>,
+
+    // AINB 2.0: Home screen and agent selection
+    pub home_screen_state: HomeScreenState,
+    pub agent_selection_state: AgentSelectionState,
 }
 
 #[derive(Debug)]
@@ -674,7 +1008,7 @@ impl Default for AppState {
             selected_workspace_index: None,
             selected_session_index: None,
             expand_all_workspaces: true, // Default to expanded view
-            current_view: View::SessionList,
+            current_view: View::HomeScreen,
             should_quit: false,
             logs: HashMap::new(),
             help_visible: false,
@@ -713,6 +1047,10 @@ impl Default for AppState {
             other_tmux_sessions: Vec::new(),
             other_tmux_expanded: true, // Default to expanded
             selected_other_tmux_index: None,
+
+            // AINB 2.0: Home screen and agent selection
+            home_screen_state: HomeScreenState::default(),
+            agent_selection_state: AgentSelectionState::default(),
         }
     }
 }

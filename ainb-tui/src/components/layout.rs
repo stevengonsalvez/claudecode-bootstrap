@@ -19,9 +19,9 @@ const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
-    AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
-    ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
-    NewSessionComponent, SessionListComponent, TmuxPreviewPane,
+    AgentSelectionComponent, AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
+    ConfirmationDialogComponent, HelpComponent, HomeScreenComponent, LiveLogsStreamComponent,
+    LogsViewerComponent, NewSessionComponent, SessionListComponent, TmuxPreviewPane,
 };
 use crate::app::{AppState, state::View};
 
@@ -36,6 +36,9 @@ pub struct LayoutComponent {
     attached_terminal: AttachedTerminalComponent,
     auth_setup: AuthSetupComponent,
     tmux_preview: TmuxPreviewPane,
+    // AINB 2.0 components
+    home_screen: HomeScreenComponent,
+    agent_selection: AgentSelectionComponent,
 }
 
 impl LayoutComponent {
@@ -51,6 +54,9 @@ impl LayoutComponent {
             attached_terminal: AttachedTerminalComponent::new(),
             auth_setup: AuthSetupComponent::new(),
             tmux_preview: TmuxPreviewPane::new(),
+            // AINB 2.0 components
+            home_screen: HomeScreenComponent::new(),
+            agent_selection: AgentSelectionComponent::new(),
         }
     }
 
@@ -73,6 +79,18 @@ impl LayoutComponent {
             if let Some(ref git_state) = state.git_view_state {
                 crate::components::GitViewComponent::render(frame, frame.size(), git_state);
             }
+            return;
+        }
+
+        // AINB 2.0: Home screen (full screen)
+        if state.current_view == View::HomeScreen {
+            self.home_screen.render(frame, frame.size(), state);
+            return;
+        }
+
+        // AINB 2.0: Agent selection (full screen)
+        if state.current_view == View::AgentSelection {
+            self.agent_selection.render(frame, frame.size(), state);
             return;
         }
 

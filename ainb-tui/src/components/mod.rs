@@ -1,5 +1,6 @@
 // ABOUTME: UI components for the TUI interface including session list, logs viewer, and help
 
+pub mod agent_selection;
 pub mod attached_terminal;
 pub mod auth_setup;
 pub mod claude_chat;
@@ -7,6 +8,7 @@ pub mod confirmation_dialog;
 pub mod fuzzy_file_finder;
 pub mod git_view;
 pub mod help;
+pub mod home_screen;
 pub mod layout;
 pub mod live_logs_stream;
 // pub mod log_formatter;  // Complex version with borrow issues, using simple version instead
@@ -17,9 +19,11 @@ pub mod new_session;
 pub mod session_list;
 pub mod tmux_preview;
 
+pub use agent_selection::AgentSelectionComponent;
 pub use attached_terminal::AttachedTerminalComponent;
 pub use auth_setup::AuthSetupComponent;
 pub use claude_chat::ClaudeChatComponent;
+pub use home_screen::HomeScreenComponent;
 pub use confirmation_dialog::ConfirmationDialogComponent;
 pub use git_view::{GitViewComponent, GitViewState};
 pub use help::HelpComponent;

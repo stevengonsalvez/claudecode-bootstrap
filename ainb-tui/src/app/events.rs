@@ -138,6 +138,20 @@ pub enum AppEvent {
     ScrollPreviewUp,              // Scroll tmux preview up
     ScrollPreviewDown,            // Scroll tmux preview down
     ToggleExpandAll,              // Toggle expand/collapse all workspaces
+    // AINB 2.0: Home screen events
+    HomeScreenSelectTile,        // Select current tile (Enter)
+    HomeScreenNavigateUp,        // Navigate up in tile grid
+    HomeScreenNavigateDown,      // Navigate down in tile grid
+    HomeScreenNavigateLeft,      // Navigate left in tile grid
+    HomeScreenNavigateRight,     // Navigate right in tile grid
+    // AINB 2.0: Agent selection events
+    AgentSelectionBack,          // Return to home screen (Esc)
+    AgentSelectionNextProvider,  // Navigate to next provider
+    AgentSelectionPrevProvider,  // Navigate to previous provider
+    AgentSelectionNextModel,     // Navigate to next model
+    AgentSelectionPrevModel,     // Navigate to previous model
+    AgentSelectionToggleExpand,  // Toggle provider expand
+    AgentSelectionSelect,        // Select current agent (Enter)
 }
 
 pub struct EventHandler;
@@ -244,6 +258,16 @@ impl EventHandler {
         // Handle global help toggle first (should work from any view)
         if let KeyCode::Char('?') = key_event.code {
             return Some(AppEvent::ToggleHelp);
+        }
+
+        // AINB 2.0: Handle home screen view
+        if state.current_view == View::HomeScreen {
+            return Self::handle_home_screen_keys(key_event, state);
+        }
+
+        // AINB 2.0: Handle agent selection view
+        if state.current_view == View::AgentSelection {
+            return Self::handle_agent_selection_keys(key_event, state);
         }
 
         // Handle new session creation view
@@ -865,6 +889,46 @@ impl EventHandler {
         }
     }
 
+    // AINB 2.0: Home screen key handling
+    fn handle_home_screen_keys(key_event: KeyEvent, _state: &AppState) -> Option<AppEvent> {
+        match key_event.code {
+            KeyCode::Enter => Some(AppEvent::HomeScreenSelectTile),
+            KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::HomeScreenNavigateUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::HomeScreenNavigateDown),
+            KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::HomeScreenNavigateLeft),
+            KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::HomeScreenNavigateRight),
+            KeyCode::Char('q') => Some(AppEvent::Quit),
+            _ => None,
+        }
+    }
+
+    // AINB 2.0: Agent selection key handling
+    fn handle_agent_selection_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        let agent_state = &state.agent_selection_state;
+
+        // Check if a provider is expanded (showing models)
+        if agent_state.expanded_provider.is_some() {
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::AgentSelectionBack),
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AgentSelectionPrevModel),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AgentSelectionNextModel),
+                KeyCode::Tab => Some(AppEvent::AgentSelectionNextProvider),
+                KeyCode::BackTab => Some(AppEvent::AgentSelectionPrevProvider),
+                KeyCode::Enter => Some(AppEvent::AgentSelectionSelect),
+                KeyCode::Char(' ') => Some(AppEvent::AgentSelectionToggleExpand),
+                _ => None,
+            }
+        } else {
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::AgentSelectionBack),
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AgentSelectionPrevProvider),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AgentSelectionNextProvider),
+                KeyCode::Enter | KeyCode::Char(' ') => Some(AppEvent::AgentSelectionToggleExpand),
+                _ => None,
+            }
+        }
+    }
+
     pub fn process_event(event: AppEvent, state: &mut AppState) {
         match event {
             AppEvent::Quit => state.quit(),
@@ -1017,9 +1081,9 @@ impl EventHandler {
                 }
             }
             AppEvent::DetachSession => {
-                // Clear attached session and return to session list
+                // Clear attached session and return to home screen
                 state.attached_session_id = None;
-                state.current_view = View::SessionList;
+                state.current_view = View::HomeScreen;
                 state.ui_needs_refresh = true;
             }
             AppEvent::DetachTmuxSession => {
@@ -1174,9 +1238,9 @@ impl EventHandler {
                             }
                         }
                         AuthMethod::Skip => {
-                            // Skip auth setup and go to main screen
+                            // Skip auth setup and go to home screen
                             state.auth_setup_state = None;
-                            state.current_view = View::SessionList;
+                            state.current_view = View::HomeScreen;
                             state.check_current_directory_status();
                             state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
                         }
@@ -1184,9 +1248,9 @@ impl EventHandler {
                 }
             }
             AppEvent::AuthSetupCancel => {
-                // Same as skip - go to main screen without auth
+                // Same as skip - go to home screen without auth
                 state.auth_setup_state = None;
-                state.current_view = View::SessionList;
+                state.current_view = View::HomeScreen;
                 state.check_current_directory_status();
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
             }
@@ -1210,7 +1274,7 @@ impl EventHandler {
                 if state.auth_setup_state.is_some() && !AppState::is_first_time_setup() {
                     // Authentication completed!
                     state.auth_setup_state = None;
-                    state.current_view = View::SessionList;
+                    state.current_view = View::HomeScreen;
                     state.check_current_directory_status();
                     state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
                 }
@@ -1221,7 +1285,7 @@ impl EventHandler {
                     if !AppState::is_first_time_setup() {
                         // Authentication completed!
                         state.auth_setup_state = None;
-                        state.current_view = View::SessionList;
+                        state.current_view = View::HomeScreen;
                         state.check_current_directory_status();
                         state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
                     } else {
@@ -1347,7 +1411,7 @@ impl EventHandler {
                 state.git_commit_and_push();
             }
             AppEvent::GitViewBack => {
-                state.current_view = crate::app::state::View::SessionList;
+                state.current_view = crate::app::state::View::HomeScreen;
                 state.git_view_state = None;
             }
             // Commit message input events
@@ -1421,10 +1485,80 @@ impl EventHandler {
                 tracing::info!("Git commit successful: {}", message);
                 // Add success notification
                 state.add_success_notification(format!("✅ {}", message));
-                // Exit git view and return to main session list
-                state.current_view = crate::app::state::View::SessionList;
+                // Exit git view and return to home screen
+                state.current_view = crate::app::state::View::HomeScreen;
                 state.git_view_state = None;
-                tracing::info!("Returned to session list after successful commit");
+                tracing::info!("Returned to home screen after successful commit");
+            }
+            // AINB 2.0: Home screen events
+            AppEvent::HomeScreenSelectTile => {
+                use crate::app::state::HomeTile;
+                if let Some(tile) = state.home_screen_state.selected().cloned() {
+                    match tile {
+                        HomeTile::Agents => {
+                            state.current_view = View::AgentSelection;
+                        }
+                        HomeTile::Sessions => {
+                            state.current_view = View::SessionList;
+                        }
+                        HomeTile::Help => {
+                            state.help_visible = true;
+                        }
+                        HomeTile::Catalog | HomeTile::Config | HomeTile::Stats => {
+                            // Coming soon - show notification
+                            state.add_info_notification(format!(
+                                "{} {} - Coming Soon!",
+                                tile.icon(),
+                                tile.label()
+                            ));
+                        }
+                    }
+                }
+            }
+            AppEvent::HomeScreenNavigateUp => {
+                state.home_screen_state.select_up();
+            }
+            AppEvent::HomeScreenNavigateDown => {
+                state.home_screen_state.select_down();
+            }
+            AppEvent::HomeScreenNavigateLeft => {
+                state.home_screen_state.select_left();
+            }
+            AppEvent::HomeScreenNavigateRight => {
+                state.home_screen_state.select_right();
+            }
+            // AINB 2.0: Agent selection events
+            AppEvent::AgentSelectionBack => {
+                state.current_view = View::HomeScreen;
+            }
+            AppEvent::AgentSelectionNextProvider => {
+                state.agent_selection_state.select_next_provider();
+            }
+            AppEvent::AgentSelectionPrevProvider => {
+                state.agent_selection_state.select_prev_provider();
+            }
+            AppEvent::AgentSelectionNextModel => {
+                state.agent_selection_state.select_next_model();
+            }
+            AppEvent::AgentSelectionPrevModel => {
+                state.agent_selection_state.select_prev_model();
+            }
+            AppEvent::AgentSelectionToggleExpand => {
+                state.agent_selection_state.toggle_expand();
+            }
+            AppEvent::AgentSelectionSelect => {
+                if state.agent_selection_state.is_current_available() {
+                    // Store selected agent and proceed to session creation
+                    state.add_success_notification(format!(
+                        "Selected: {} - {}",
+                        state.agent_selection_state.current_provider().map(|p| p.name.as_str()).unwrap_or("Unknown"),
+                        state.agent_selection_state.current_model().map(|m| m.name.as_str()).unwrap_or("Unknown")
+                    ));
+                    // Go to session list or new session
+                    state.current_view = View::SessionList;
+                } else {
+                    state.add_warning_notification("This agent is not available yet.".to_string());
+                }
             }
             // Mouse events are handled directly in the main event loop
             AppEvent::MouseClick { .. } |
