@@ -245,11 +245,14 @@ impl EventHandler {
         }
 
         if state.help_visible {
+            tracing::debug!("Help is visible, handling key: {:?}", key_event.code);
             match key_event.code {
                 KeyCode::Char('?') | KeyCode::Esc => {
+                    tracing::info!("Toggling help off via {:?}", key_event.code);
                     return Some(AppEvent::ToggleHelp);
                 }
                 _ => {
+                    tracing::debug!("Ignoring key {:?} while help visible", key_event.code);
                     return None;
                 }
             }
@@ -891,7 +894,8 @@ impl EventHandler {
 
     // AINB 2.0: Home screen key handling
     fn handle_home_screen_keys(key_event: KeyEvent, _state: &AppState) -> Option<AppEvent> {
-        match key_event.code {
+        tracing::debug!("HomeScreen key handler: {:?}", key_event.code);
+        let event = match key_event.code {
             KeyCode::Enter => Some(AppEvent::HomeScreenSelectTile),
             KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::HomeScreenNavigateUp),
             KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::HomeScreenNavigateDown),
@@ -899,7 +903,9 @@ impl EventHandler {
             KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::HomeScreenNavigateRight),
             KeyCode::Char('q') => Some(AppEvent::Quit),
             _ => None,
-        }
+        };
+        tracing::debug!("HomeScreen key handler returning: {:?}", event);
+        event
     }
 
     // AINB 2.0: Agent selection key handling
@@ -1493,18 +1499,24 @@ impl EventHandler {
             // AINB 2.0: Home screen events
             AppEvent::HomeScreenSelectTile => {
                 use crate::app::state::HomeTile;
+                tracing::info!("HomeScreenSelectTile event - processing tile selection");
                 if let Some(tile) = state.home_screen_state.selected().cloned() {
+                    tracing::info!("Selected tile: {:?}", tile);
                     match tile {
                         HomeTile::Agents => {
+                            tracing::info!("Navigating to AgentSelection view");
                             state.current_view = View::AgentSelection;
                         }
                         HomeTile::Sessions => {
+                            tracing::info!("Navigating to SessionList view");
                             state.current_view = View::SessionList;
                         }
                         HomeTile::Help => {
+                            tracing::info!("Toggling help overlay visible");
                             state.help_visible = true;
                         }
                         HomeTile::Catalog | HomeTile::Config | HomeTile::Stats => {
+                            tracing::info!("Tile {:?} - Coming Soon", tile);
                             // Coming soon - show notification
                             state.add_info_notification(format!(
                                 "{} {} - Coming Soon!",
@@ -1513,18 +1525,24 @@ impl EventHandler {
                             ));
                         }
                     }
+                } else {
+                    tracing::warn!("No tile selected in HomeScreenState");
                 }
             }
             AppEvent::HomeScreenNavigateUp => {
+                tracing::debug!("HomeScreen navigate up");
                 state.home_screen_state.select_up();
             }
             AppEvent::HomeScreenNavigateDown => {
+                tracing::debug!("HomeScreen navigate down");
                 state.home_screen_state.select_down();
             }
             AppEvent::HomeScreenNavigateLeft => {
+                tracing::debug!("HomeScreen navigate left");
                 state.home_screen_state.select_left();
             }
             AppEvent::HomeScreenNavigateRight => {
+                tracing::debug!("HomeScreen navigate right");
                 state.home_screen_state.select_right();
             }
             // AINB 2.0: Agent selection events

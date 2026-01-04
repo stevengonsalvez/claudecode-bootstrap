@@ -84,13 +84,25 @@ impl LayoutComponent {
 
         // AINB 2.0: Home screen (full screen)
         if state.current_view == View::HomeScreen {
+            tracing::debug!("Rendering HomeScreen view");
             self.home_screen.render(frame, frame.size(), state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on HomeScreen");
+                self.help.render(frame, frame.size());
+            }
             return;
         }
 
         // AINB 2.0: Agent selection (full screen)
         if state.current_view == View::AgentSelection {
+            tracing::debug!("Rendering AgentSelection view");
             self.agent_selection.render(frame, frame.size(), state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on AgentSelection");
+                self.help.render(frame, frame.size());
+            }
             return;
         }
 
