@@ -2,6 +2,7 @@
 
 pub mod agent_selection;
 pub mod attached_terminal;
+pub mod auth_provider_popup;
 pub mod auth_setup;
 pub mod claude_chat;
 pub mod config_screen;
@@ -22,6 +23,7 @@ pub mod tmux_preview;
 
 pub use agent_selection::AgentSelectionComponent;
 pub use attached_terminal::AttachedTerminalComponent;
+pub use auth_provider_popup::AuthProviderPopupComponent;
 pub use auth_setup::AuthSetupComponent;
 pub use claude_chat::ClaudeChatComponent;
 pub use config_screen::ConfigScreenComponent;

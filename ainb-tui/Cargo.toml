@@ -49,6 +49,7 @@ clap = { version = "4.4", features = ["derive"] }
 tempfile = "3.8"
 nix = { version = "0.27", features = ["user"] }
 arboard = "3.3"  # Cross-platform clipboard support
+keyring = { version = "3", features = ["apple-native", "linux-native"] }  # Secure credential storage
 regex = "1.10"
 lazy_static = "1.4"
 

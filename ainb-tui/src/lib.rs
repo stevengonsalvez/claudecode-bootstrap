@@ -7,6 +7,7 @@ pub mod app;
 pub mod claude;
 pub mod components;
 pub mod config;
+pub mod credentials;
 pub mod docker;
 pub mod git;
 pub mod interactive;

@@ -19,7 +19,7 @@ const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
-    AgentSelectionComponent, AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
+    AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
     LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, SessionListComponent,
     TmuxPreviewPane,
@@ -41,6 +41,7 @@ pub struct LayoutComponent {
     home_screen: HomeScreenComponent,
     agent_selection: AgentSelectionComponent,
     config_screen: ConfigScreenComponent,
+    auth_provider_popup: AuthProviderPopupComponent,
 }
 
 impl LayoutComponent {
@@ -60,6 +61,7 @@ impl LayoutComponent {
             home_screen: HomeScreenComponent::new(),
             agent_selection: AgentSelectionComponent::new(),
             config_screen: ConfigScreenComponent::new(),
+            auth_provider_popup: AuthProviderPopupComponent::new(),
         }
     }
 
@@ -113,6 +115,13 @@ impl LayoutComponent {
         if state.current_view == View::Config {
             tracing::debug!("Rendering Config view");
             self.config_screen.render(frame, frame.size(), state);
+
+            // Render auth provider popup on top if visible
+            if state.auth_provider_popup_state.show_popup {
+                tracing::debug!("Rendering auth provider popup");
+                self.auth_provider_popup.render(frame, frame.size(), state);
+            }
+
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on Config");

@@ -20,6 +20,7 @@ mod app;
 mod claude;
 mod components;
 mod config;
+mod credentials;
 mod docker;
 mod git;
 mod interactive;
