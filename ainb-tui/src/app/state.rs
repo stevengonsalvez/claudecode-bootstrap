@@ -8,6 +8,8 @@ use crate::claude::types::ClaudeStreamingEvent;
 use crate::claude::{ClaudeApiClient, ClaudeMessage};
 use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::components::live_logs_stream::LogEntry;
+use crate::config::AppConfig;
+use crate::credentials;
 use crate::docker::LogStreamingCoordinator;
 use crate::models::{Session, Workspace};
 use std::collections::HashMap;
@@ -799,7 +801,7 @@ impl ConfigCategory {
 
     pub fn description(&self) -> &'static str {
         match self {
-            ConfigCategory::Authentication => "API keys, OAuth, GitHub PAT",
+            ConfigCategory::Authentication => "API keys, OAuth, GitHub credentials",
             ConfigCategory::Workspace => "Default paths, git settings",
             ConfigCategory::AgentDefaults => "Model, temperature, max tokens",
             ConfigCategory::Plugins => "Installed plugins, enable/disable",
@@ -853,6 +855,8 @@ pub struct ConfigScreenState {
     pub settings: std::collections::HashMap<ConfigCategory, Vec<ConfigSetting>>,
     pub editing: bool,
     pub edit_buffer: String,
+    /// True when entering API key (special handling - saves to keychain)
+    pub api_key_input_mode: bool,
 }
 
 impl Default for ConfigScreenState {
@@ -860,24 +864,31 @@ impl Default for ConfigScreenState {
         let mut settings = std::collections::HashMap::new();
 
         // Authentication settings
+        // Determine current auth status for display
+        let auth_status = match credentials::get_anthropic_api_key() {
+            Ok(Some(key)) => {
+                let masked = if key.len() > 12 {
+                    format!("{}••••••••", &key[..12])
+                } else {
+                    "••••••••".to_string()
+                };
+                format!("API Key ({})", masked)
+            }
+            _ => "System Auth (Pro/Max Plan)".to_string(),
+        };
+
         settings.insert(ConfigCategory::Authentication, vec![
             ConfigSetting {
-                key: "anthropic_api_key".to_string(),
-                label: "Anthropic API Key".to_string(),
-                value: ConfigValue::Secret(String::new()),
-                description: "Your Anthropic API key for Claude API access".to_string(),
+                key: "claude_auth".to_string(),
+                label: "Claude Authentication".to_string(),
+                value: ConfigValue::Text(auth_status),
+                description: "Press Enter to configure authentication provider".to_string(),
             },
             ConfigSetting {
-                key: "oauth_status".to_string(),
-                label: "OAuth Status".to_string(),
-                value: ConfigValue::Text("Not configured".to_string()),
-                description: "OAuth enables container auth without exposing API keys".to_string(),
-            },
-            ConfigSetting {
-                key: "github_pat".to_string(),
-                label: "GitHub PAT".to_string(),
-                value: ConfigValue::Secret(String::new()),
-                description: "Required for GitHub operations in agent sessions".to_string(),
+                key: "github_auth".to_string(),
+                label: "GitHub Credentials".to_string(),
+                value: ConfigValue::Text("System Default".to_string()),
+                description: "Uses git credential helper. PAT support coming soon.".to_string(),
             },
         ]);
 
@@ -984,6 +995,7 @@ impl Default for ConfigScreenState {
             settings,
             editing: false,
             edit_buffer: String::new(),
+            api_key_input_mode: false,
         }
     }
 }
@@ -1056,6 +1068,367 @@ impl ConfigScreenState {
                         _ => {}
                     }
                 }
+            }
+        }
+    }
+
+    /// Create ConfigScreenState from AppConfig (loads persisted settings)
+    pub fn from_app_config(config: &AppConfig) -> Self {
+        let mut state = Self::default();
+
+        // Update Authentication settings from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Authentication) {
+            for setting in settings.iter_mut() {
+                if setting.key == "claude_auth" {
+                    // Build status text based on provider and API key presence
+                    use crate::config::ClaudeAuthProvider;
+                    let status = match &config.authentication.claude_provider {
+                        ClaudeAuthProvider::ApiKey => {
+                            let masked = credentials::get_anthropic_api_key_masked();
+                            if masked == "Not configured" {
+                                "API Key (Not configured)".to_string()
+                            } else {
+                                format!("API Key ({})", masked)
+                            }
+                        }
+                        ClaudeAuthProvider::SystemAuth => "System Auth (Pro/Max Plan)".to_string(),
+                        ClaudeAuthProvider::AmazonBedrock => "Amazon Bedrock [Coming Soon]".to_string(),
+                        ClaudeAuthProvider::GoogleVertex => "Google Vertex [Coming Soon]".to_string(),
+                        ClaudeAuthProvider::AzureFoundry => "Azure Foundry [Coming Soon]".to_string(),
+                        ClaudeAuthProvider::GlmZai => "GLM on ZAI [Coming Soon]".to_string(),
+                        ClaudeAuthProvider::LlmGateway => "LLM Gateway [Coming Soon]".to_string(),
+                    };
+                    setting.value = ConfigValue::Text(status);
+                }
+            }
+        }
+
+        // Update Workspace settings from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Workspace) {
+            for setting in settings.iter_mut() {
+                match setting.key.as_str() {
+                    "default_workspace" => {
+                        // Use first scan path or default
+                        let path = config.workspace_defaults.workspace_scan_paths
+                            .first()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "~/projects".to_string());
+                        setting.value = ConfigValue::Text(path);
+                    }
+                    "scan_depth" => {
+                        setting.value = ConfigValue::Number(3); // Not in AppConfig yet
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Update Agent Defaults from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::AgentDefaults) {
+            for setting in settings.iter_mut() {
+                match setting.key.as_str() {
+                    "auto_approve" => {
+                        // Will be added to AppConfig
+                        setting.value = ConfigValue::Bool(false);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Update Appearance from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Appearance) {
+            for setting in settings.iter_mut() {
+                if setting.key == "theme" {
+                    let theme_idx = match config.ui_preferences.theme.as_str() {
+                        "dark" => 0,
+                        "light" => 1,
+                        "system" => 2,
+                        _ => 0,
+                    };
+                    setting.value = ConfigValue::Choice(
+                        vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
+                        theme_idx,
+                    );
+                }
+            }
+        }
+
+        // Update Analytics from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Analytics) {
+            for setting in settings.iter_mut() {
+                match setting.key.as_str() {
+                    "track_usage" => {
+                        setting.value = ConfigValue::Bool(true); // Default, not in AppConfig yet
+                    }
+                    "cost_alerts" => {
+                        setting.value = ConfigValue::Bool(false); // Default, not in AppConfig yet
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        state
+    }
+
+    /// Convert ConfigScreenState back to AppConfig for saving
+    pub fn apply_to_app_config(&self, config: &mut AppConfig) {
+        // Apply Workspace settings
+        if let Some(settings) = self.settings.get(&ConfigCategory::Workspace) {
+            for setting in settings {
+                match setting.key.as_str() {
+                    "default_workspace" => {
+                        if let ConfigValue::Text(path) = &setting.value {
+                            let expanded = if path.starts_with("~/") {
+                                dirs::home_dir()
+                                    .map(|h| h.join(&path[2..]))
+                                    .unwrap_or_else(|| std::path::PathBuf::from(path))
+                            } else {
+                                std::path::PathBuf::from(path)
+                            };
+                            // Add to scan paths if not already present
+                            if !config.workspace_defaults.workspace_scan_paths.contains(&expanded) {
+                                config.workspace_defaults.workspace_scan_paths.push(expanded);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Apply Appearance settings
+        if let Some(settings) = self.settings.get(&ConfigCategory::Appearance) {
+            for setting in settings {
+                if setting.key == "theme" {
+                    if let ConfigValue::Choice(options, idx) = &setting.value {
+                        if let Some(theme) = options.get(*idx) {
+                            config.ui_preferences.theme = theme.to_lowercase();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply Permissions settings
+        if let Some(settings) = self.settings.get(&ConfigCategory::Permissions) {
+            for setting in settings {
+                match setting.key.as_str() {
+                    "allow_file_write" | "allow_shell" | "allow_git" => {
+                        // These would be added to AppConfig in future
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+// Auth provider option for the popup
+#[derive(Debug, Clone)]
+pub struct AuthProviderOption {
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    pub description: String,
+    pub available: bool,
+    pub is_current: bool,
+}
+
+impl AuthProviderOption {
+    pub fn new(id: &str, name: &str, icon: &str, desc: &str, available: bool) -> Self {
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            icon: icon.to_string(),
+            description: desc.to_string(),
+            available,
+            is_current: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthProviderPopupState {
+    pub providers: Vec<AuthProviderOption>,
+    pub selected_index: usize,
+    pub is_entering_key: bool,
+    pub api_key_input: String,
+    pub show_popup: bool,
+}
+
+impl Default for AuthProviderPopupState {
+    fn default() -> Self {
+        // Check current API key status to mark current provider
+        let has_api_key = credentials::get_anthropic_api_key()
+            .map(|opt| opt.is_some())
+            .unwrap_or(false);
+
+        let mut providers = vec![
+            AuthProviderOption::new(
+                "system",
+                "System Auth (Pro/Max Plan)",
+                "",
+                "Uses 'claude auth' - for Anthropic Pro/Max subscribers",
+                true,
+            ),
+            AuthProviderOption::new(
+                "api_key",
+                "API Key (Pay-as-you-go)",
+                "",
+                "Set ANTHROPIC_API_KEY environment variable for pay-per-use",
+                true,
+            ),
+            AuthProviderOption::new(
+                "bedrock",
+                "Amazon Bedrock",
+                "",
+                "Use Claude via AWS Bedrock service",
+                false, // Coming soon
+            ),
+            AuthProviderOption::new(
+                "vertex",
+                "Google Vertex AI",
+                "",
+                "Use Claude via Google Cloud Vertex AI",
+                false, // Coming soon
+            ),
+            AuthProviderOption::new(
+                "azure",
+                "Microsoft Azure Foundry",
+                "",
+                "Use Claude via Azure AI services",
+                false, // Coming soon
+            ),
+            AuthProviderOption::new(
+                "glm",
+                "GLM on ZAI",
+                "",
+                "Use GLM models via ZAI platform",
+                false, // Coming soon
+            ),
+            AuthProviderOption::new(
+                "gateway",
+                "LLM Gateway",
+                "",
+                "Use custom LLM gateway endpoint",
+                false, // Coming soon
+            ),
+        ];
+
+        // Mark current provider
+        if has_api_key {
+            if let Some(p) = providers.iter_mut().find(|p| p.id == "api_key") {
+                p.is_current = true;
+            }
+        } else {
+            if let Some(p) = providers.iter_mut().find(|p| p.id == "system") {
+                p.is_current = true;
+            }
+        }
+
+        Self {
+            providers,
+            selected_index: 0,
+            is_entering_key: false,
+            api_key_input: String::new(),
+            show_popup: false,
+        }
+    }
+}
+
+impl AuthProviderPopupState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn select_next(&mut self) {
+        if !self.providers.is_empty() {
+            self.selected_index = (self.selected_index + 1) % self.providers.len();
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        if !self.providers.is_empty() {
+            self.selected_index = if self.selected_index == 0 {
+                self.providers.len() - 1
+            } else {
+                self.selected_index - 1
+            };
+        }
+    }
+
+    pub fn current_provider(&self) -> Option<&AuthProviderOption> {
+        self.providers.get(self.selected_index)
+    }
+
+    pub fn is_api_key_selected(&self) -> bool {
+        self.current_provider().map(|p| p.id == "api_key").unwrap_or(false)
+    }
+
+    pub fn start_key_input(&mut self) {
+        self.is_entering_key = true;
+        self.api_key_input.clear();
+    }
+
+    pub fn cancel_key_input(&mut self) {
+        self.is_entering_key = false;
+        self.api_key_input.clear();
+    }
+
+    /// Create AuthProviderPopupState with current provider marked based on config
+    pub fn from_app_config(config: &crate::config::AppConfig) -> Self {
+        use crate::config::ClaudeAuthProvider;
+
+        let mut state = Self::default();
+
+        // Clear any auto-detected current flags
+        for provider in &mut state.providers {
+            provider.is_current = false;
+        }
+
+        // Mark the provider from config as current
+        let provider_id = match &config.authentication.claude_provider {
+            ClaudeAuthProvider::SystemAuth => "system",
+            ClaudeAuthProvider::ApiKey => "api_key",
+            ClaudeAuthProvider::AmazonBedrock => "amazon_bedrock",
+            ClaudeAuthProvider::GoogleVertex => "google_vertex",
+            ClaudeAuthProvider::AzureFoundry => "azure_foundry",
+            ClaudeAuthProvider::GlmZai => "glm_zai",
+            ClaudeAuthProvider::LlmGateway => "llm_gateway",
+        };
+
+        if let Some(p) = state.providers.iter_mut().find(|p| p.id == provider_id) {
+            p.is_current = true;
+        }
+
+        state
+    }
+
+    /// Get the current provider ID (the one marked as is_current)
+    pub fn get_current_provider_id(&self) -> Option<&str> {
+        self.providers.iter()
+            .find(|p| p.is_current)
+            .map(|p| p.id.as_str())
+    }
+
+    pub fn refresh_providers(&mut self) {
+        let has_api_key = credentials::get_anthropic_api_key()
+            .map(|opt| opt.is_some())
+            .unwrap_or(false);
+
+        for p in &mut self.providers {
+            p.is_current = false;
+        }
+
+        if has_api_key {
+            if let Some(p) = self.providers.iter_mut().find(|p| p.id == "api_key") {
+                p.is_current = true;
+            }
+        } else {
+            if let Some(p) = self.providers.iter_mut().find(|p| p.id == "system") {
+                p.is_current = true;
             }
         }
     }
@@ -1219,6 +1592,10 @@ pub struct AppState {
     pub home_screen_state: HomeScreenState,
     pub agent_selection_state: AgentSelectionState,
     pub config_screen_state: ConfigScreenState,
+    pub auth_provider_popup_state: AuthProviderPopupState,
+
+    // Persistent configuration (saved to ~/.agents-in-a-box/config/config.toml)
+    pub app_config: AppConfig,
 }
 
 #[derive(Debug)]
@@ -1320,6 +1697,12 @@ pub enum AsyncAction {
 
 impl Default for AppState {
     fn default() -> Self {
+        // Load persistent configuration
+        let app_config = AppConfig::load().unwrap_or_else(|e| {
+            warn!("Failed to load config, using defaults: {}", e);
+            AppConfig::default()
+        });
+
         Self {
             workspaces: Vec::new(),
             selected_workspace_index: None,
@@ -1368,7 +1751,11 @@ impl Default for AppState {
             // AINB 2.0: Home screen and agent selection
             home_screen_state: HomeScreenState::default(),
             agent_selection_state: AgentSelectionState::default(),
-            config_screen_state: ConfigScreenState::default(),
+            config_screen_state: ConfigScreenState::from_app_config(&app_config),
+            auth_provider_popup_state: AuthProviderPopupState::from_app_config(&app_config),
+
+            // Persistent configuration
+            app_config,
         }
     }
 }

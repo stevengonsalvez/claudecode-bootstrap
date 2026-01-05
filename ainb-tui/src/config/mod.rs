@@ -20,11 +20,83 @@ pub use mcp::{McpInitStrategy, McpServerConfig};
 pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
 pub use presets::{PermissionSet, PresetManager, RepositoryPreset, create_default_presets};
 
+/// Authentication provider for Claude API
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeAuthProvider {
+    /// System authentication (Claude Pro/Max subscription)
+    #[default]
+    SystemAuth,
+    /// Direct API key (pay-as-you-go)
+    ApiKey,
+    /// Amazon Bedrock (coming soon)
+    AmazonBedrock,
+    /// Google Vertex AI (coming soon)
+    GoogleVertex,
+    /// Microsoft Azure Foundry (coming soon)
+    AzureFoundry,
+    /// GLM on ZAI (coming soon)
+    GlmZai,
+    /// LLM Gateway (coming soon)
+    LlmGateway,
+}
+
+impl ClaudeAuthProvider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClaudeAuthProvider::SystemAuth => "system_auth",
+            ClaudeAuthProvider::ApiKey => "api_key",
+            ClaudeAuthProvider::AmazonBedrock => "amazon_bedrock",
+            ClaudeAuthProvider::GoogleVertex => "google_vertex",
+            ClaudeAuthProvider::AzureFoundry => "azure_foundry",
+            ClaudeAuthProvider::GlmZai => "glm_zai",
+            ClaudeAuthProvider::LlmGateway => "llm_gateway",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Self {
+        match id {
+            "system_auth" => ClaudeAuthProvider::SystemAuth,
+            "api_key" => ClaudeAuthProvider::ApiKey,
+            "amazon_bedrock" => ClaudeAuthProvider::AmazonBedrock,
+            "google_vertex" => ClaudeAuthProvider::GoogleVertex,
+            "azure_foundry" => ClaudeAuthProvider::AzureFoundry,
+            "glm_zai" => ClaudeAuthProvider::GlmZai,
+            "llm_gateway" => ClaudeAuthProvider::LlmGateway,
+            _ => ClaudeAuthProvider::SystemAuth,
+        }
+    }
+}
+
+/// Authentication configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuthenticationConfig {
+    /// Claude authentication provider
+    #[serde(default)]
+    pub claude_provider: ClaudeAuthProvider,
+
+    /// Default Claude model to use
+    #[serde(default = "default_claude_model")]
+    pub default_model: String,
+
+    /// GitHub authentication method (for future use)
+    #[serde(default)]
+    pub github_method: Option<String>,
+}
+
+fn default_claude_model() -> String {
+    "sonnet".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Application version
     #[serde(default = "default_version")]
     pub version: String,
+
+    /// Authentication configuration
+    #[serde(default)]
+    pub authentication: AuthenticationConfig,
 
     /// Default container template to use if none specified
     #[serde(default = "default_container_template")]
@@ -274,6 +346,16 @@ impl AppConfig {
     /// Merge another config into this one
     fn merge(&mut self, other: AppConfig) {
         // Don't override version
+
+        // Merge authentication config
+        self.authentication.claude_provider = other.authentication.claude_provider;
+        if other.authentication.default_model != default_claude_model() {
+            self.authentication.default_model = other.authentication.default_model;
+        }
+        if other.authentication.github_method.is_some() {
+            self.authentication.github_method = other.authentication.github_method;
+        }
+
         if !other.default_container_template.is_empty() {
             self.default_container_template = other.default_container_template;
         }
@@ -338,6 +420,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         let mut config = Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
+            authentication: AuthenticationConfig::default(),
             default_container_template: default_container_template(),
             container_templates: HashMap::new(),
             mcp_servers: HashMap::new(),

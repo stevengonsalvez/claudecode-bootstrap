@@ -6,6 +6,7 @@ use crate::app::{
     AppState,
     state::{AsyncAction, AuthMethod, View},
 };
+use crate::credentials;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tracing::info;
 
@@ -166,6 +167,19 @@ pub enum AppEvent {
     ConfigEditChar(char),        // Input character while editing
     ConfigEditBackspace,         // Backspace while editing
     ConfigSaveAll,               // Save all settings (S)
+    // API Key configuration
+    ConfigApiKeyStart,           // Start API key input mode (when on API Key Status)
+    ConfigApiKeySave,            // Save the entered API key to keychain
+    ConfigApiKeyDelete,          // Delete stored API key
+    // Auth provider popup
+    AuthProviderPopupOpen,       // Open the auth provider popup
+    AuthProviderPopupClose,      // Close the popup (Esc)
+    AuthProviderPopupNext,       // Navigate to next provider
+    AuthProviderPopupPrev,       // Navigate to previous provider
+    AuthProviderPopupSelect,     // Select current provider (Enter)
+    AuthProviderPopupInputChar(char), // Input character for API key
+    AuthProviderPopupBackspace,  // Backspace in API key input
+    AuthProviderPopupDeleteKey,  // Delete stored API key (D)
 }
 
 pub struct EventHandler;
@@ -285,6 +299,11 @@ impl EventHandler {
         // AINB 2.0: Handle agent selection view
         if state.current_view == View::AgentSelection {
             return Self::handle_agent_selection_keys(key_event, state);
+        }
+
+        // AINB 2.0: Handle auth provider popup (overlays config screen)
+        if state.auth_provider_popup_state.show_popup {
+            return Self::handle_auth_provider_popup_keys(key_event, state);
         }
 
         // AINB 2.0: Handle config screen view
@@ -957,10 +976,24 @@ impl EventHandler {
 
     fn handle_config_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
         let config_state = &state.config_screen_state;
-        tracing::debug!("Config screen key handler: {:?}, editing: {}", key_event.code, config_state.editing);
+        tracing::debug!(
+            "Config screen key handler: {:?}, editing: {}, api_key_mode: {}",
+            key_event.code,
+            config_state.editing,
+            config_state.api_key_input_mode
+        );
 
-        if config_state.editing {
-            // Editing mode - handle text input
+        // API key input mode - special handling (saves to keychain)
+        if config_state.api_key_input_mode {
+            match key_event.code {
+                KeyCode::Enter => Some(AppEvent::ConfigApiKeySave),
+                KeyCode::Esc => Some(AppEvent::ConfigCancelEdit),
+                KeyCode::Backspace => Some(AppEvent::ConfigEditBackspace),
+                KeyCode::Char(c) => Some(AppEvent::ConfigEditChar(c)),
+                _ => None,
+            }
+        } else if config_state.editing {
+            // Normal editing mode - handle text input
             match key_event.code {
                 KeyCode::Enter => Some(AppEvent::ConfigSaveEdit),
                 KeyCode::Esc => Some(AppEvent::ConfigCancelEdit),
@@ -969,7 +1002,10 @@ impl EventHandler {
                 _ => None,
             }
         } else {
-            // Navigation mode
+            // Navigation mode - check if we're on auth settings
+            let is_auth_category = config_state.selected_category == 0;  // Authentication category
+            let on_claude_auth = is_auth_category && config_state.selected_setting == 0;  // Claude Authentication
+
             match key_event.code {
                 KeyCode::Esc => Some(AppEvent::ConfigBack),
                 KeyCode::Tab => Some(AppEvent::ConfigSwitchPane),
@@ -977,8 +1013,41 @@ impl EventHandler {
                 KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigNextSetting),
                 KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::ConfigPrevCategory),
                 KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::ConfigNextCategory),
-                KeyCode::Enter => Some(AppEvent::ConfigEditSetting),
+                KeyCode::Enter => {
+                    if on_claude_auth {
+                        // Open the auth provider popup
+                        Some(AppEvent::AuthProviderPopupOpen)
+                    } else {
+                        Some(AppEvent::ConfigEditSetting)
+                    }
+                }
                 KeyCode::Char('s') | KeyCode::Char('S') => Some(AppEvent::ConfigSaveAll),
+                _ => None,
+            }
+        }
+    }
+
+    // AINB 2.0: Auth provider popup key handling
+    fn handle_auth_provider_popup_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        let popup_state = &state.auth_provider_popup_state;
+
+        if popup_state.is_entering_key {
+            // API key input mode
+            match key_event.code {
+                KeyCode::Enter => Some(AppEvent::AuthProviderPopupSelect),
+                KeyCode::Esc => Some(AppEvent::AuthProviderPopupClose),
+                KeyCode::Backspace => Some(AppEvent::AuthProviderPopupBackspace),
+                KeyCode::Char(c) => Some(AppEvent::AuthProviderPopupInputChar(c)),
+                _ => None,
+            }
+        } else {
+            // Navigation mode
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::AuthProviderPopupClose),
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AuthProviderPopupPrev),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AuthProviderPopupNext),
+                KeyCode::Enter => Some(AppEvent::AuthProviderPopupSelect),
+                KeyCode::Char('d') | KeyCode::Char('D') => Some(AppEvent::AuthProviderPopupDeleteKey),
                 _ => None,
             }
         }
@@ -1727,9 +1796,213 @@ impl EventHandler {
                 state.config_screen_state.edit_buffer.pop();
             }
             AppEvent::ConfigSaveAll => {
-                // TODO: Implement saving all settings to config file
-                state.add_success_notification("Settings saved!".to_string());
-                tracing::info!("All settings saved");
+                tracing::info!("Saving all settings to config file");
+
+                // Apply ConfigScreenState settings to AppConfig
+                state.config_screen_state.apply_to_app_config(&mut state.app_config);
+
+                // Save to disk
+                match state.app_config.save() {
+                    Ok(()) => {
+                        state.add_success_notification("Settings saved to config.toml".to_string());
+                        tracing::info!("Settings saved to ~/.agents-in-a-box/config/config.toml");
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to save settings: {}", e));
+                        tracing::error!("Failed to save config: {}", e);
+                    }
+                }
+            }
+            // API Key configuration events
+            AppEvent::ConfigApiKeyStart => {
+                tracing::info!("Starting API key input mode");
+                state.config_screen_state.api_key_input_mode = true;
+                state.config_screen_state.edit_buffer.clear();
+                state.add_info_notification("Enter your Anthropic API key (starts with sk-ant-)".to_string());
+            }
+            AppEvent::ConfigApiKeySave => {
+                let api_key = state.config_screen_state.edit_buffer.clone();
+                tracing::info!("Saving API key to keychain");
+
+                match credentials::store_anthropic_api_key(&api_key) {
+                    Ok(()) => {
+                        state.add_success_notification("API key saved to system keychain".to_string());
+                        tracing::info!("API key successfully stored in keychain");
+
+                        // Update auth status to show API key configured
+                        let masked = credentials::get_anthropic_api_key_masked();
+                        let status = format!("API Key ({})", masked);
+                        let auth_category = crate::app::state::ConfigCategory::Authentication;
+                        if let Some(settings) = state.config_screen_state.settings.get_mut(&auth_category) {
+                            if let Some(status_setting) = settings.iter_mut().find(|s| s.key == "claude_auth") {
+                                status_setting.value = crate::app::state::ConfigValue::Text(status);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to save API key: {}", e));
+                        tracing::error!("Failed to store API key: {}", e);
+                    }
+                }
+
+                state.config_screen_state.api_key_input_mode = false;
+                state.config_screen_state.edit_buffer.clear();
+            }
+            AppEvent::ConfigApiKeyDelete => {
+                tracing::info!("Deleting API key from keychain");
+
+                match credentials::delete_anthropic_api_key() {
+                    Ok(()) => {
+                        state.add_success_notification("API key removed from system keychain".to_string());
+                        tracing::info!("API key successfully deleted from keychain");
+
+                        // Update auth status to show system auth
+                        let auth_category = crate::app::state::ConfigCategory::Authentication;
+                        if let Some(settings) = state.config_screen_state.settings.get_mut(&auth_category) {
+                            if let Some(status_setting) = settings.iter_mut().find(|s| s.key == "claude_auth") {
+                                status_setting.value = crate::app::state::ConfigValue::Text(
+                                    "System Auth (Pro/Max Plan)".to_string()
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to delete API key: {}", e));
+                        tracing::error!("Failed to delete API key: {}", e);
+                    }
+                }
+            }
+            // Auth provider popup events
+            AppEvent::AuthProviderPopupOpen => {
+                tracing::info!("Opening auth provider popup");
+                state.auth_provider_popup_state.show_popup = true;
+                state.auth_provider_popup_state.refresh_providers();
+            }
+            AppEvent::AuthProviderPopupClose => {
+                tracing::info!("Closing auth provider popup");
+                state.auth_provider_popup_state.show_popup = false;
+                state.auth_provider_popup_state.is_entering_key = false;
+                state.auth_provider_popup_state.api_key_input.clear();
+            }
+            AppEvent::AuthProviderPopupNext => {
+                state.auth_provider_popup_state.select_next();
+            }
+            AppEvent::AuthProviderPopupPrev => {
+                state.auth_provider_popup_state.select_prev();
+            }
+            AppEvent::AuthProviderPopupSelect => {
+                let popup_state = &state.auth_provider_popup_state;
+
+                if popup_state.is_entering_key {
+                    // Save the API key
+                    let api_key = popup_state.api_key_input.clone();
+                    tracing::info!("Saving API key from popup");
+
+                    match credentials::store_anthropic_api_key(&api_key) {
+                        Ok(()) => {
+                            state.add_success_notification("API key saved to system keychain".to_string());
+
+                            // Update config screen status
+                            let masked = credentials::get_anthropic_api_key_masked();
+                            let status = format!("API Key ({})", masked);
+                            let auth_category = crate::app::state::ConfigCategory::Authentication;
+                            if let Some(settings) = state.config_screen_state.settings.get_mut(&auth_category) {
+                                if let Some(status_setting) = settings.iter_mut().find(|s| s.key == "claude_auth") {
+                                    status_setting.value = crate::app::state::ConfigValue::Text(status);
+                                }
+                            }
+
+                            // Persist auth provider to config.toml
+                            state.app_config.authentication.claude_provider = crate::config::ClaudeAuthProvider::ApiKey;
+                            if let Err(e) = state.app_config.save() {
+                                tracing::warn!("Failed to save config: {}", e);
+                            }
+
+                            // Close popup and refresh
+                            state.auth_provider_popup_state.show_popup = false;
+                            state.auth_provider_popup_state.is_entering_key = false;
+                            state.auth_provider_popup_state.api_key_input.clear();
+                            state.auth_provider_popup_state.refresh_providers();
+                        }
+                        Err(e) => {
+                            state.add_error_notification(format!("Failed to save API key: {}", e));
+                        }
+                    }
+                } else {
+                    // Check what's selected
+                    if let Some(provider) = popup_state.current_provider() {
+                        if !provider.available {
+                            state.add_info_notification(format!("{} - Coming Soon!", provider.name));
+                        } else if provider.id == "api_key" {
+                            // Start API key input mode
+                            state.auth_provider_popup_state.start_key_input();
+                        } else if provider.id == "system" {
+                            // System auth - just close and confirm
+                            state.add_success_notification("Using system authentication (Pro/Max plan)".to_string());
+
+                            // Delete any stored API key to switch to system auth
+                            let _ = credentials::delete_anthropic_api_key();
+
+                            // Update config screen status
+                            let auth_category = crate::app::state::ConfigCategory::Authentication;
+                            if let Some(settings) = state.config_screen_state.settings.get_mut(&auth_category) {
+                                if let Some(status_setting) = settings.iter_mut().find(|s| s.key == "claude_auth") {
+                                    status_setting.value = crate::app::state::ConfigValue::Text(
+                                        "System Auth (Pro/Max Plan)".to_string()
+                                    );
+                                }
+                            }
+
+                            // Persist auth provider to config.toml
+                            state.app_config.authentication.claude_provider = crate::config::ClaudeAuthProvider::SystemAuth;
+                            if let Err(e) = state.app_config.save() {
+                                tracing::warn!("Failed to save config: {}", e);
+                            }
+
+                            state.auth_provider_popup_state.show_popup = false;
+                            state.auth_provider_popup_state.refresh_providers();
+                        }
+                    }
+                }
+            }
+            AppEvent::AuthProviderPopupInputChar(c) => {
+                state.auth_provider_popup_state.api_key_input.push(c);
+            }
+            AppEvent::AuthProviderPopupBackspace => {
+                if state.auth_provider_popup_state.api_key_input.is_empty() {
+                    // Exit key input mode
+                    state.auth_provider_popup_state.cancel_key_input();
+                } else {
+                    state.auth_provider_popup_state.api_key_input.pop();
+                }
+            }
+            AppEvent::AuthProviderPopupDeleteKey => {
+                tracing::info!("Deleting API key from popup");
+                match credentials::delete_anthropic_api_key() {
+                    Ok(()) => {
+                        state.add_success_notification("API key removed".to_string());
+                        state.auth_provider_popup_state.refresh_providers();
+
+                        // Update config screen
+                        let auth_category = crate::app::state::ConfigCategory::Authentication;
+                        if let Some(settings) = state.config_screen_state.settings.get_mut(&auth_category) {
+                            if let Some(status_setting) = settings.iter_mut().find(|s| s.key == "claude_auth") {
+                                status_setting.value = crate::app::state::ConfigValue::Text(
+                                    "System Auth (Pro/Max Plan)".to_string()
+                                );
+                            }
+                        }
+
+                        // Persist switch to system auth in config.toml
+                        state.app_config.authentication.claude_provider = crate::config::ClaudeAuthProvider::SystemAuth;
+                        if let Err(e) = state.app_config.save() {
+                            tracing::warn!("Failed to save config: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to delete: {}", e));
+                    }
+                }
             }
             // Mouse events are handled directly in the main event loop
             AppEvent::MouseClick { .. } |
