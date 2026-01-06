@@ -5544,6 +5544,7 @@ impl AppState {
     /// Update preview content for all tmux sessions (called from main update loop)
     pub async fn update_tmux_previews(&mut self) -> anyhow::Result<()> {
         use crate::tmux::ClaudeProcessDetector;
+        use crate::tmux::capture::{capture_pane, CaptureOptions};
 
         // Collect session IDs, preview content, and health status to avoid borrowing conflicts
         let mut updates = Vec::new();
@@ -5574,7 +5575,7 @@ impl AppState {
             }
         }
 
-        // Apply updates
+        // Apply updates for regular sessions
         for (session_id, content, claude_running) in updates {
             if let Some(session) = self.find_session_mut(session_id) {
                 session.set_preview(content);
@@ -5598,6 +5599,37 @@ impl AppState {
                 }
 
                 self.ui_needs_refresh = true;
+            }
+        }
+
+        // Update shell session previews
+        // Collect shell session info to avoid borrowing conflicts
+        let shell_sessions_info: Vec<(usize, String)> = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, w)| {
+                w.shell_session
+                    .as_ref()
+                    .map(|s| (idx, s.tmux_session_name.clone()))
+            })
+            .collect();
+
+        for (workspace_idx, tmux_name) in shell_sessions_info {
+            // Capture content for shell session
+            match capture_pane(&tmux_name, CaptureOptions::full_history()).await {
+                Ok(content) => {
+                    if let Some(workspace) = self.workspaces.get_mut(workspace_idx) {
+                        if let Some(shell) = workspace.shell_session.as_mut() {
+                            shell.preview_content = Some(content);
+                            self.ui_needs_refresh = true;
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Shell session might not exist yet, that's okay
+                    debug!("Failed to capture shell session content for {}: {}", tmux_name, e);
+                }
             }
         }
 

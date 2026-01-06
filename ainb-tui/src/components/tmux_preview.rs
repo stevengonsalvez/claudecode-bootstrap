@@ -28,7 +28,7 @@ const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use crate::app::AppState;
-use crate::models::Session;
+use crate::models::{Session, ShellSession};
 
 /// Preview mode for the tmux pane
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,12 +67,16 @@ impl TmuxPreviewPane {
     /// * `area` - The area to render the component in
     /// * `state` - The application state
     pub fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState) {
+        // First check for regular Claude sessions
         if let Some(session) = state.selected_session() {
             if session.is_attached {
                 self.render_attached_notice(frame, area);
             } else {
                 self.render_preview(frame, area, session);
             }
+        // Then check for shell sessions
+        } else if let Some(shell_session) = state.selected_shell_session() {
+            self.render_shell_preview(frame, area, shell_session);
         } else {
             self.render_empty_state(frame, area);
         }
@@ -101,6 +105,43 @@ impl TmuxPreviewPane {
 
         // Render content based on mode
         match &session.preview_content {
+            Some(content) => {
+                let content_area = chunks[0];
+                self.render_content(frame, content_area, content, border_color, &title);
+            }
+            None => {
+                self.render_placeholder(frame, chunks[0], &title);
+            }
+        }
+
+        // Render footer
+        self.render_footer(frame, chunks[1]);
+    }
+
+    /// Render the preview content for a shell session (workspace shell)
+    fn render_shell_preview(&mut self, frame: &mut Frame, area: Rect, shell_session: &ShellSession) {
+        let title = match self.preview_mode {
+            PreviewMode::Normal => format!("Shell: {}", shell_session.name),
+            PreviewMode::Scroll => format!("Shell: {} [SCROLL MODE]", shell_session.name),
+        };
+
+        // Shell sessions get a distinct green border to differentiate from Claude sessions
+        let border_color = match self.preview_mode {
+            PreviewMode::Normal => SELECTION_GREEN,
+            PreviewMode::Scroll => Color::Yellow,
+        };
+
+        // Split area for content and footer
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),   // Content
+                Constraint::Length(1), // Footer
+            ])
+            .split(area);
+
+        // Render content based on mode
+        match &shell_session.preview_content {
             Some(content) => {
                 let content_area = chunks[0];
                 self.render_content(frame, content_area, content, border_color, &title);
