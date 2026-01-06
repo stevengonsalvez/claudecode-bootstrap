@@ -2730,14 +2730,9 @@ impl AppState {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
                 // Currently on shell session?
                 if self.shell_selected {
-                    // Shell is last in workspace - move to "Other tmux" if available
-                    if !self.other_tmux_sessions.is_empty() {
-                        self.selected_workspace_index = None;
-                        self.selected_session_index = None;
-                        self.shell_selected = false;
-                        self.selected_other_tmux_index = Some(0);
-                    }
-                    // Else: stay at shell
+                    // Shell is last in workspace - try next workspace first
+                    self.shell_selected = false;
+                    self.move_to_next_workspace_first_item(workspace_idx);
                     return;
                 }
 
@@ -2751,13 +2746,10 @@ impl AppState {
                         // At last regular session - move to shell session
                         self.selected_session_index = None;
                         self.shell_selected = true;
-                    } else if !self.other_tmux_sessions.is_empty() {
-                        // No shell session - move to "Other tmux" section
-                        self.selected_workspace_index = None;
-                        self.selected_session_index = None;
-                        self.selected_other_tmux_index = Some(0);
+                    } else {
+                        // At last session, no shell - try next workspace
+                        self.move_to_next_workspace_first_item(workspace_idx);
                     }
-                    // Else: stay at last session
                 } else if !workspace.sessions.is_empty() {
                     // No session selected, select first
                     self.selected_session_index = Some(0);
@@ -2768,6 +2760,39 @@ impl AppState {
                 }
             }
         }
+    }
+
+    /// Helper: Move to next workspace's first session/shell, or Other tmux if no more workspaces
+    fn move_to_next_workspace_first_item(&mut self, current_workspace_idx: usize) {
+        // Try to find next workspace with content
+        for next_idx in (current_workspace_idx + 1)..self.workspaces.len() {
+            if let Some(next_ws) = self.workspaces.get(next_idx) {
+                if !next_ws.sessions.is_empty() {
+                    // Next workspace has sessions
+                    self.selected_workspace_index = Some(next_idx);
+                    self.selected_session_index = Some(0);
+                    self.shell_selected = false;
+                    self.queue_logs_fetch();
+                    return;
+                } else if next_ws.shell_session.is_some() {
+                    // Next workspace only has shell
+                    self.selected_workspace_index = Some(next_idx);
+                    self.selected_session_index = None;
+                    self.shell_selected = true;
+                    return;
+                }
+                // Empty workspace - skip it
+            }
+        }
+
+        // No more workspaces with content - move to "Other tmux" if available
+        if !self.other_tmux_sessions.is_empty() {
+            self.selected_workspace_index = None;
+            self.selected_session_index = None;
+            self.shell_selected = false;
+            self.selected_other_tmux_index = Some(0);
+        }
+        // Else: stay at current position (no wrap)
     }
 
     pub fn previous_session(&mut self) {
@@ -3254,7 +3279,7 @@ impl AppState {
 
         // Generate branch name with UUID
         let branch_base = format!(
-            "agents-in-a-box/{}",
+            "ainb/{}",
             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
         );
 
@@ -3336,7 +3361,7 @@ impl AppState {
 
         // Generate branch name with UUID
         let branch_base = format!(
-            "agents-in-a-box/{}",
+            "ainb/{}",
             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
         );
 
@@ -3378,7 +3403,7 @@ impl AppState {
 
                         // Generate branch name with UUID
                         let branch_base = format!(
-                            "agents-in-a-box/{}",
+                            "ainb/{}",
                             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                         );
 
@@ -3412,7 +3437,7 @@ impl AppState {
                         // Still transition to search view with empty state
                         self.new_session_state = Some(NewSessionState {
                             branch_name: format!(
-                                "agents-in-a-box/{}",
+                                "ainb/{}",
                                 uuid::Uuid::new_v4()
                                     .to_string()
                                     .split('-')
@@ -3431,7 +3456,7 @@ impl AppState {
                 // Still transition to search view with empty state
                 self.new_session_state = Some(NewSessionState {
                     branch_name: format!(
-                        "agents-in-a-box/{}",
+                        "ainb/{}",
                         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                     ),
                     ..Default::default()
@@ -3614,6 +3639,34 @@ impl AppState {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputBranch {
                 state.branch_name.pop();
+            }
+        }
+    }
+
+    /// Delete word backward in branch name (Shift+Backspace)
+    pub fn new_session_backspace_word(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputBranch && !state.branch_name.is_empty() {
+                // Find the last word boundary (space, slash, dash, underscore)
+                let s = &state.branch_name;
+                // First, skip any trailing delimiters
+                let trimmed_end = s.trim_end_matches(|c: char| c == ' ' || c == '/' || c == '-' || c == '_');
+                if trimmed_end.is_empty() {
+                    state.branch_name.clear();
+                    return;
+                }
+                // Find the last word boundary
+                let last_boundary = trimmed_end.rfind(|c: char| c == ' ' || c == '/' || c == '-' || c == '_');
+                match last_boundary {
+                    Some(idx) => {
+                        // Keep up to and including the delimiter
+                        state.branch_name = trimmed_end[..=idx].to_string();
+                    }
+                    None => {
+                        // No boundary found, clear all
+                        state.branch_name.clear();
+                    }
+                }
             }
         }
     }

@@ -631,7 +631,7 @@ impl NewSessionComponent {
             Line::from(vec![
                 Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
                 Span::styled(
-                    "agents-in-a-box/",
+                    "ainb/",
                     Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
                 ),
                 Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),

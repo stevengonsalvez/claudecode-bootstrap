@@ -58,6 +58,7 @@ pub enum AppEvent {
     NewSessionConfirmRepo,
     NewSessionInputChar(char),
     NewSessionBackspace,
+    NewSessionBackspaceWord,  // Delete word backward (Shift+Backspace)
     NewSessionProceedToModeSelection,
     NewSessionToggleMode,
     NewSessionProceedFromMode,
@@ -525,6 +526,11 @@ impl EventHandler {
                             } else {
                                 Some(AppEvent::NewSessionProceedToModeSelection)
                             }
+                        }
+                        KeyCode::Backspace
+                            if key_event.modifiers.contains(KeyModifiers::SHIFT) =>
+                        {
+                            Some(AppEvent::NewSessionBackspaceWord)
                         }
                         KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
                         KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
@@ -1130,6 +1136,10 @@ impl EventHandler {
             AppEvent::NewSessionBackspace => {
                 tracing::debug!("Event: NewSessionBackspace");
                 state.new_session_backspace();
+            }
+            AppEvent::NewSessionBackspaceWord => {
+                tracing::debug!("Event: NewSessionBackspaceWord");
+                state.new_session_backspace_word();
             }
             AppEvent::NewSessionProceedToModeSelection => {
                 tracing::info!("Event: NewSessionProceedToModeSelection");
