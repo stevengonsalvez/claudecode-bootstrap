@@ -20,7 +20,7 @@ async fn test_bottom_menu_bar_shows_refresh_key() {
     // Render the UI
     terminal
         .draw(|frame| {
-            layout.render(frame, &app.state);
+            layout.render(frame, &mut app.state);
         })
         .unwrap();
 
@@ -74,7 +74,7 @@ async fn test_help_screen_shows_refresh_key() {
     // Render the UI with help visible
     terminal
         .draw(|frame| {
-            layout.render(frame, &app.state);
+            layout.render(frame, &mut app.state);
         })
         .unwrap();
 
@@ -121,7 +121,7 @@ async fn test_refresh_key_in_help_under_session_actions() {
 
     terminal
         .draw(|frame| {
-            layout.render(frame, &app.state);
+            layout.render(frame, &mut app.state);
         })
         .unwrap();
 

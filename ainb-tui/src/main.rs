@@ -246,7 +246,7 @@ async fn run_tui_loop(
 
     loop {
         terminal.draw(|frame| {
-            layout.render(frame, &app.state);
+            layout.render(frame, &mut app.state);
         })?;
 
         let timeout = tick_rate
@@ -345,7 +345,7 @@ async fn run_tui_loop(
                                         last_tick = Instant::now();
                                         // Force UI refresh
                                         terminal.draw(|frame| {
-                                            layout.render(frame, &app.state);
+                                            layout.render(frame, &mut app.state);
                                         })?;
                                     }
                                     Err(e) => {
@@ -381,7 +381,20 @@ async fn run_tui_loop(
                             const SCROLL_LINES: usize = 3; // Lines per mouse wheel tick
                             let is_down = matches!(mouse_event.kind, MouseEventKind::ScrollDown);
 
-                            if app.state.current_view == View::GitView {
+                            if app.state.current_view == View::HomeScreen {
+                                // Scroll welcome panel on home screen (right side only)
+                                // Sidebar is ~26 chars wide, so anything beyond that is the welcome panel
+                                let sidebar_width = 26u16;
+                                if mouse_event.column > sidebar_width {
+                                    for _ in 0..SCROLL_LINES {
+                                        if is_down {
+                                            app.state.home_screen_v2_state.welcome.scroll_down();
+                                        } else {
+                                            app.state.home_screen_v2_state.welcome.scroll_up();
+                                        }
+                                    }
+                                }
+                            } else if app.state.current_view == View::GitView {
                                 // Scroll git view content (markdown or diff)
                                 if let Some(ref mut git_state) = app.state.git_view_state {
                                     match git_state.active_tab {
@@ -772,7 +785,7 @@ async fn run_tui_loop(
                     if app.needs_ui_refresh() {
                         // Force immediate redraw by skipping the timeout
                         terminal.draw(|frame| {
-                            layout.render(frame, &app.state);
+                            layout.render(frame, &mut app.state);
                         })?;
                     }
                 }

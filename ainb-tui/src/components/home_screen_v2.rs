@@ -15,7 +15,7 @@ use ratatui::{
 use super::mascot::{render_mascot, MascotAnimation};
 use super::sidebar::{SidebarComponent, SidebarState};
 use super::welcome_panel::{WelcomePanelComponent, WelcomePanelState};
-use crate::app::state::AppState;
+use crate::models::Workspace;
 
 // Color palette from TUI style guide
 const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
@@ -27,10 +27,11 @@ const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
-/// Focus area on the home screen (sidebar is main interactive element)
+/// Focus area on the home screen
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeScreenFocus {
     Sidebar,
+    ContentPanel,
 }
 
 /// State for the refreshed home screen
@@ -48,11 +49,31 @@ pub struct HomeScreenV2State {
 
 impl HomeScreenV2State {
     pub fn new() -> Self {
-        Self {
+        let mut state = Self {
             focus: HomeScreenFocus::Sidebar,
             sidebar: SidebarState::new(),
             welcome: WelcomePanelState::new(),
             mascot: MascotAnimation::new(),
+        };
+        // Sidebar starts focused
+        state.sidebar.is_focused = true;
+        state.welcome.is_focused = false;
+        state
+    }
+
+    /// Toggle focus between sidebar and content panel
+    pub fn toggle_focus(&mut self) {
+        match self.focus {
+            HomeScreenFocus::Sidebar => {
+                self.focus = HomeScreenFocus::ContentPanel;
+                self.sidebar.is_focused = false;
+                self.welcome.is_focused = true;
+            }
+            HomeScreenFocus::ContentPanel => {
+                self.focus = HomeScreenFocus::Sidebar;
+                self.sidebar.is_focused = true;
+                self.welcome.is_focused = false;
+            }
         }
     }
 
@@ -108,7 +129,7 @@ impl HomeScreenV2Component {
     }
 
     /// Main render function
-    pub fn render(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace]) {
         let layout_mode = LayoutMode::detect(area);
 
         // Main container with dark background
@@ -117,19 +138,19 @@ impl HomeScreenV2Component {
 
         match layout_mode {
             LayoutMode::Full | LayoutMode::Standard => {
-                self.render_full_layout(frame, area, state, app_state);
+                self.render_full_layout(frame, area, state, workspaces);
             }
             LayoutMode::Compact => {
-                self.render_compact_layout(frame, area, state, app_state);
+                self.render_compact_layout(frame, area, state, workspaces);
             }
             LayoutMode::Minimal => {
-                self.render_minimal_layout(frame, area, state, app_state);
+                self.render_minimal_layout(frame, area, state);
             }
         }
     }
 
     /// Full layout with sidebar, mascot header, and welcome panel
-    fn render_full_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+    fn render_full_layout(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace]) {
         // Vertical layout: header, main content, recent activity, help bar
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -156,18 +177,18 @@ impl HomeScreenV2Component {
         // Render sidebar
         self.sidebar.render(frame, content_layout[0], &state.sidebar);
 
-        // Render welcome panel
-        self.welcome_panel.render(frame, content_layout[1], &state.welcome);
+        // Render welcome panel (needs mutable state for scroll tracking)
+        self.welcome_panel.render(frame, content_layout[1], &mut state.welcome);
 
         // Render recent activity
-        self.render_recent_activity(frame, main_layout[2], app_state);
+        self.render_recent_activity(frame, main_layout[2], workspaces);
 
         // Render help bar
-        self.render_help_bar(frame, main_layout[3]);
+        self.render_help_bar(frame, main_layout[3], state);
     }
 
     /// Compact layout for smaller terminals
-    fn render_compact_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+    fn render_compact_layout(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace]) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -190,14 +211,14 @@ impl HomeScreenV2Component {
             .split(layout[1]);
 
         self.sidebar.render(frame, content_layout[0], &state.sidebar);
-        self.welcome_panel.render(frame, content_layout[1], &state.welcome);
+        self.welcome_panel.render(frame, content_layout[1], &mut state.welcome);
 
-        self.render_recent_activity(frame, layout[2], app_state);
-        self.render_help_bar(frame, layout[3]);
+        self.render_recent_activity(frame, layout[2], workspaces);
+        self.render_help_bar(frame, layout[3], state);
     }
 
     /// Minimal layout for very small terminals
-    fn render_minimal_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, _app_state: &AppState) {
+    fn render_minimal_layout(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State) {
         // Just show sidebar as a simple list
         let layout = Layout::default()
             .direction(Direction::Vertical)
@@ -220,7 +241,7 @@ impl HomeScreenV2Component {
         // Render sidebar directly
         self.sidebar.render(frame, layout[1], &state.sidebar);
 
-        self.render_help_bar(frame, layout[2]);
+        self.render_help_bar(frame, layout[2], state);
     }
 
     /// Render header with mascot and title
@@ -311,7 +332,7 @@ impl HomeScreenV2Component {
     }
 
     /// Render recent activity bar
-    fn render_recent_activity(&self, frame: &mut Frame, area: Rect, app_state: &AppState) {
+    fn render_recent_activity(&self, frame: &mut Frame, area: Rect, workspaces: &[Workspace]) {
         let block = Block::default()
             .borders(Borders::TOP)
             .border_type(BorderType::Rounded)
@@ -322,7 +343,7 @@ impl HomeScreenV2Component {
         frame.render_widget(block, area);
 
         // Build recent session display
-        let recent_line = if let Some(workspace) = app_state.workspaces.first() {
+        let recent_line = if let Some(workspace) = workspaces.first() {
             if let Some(session) = workspace.sessions.first() {
                 let status_icon = if session.status.is_running() { "" } else { "" };
                 let status_color = if session.status.is_running() {
@@ -364,15 +385,23 @@ impl HomeScreenV2Component {
     }
 
     /// Render the bottom help bar
-    fn render_help_bar(&self, frame: &mut Frame, area: Rect) {
-        let help_items = vec![
-            ("Enter", "select"),
-            ("a", "agents"),
-            ("c", "catalog"),
-            ("s", "sessions"),
-            ("?", "help"),
-            ("q", "quit"),
-        ];
+    fn render_help_bar(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
+        let help_items: Vec<(&str, &str)> = match state.focus {
+            HomeScreenFocus::ContentPanel => vec![
+                ("Tab", "sidebar"),
+                ("↑↓", "scroll"),
+                ("PgUp/Dn", "page"),
+                ("?", "help"),
+                ("q", "quit"),
+            ],
+            HomeScreenFocus::Sidebar => vec![
+                ("Enter", "select"),
+                ("Tab", "content"),
+                ("↑↓", "navigate"),
+                ("?", "help"),
+                ("q", "quit"),
+            ],
+        };
 
         let mut spans = Vec::new();
         spans.push(Span::styled("  ", Style::default()));

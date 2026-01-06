@@ -68,7 +68,7 @@ impl LayoutComponent {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, state: &AppState) {
+    pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
         // Special handling for auth setup view (full screen)
         if state.current_view == View::AuthSetup {
             let centered_area = centered_rect(60, 60, frame.size());
@@ -93,7 +93,7 @@ impl LayoutComponent {
         // AINB 2.0: Home screen (full screen) - Now using V2 with sidebar and mascot
         if state.current_view == View::HomeScreen {
             tracing::debug!("Rendering HomeScreen V2 view");
-            self.home_screen_v2.render(frame, frame.size(), &state.home_screen_v2_state, state);
+            self.home_screen_v2.render(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces);
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on HomeScreen");
@@ -159,10 +159,12 @@ impl LayoutComponent {
         self.session_list.render(frame, content_chunks[0], state);
 
         // Render tmux preview if selected session has tmux, otherwise show live logs
+        // This includes both regular Claude sessions AND shell sessions
         let selected_has_tmux = state
             .get_selected_session()
             .and_then(|s| s.tmux_session_name.as_ref())
-            .is_some();
+            .is_some()
+            || state.selected_shell_session().is_some();
 
         if selected_has_tmux {
             // Render tmux preview pane

@@ -156,6 +156,12 @@ pub enum AppEvent {
     HomeScreenSidebarUp,         // Navigate up in sidebar
     HomeScreenSidebarDown,       // Navigate down in sidebar
     HomeScreenSidebarSelect,     // Select current sidebar item (Enter)
+    HomeScreenToggleFocus,       // Toggle focus between sidebar and content panel (Tab)
+    // AINB 2.0: Home screen V2 welcome panel events
+    WelcomePanelScrollUp,        // Scroll welcome panel up
+    WelcomePanelScrollDown,      // Scroll welcome panel down
+    WelcomePanelPageUp,          // Page up in welcome panel
+    WelcomePanelPageDown,        // Page down in welcome panel
     GoToAgentSelection,          // Navigate to agent selection view
     GoToCatalog,                 // Navigate to catalog view (coming soon)
     GoToConfig,                  // Navigate to config view
@@ -978,15 +984,28 @@ impl EventHandler {
             _ => {}
         }
 
+        // Tab to toggle focus between sidebar and content panel
+        if key_event.code == KeyCode::Tab {
+            return Some(AppEvent::HomeScreenToggleFocus);
+        }
+
         // Focus-specific navigation
         let focus = &state.home_screen_v2_state.focus;
-        // Sidebar is the only interactive element now
         let event = match focus {
             HomeScreenFocus::Sidebar => {
                 match key_event.code {
                     KeyCode::Up => Some(AppEvent::HomeScreenSidebarUp),
                     KeyCode::Down => Some(AppEvent::HomeScreenSidebarDown),
                     KeyCode::Enter => Some(AppEvent::HomeScreenSidebarSelect),
+                    _ => None,
+                }
+            }
+            HomeScreenFocus::ContentPanel => {
+                match key_event.code {
+                    KeyCode::Up => Some(AppEvent::WelcomePanelScrollUp),
+                    KeyCode::Down => Some(AppEvent::WelcomePanelScrollDown),
+                    KeyCode::PageUp => Some(AppEvent::WelcomePanelPageUp),
+                    KeyCode::PageDown => Some(AppEvent::WelcomePanelPageDown),
                     _ => None,
                 }
             }
@@ -1842,6 +1861,26 @@ impl EventHandler {
                         state.help_visible = true;
                     }
                 }
+            }
+            AppEvent::HomeScreenToggleFocus => {
+                tracing::debug!("HomeScreen V2 toggle focus");
+                state.home_screen_v2_state.toggle_focus();
+            }
+            AppEvent::WelcomePanelScrollUp => {
+                tracing::debug!("Welcome panel scroll up");
+                state.home_screen_v2_state.welcome.scroll_up();
+            }
+            AppEvent::WelcomePanelScrollDown => {
+                tracing::debug!("Welcome panel scroll down");
+                state.home_screen_v2_state.welcome.scroll_down();
+            }
+            AppEvent::WelcomePanelPageUp => {
+                tracing::debug!("Welcome panel page up");
+                state.home_screen_v2_state.welcome.page_up();
+            }
+            AppEvent::WelcomePanelPageDown => {
+                tracing::debug!("Welcome panel page down");
+                state.home_screen_v2_state.welcome.page_down();
             }
             AppEvent::GoToAgentSelection => {
                 tracing::info!("Navigating to AgentSelection");

@@ -129,7 +129,7 @@ impl UITestFramework {
     /// Render the current state and return the buffer for inspection
     pub fn render(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         self.terminal.draw(|frame| {
-            self.layout.render(frame, &self.app.state);
+            self.layout.render(frame, &mut self.app.state);
         })?;
 
         let buffer = self.terminal.backend().buffer().clone();
