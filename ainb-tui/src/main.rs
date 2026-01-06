@@ -447,6 +447,9 @@ async fn run_tui_loop(
         }
 
         if last_tick.elapsed() >= tick_rate {
+            // Update mascot animation on home screen
+            app.state.home_screen_v2_state.tick_mascot();
+
             // Handle tmux-related async actions BEFORE app.tick() to get terminal access
             // IMPORTANT: Use match instead of multiple if-let with .take() to avoid dropping unmatched actions
             if let Some(action) = app.state.pending_async_action.take() {

@@ -152,6 +152,15 @@ pub enum AppEvent {
     HomeScreenNavigateDown,      // Navigate down in tile grid
     HomeScreenNavigateLeft,      // Navigate left in tile grid
     HomeScreenNavigateRight,     // Navigate right in tile grid
+    // AINB 2.0: Home screen V2 events (sidebar + card grid)
+    HomeScreenToggleFocus,       // Toggle focus between sidebar and card grid (Tab)
+    HomeScreenSidebarUp,         // Navigate up in sidebar
+    HomeScreenSidebarDown,       // Navigate down in sidebar
+    HomeScreenSidebarSelect,     // Select current sidebar item (Enter)
+    GoToSessionList,             // Navigate to session list view
+    GoToGitView,                 // Navigate to git view
+    GoToCatalog,                 // Navigate to catalog view (coming soon)
+    GoToConfig,                  // Navigate to config view
     // AINB 2.0: Agent selection events
     AgentSelectionBack,          // Return to home screen (Esc)
     AgentSelectionNextProvider,  // Navigate to next provider
@@ -951,19 +960,48 @@ impl EventHandler {
         }
     }
 
-    // AINB 2.0: Home screen key handling
-    fn handle_home_screen_keys(key_event: KeyEvent, _state: &AppState) -> Option<AppEvent> {
-        tracing::debug!("HomeScreen key handler: {:?}", key_event.code);
-        let event = match key_event.code {
-            KeyCode::Enter => Some(AppEvent::HomeScreenSelectTile),
-            KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::HomeScreenNavigateUp),
-            KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::HomeScreenNavigateDown),
-            KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::HomeScreenNavigateLeft),
-            KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::HomeScreenNavigateRight),
-            KeyCode::Char('q') => Some(AppEvent::Quit),
-            _ => None,
+    // AINB 2.0: Home screen key handling (V2 with sidebar and card grid)
+    fn handle_home_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        use crate::components::home_screen_v2::HomeScreenFocus;
+
+        tracing::debug!("HomeScreen V2 key handler: {:?}", key_event.code);
+
+        // Global shortcuts that work regardless of focus
+        match key_event.code {
+            KeyCode::Char('n') => return Some(AppEvent::NewSession),
+            KeyCode::Char('s') => return Some(AppEvent::GoToSessionList),
+            KeyCode::Char('g') => return Some(AppEvent::GoToGitView),
+            KeyCode::Char('c') => return Some(AppEvent::GoToCatalog),
+            KeyCode::Char('C') => return Some(AppEvent::GoToConfig),
+            KeyCode::Char('q') => return Some(AppEvent::Quit),
+            KeyCode::Tab => return Some(AppEvent::HomeScreenToggleFocus),
+            _ => {}
+        }
+
+        // Focus-specific navigation
+        let focus = &state.home_screen_v2_state.focus;
+        let event = match focus {
+            HomeScreenFocus::Sidebar => {
+                match key_event.code {
+                    KeyCode::Up => Some(AppEvent::HomeScreenSidebarUp),
+                    KeyCode::Down => Some(AppEvent::HomeScreenSidebarDown),
+                    KeyCode::Enter => Some(AppEvent::HomeScreenSidebarSelect),
+                    _ => None,
+                }
+            }
+            HomeScreenFocus::CardGrid => {
+                match key_event.code {
+                    KeyCode::Up => Some(AppEvent::HomeScreenNavigateUp),
+                    KeyCode::Down => Some(AppEvent::HomeScreenNavigateDown),
+                    KeyCode::Left => Some(AppEvent::HomeScreenNavigateLeft),
+                    KeyCode::Right => Some(AppEvent::HomeScreenNavigateRight),
+                    KeyCode::Enter => Some(AppEvent::HomeScreenSelectTile),
+                    _ => None,
+                }
+            }
         };
-        tracing::debug!("HomeScreen key handler returning: {:?}", event);
+
+        tracing::debug!("HomeScreen V2 key handler returning: {:?}", event);
         event
     }
 
@@ -1767,18 +1805,87 @@ impl EventHandler {
             AppEvent::HomeScreenNavigateUp => {
                 tracing::debug!("HomeScreen navigate up");
                 state.home_screen_state.select_up();
+                // Also update card grid for V2
+                state.home_screen_v2_state.card_grid.move_up();
             }
             AppEvent::HomeScreenNavigateDown => {
                 tracing::debug!("HomeScreen navigate down");
                 state.home_screen_state.select_down();
+                // Also update card grid for V2
+                state.home_screen_v2_state.card_grid.move_down();
             }
             AppEvent::HomeScreenNavigateLeft => {
                 tracing::debug!("HomeScreen navigate left");
                 state.home_screen_state.select_left();
+                // Also update card grid for V2
+                state.home_screen_v2_state.card_grid.move_left();
             }
             AppEvent::HomeScreenNavigateRight => {
                 tracing::debug!("HomeScreen navigate right");
                 state.home_screen_state.select_right();
+                // Also update card grid for V2
+                state.home_screen_v2_state.card_grid.move_right();
+            }
+            // AINB 2.0: Home screen V2 events
+            AppEvent::HomeScreenToggleFocus => {
+                tracing::debug!("HomeScreen V2 toggle focus");
+                state.home_screen_v2_state.toggle_focus();
+            }
+            AppEvent::HomeScreenSidebarUp => {
+                tracing::debug!("HomeScreen V2 sidebar up");
+                state.home_screen_v2_state.sidebar.move_up();
+            }
+            AppEvent::HomeScreenSidebarDown => {
+                tracing::debug!("HomeScreen V2 sidebar down");
+                state.home_screen_v2_state.sidebar.move_down();
+            }
+            AppEvent::HomeScreenSidebarSelect => {
+                use crate::components::sidebar::SidebarItem;
+                tracing::debug!("HomeScreen V2 sidebar select");
+                let selected = state.home_screen_v2_state.sidebar.selected_item();
+                match selected {
+                    SidebarItem::Home => { /* Already on home */ }
+                    SidebarItem::NewAgent => {
+                        state.pending_async_action = Some(AsyncAction::NewSessionNormal);
+                    }
+                    SidebarItem::ActiveSessions => {
+                        state.current_view = View::SessionList;
+                    }
+                    SidebarItem::History => {
+                        state.add_info_notification("Session history coming soon!".to_string());
+                    }
+                    SidebarItem::Git => {
+                        // Show git view (uses currently selected workspace)
+                        state.show_git_view();
+                    }
+                    SidebarItem::Catalog => {
+                        state.add_info_notification("Skill catalog coming soon!".to_string());
+                    }
+                    SidebarItem::Config => {
+                        state.current_view = View::Config;
+                    }
+                    SidebarItem::Help => {
+                        state.help_visible = true;
+                    }
+                    SidebarItem::Quit => {
+                        state.quit();
+                    }
+                }
+            }
+            AppEvent::GoToSessionList => {
+                tracing::info!("Navigating to SessionList");
+                state.current_view = View::SessionList;
+            }
+            AppEvent::GoToGitView => {
+                // Show git view (uses currently selected workspace)
+                state.show_git_view();
+            }
+            AppEvent::GoToCatalog => {
+                state.add_info_notification("Skill catalog coming soon!".to_string());
+            }
+            AppEvent::GoToConfig => {
+                tracing::info!("Navigating to Config");
+                state.current_view = View::Config;
             }
             // AINB 2.0: Agent selection events
             AppEvent::AgentSelectionBack => {

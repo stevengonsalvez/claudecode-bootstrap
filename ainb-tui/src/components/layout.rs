@@ -21,6 +21,7 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
+    HomeScreenV2Component,
     LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, SessionListComponent,
     TmuxPreviewPane,
 };
@@ -39,6 +40,7 @@ pub struct LayoutComponent {
     tmux_preview: TmuxPreviewPane,
     // AINB 2.0 components
     home_screen: HomeScreenComponent,
+    home_screen_v2: HomeScreenV2Component,
     agent_selection: AgentSelectionComponent,
     config_screen: ConfigScreenComponent,
     auth_provider_popup: AuthProviderPopupComponent,
@@ -59,6 +61,7 @@ impl LayoutComponent {
             tmux_preview: TmuxPreviewPane::new(),
             // AINB 2.0 components
             home_screen: HomeScreenComponent::new(),
+            home_screen_v2: HomeScreenV2Component::new(),
             agent_selection: AgentSelectionComponent::new(),
             config_screen: ConfigScreenComponent::new(),
             auth_provider_popup: AuthProviderPopupComponent::new(),
@@ -87,10 +90,10 @@ impl LayoutComponent {
             return;
         }
 
-        // AINB 2.0: Home screen (full screen)
+        // AINB 2.0: Home screen (full screen) - Now using V2 with sidebar and mascot
         if state.current_view == View::HomeScreen {
-            tracing::debug!("Rendering HomeScreen view");
-            self.home_screen.render(frame, frame.size(), state);
+            tracing::debug!("Rendering HomeScreen V2 view");
+            self.home_screen_v2.render(frame, frame.size(), &state.home_screen_v2_state, state);
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on HomeScreen");

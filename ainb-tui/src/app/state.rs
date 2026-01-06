@@ -7,6 +7,7 @@ use crate::claude::client::ClaudeChatManager;
 use crate::claude::types::ClaudeStreamingEvent;
 use crate::claude::{ClaudeApiClient, ClaudeMessage};
 use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
+use crate::components::home_screen_v2::HomeScreenV2State;
 use crate::components::live_logs_stream::LogEntry;
 use crate::config::AppConfig;
 use crate::credentials;
@@ -1617,6 +1618,7 @@ pub struct AppState {
 
     // AINB 2.0: Home screen and agent selection
     pub home_screen_state: HomeScreenState,
+    pub home_screen_v2_state: HomeScreenV2State,
     pub agent_selection_state: AgentSelectionState,
     pub config_screen_state: ConfigScreenState,
     pub auth_provider_popup_state: AuthProviderPopupState,
@@ -1836,6 +1838,7 @@ impl Default for AppState {
 
             // AINB 2.0: Home screen and agent selection
             home_screen_state: HomeScreenState::default(),
+            home_screen_v2_state: HomeScreenV2State::default(),
             agent_selection_state: AgentSelectionState::default(),
             config_screen_state: ConfigScreenState::from_app_config(&app_config),
             auth_provider_popup_state: AuthProviderPopupState::from_app_config(&app_config),

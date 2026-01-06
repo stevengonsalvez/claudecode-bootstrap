@@ -1,0 +1,528 @@
+// ABOUTME: Refreshed home screen component with sidebar, mascot, and action card grid
+// This is the v2 design for AINB 2.0, featuring:
+// - Animated "Boxy" mascot in the header
+// - VS Code/Discord-style sidebar navigation
+// - 2x3 action card grid for quick access
+// - Recent activity bar for session resume
+
+use ratatui::{
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Paragraph},
+    Frame,
+};
+
+use super::action_card::{render_action_card_grid, ActionCardGridState, ActionCardId};
+use super::mascot::{render_mascot, MascotAnimation};
+use super::sidebar::{SidebarComponent, SidebarItem, SidebarState};
+use crate::app::state::AppState;
+
+// Color palette from TUI style guide
+const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
+const GOLD: Color = Color::Rgb(255, 215, 0);
+const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
+const DARK_BG: Color = Color::Rgb(25, 25, 35);
+const PANEL_BG: Color = Color::Rgb(30, 30, 40);
+const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
+const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
+const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
+
+/// Focus area on the home screen
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeScreenFocus {
+    Sidebar,
+    CardGrid,
+}
+
+/// State for the refreshed home screen
+#[derive(Debug)]
+pub struct HomeScreenV2State {
+    /// Current focus area
+    pub focus: HomeScreenFocus,
+    /// Sidebar state
+    pub sidebar: SidebarState,
+    /// Action card grid state
+    pub card_grid: ActionCardGridState,
+    /// Mascot animation
+    pub mascot: MascotAnimation,
+}
+
+impl HomeScreenV2State {
+    pub fn new() -> Self {
+        Self {
+            focus: HomeScreenFocus::CardGrid,
+            sidebar: SidebarState::new(),
+            card_grid: ActionCardGridState::new(),
+            mascot: MascotAnimation::new(),
+        }
+    }
+
+    /// Toggle focus between sidebar and card grid
+    pub fn toggle_focus(&mut self) {
+        match self.focus {
+            HomeScreenFocus::Sidebar => {
+                self.focus = HomeScreenFocus::CardGrid;
+                self.sidebar.is_focused = false;
+                self.card_grid.is_focused = true;
+            }
+            HomeScreenFocus::CardGrid => {
+                self.focus = HomeScreenFocus::Sidebar;
+                self.sidebar.is_focused = true;
+                self.card_grid.is_focused = false;
+            }
+        }
+    }
+
+    /// Update mascot animation
+    pub fn tick_mascot(&mut self) {
+        self.mascot.tick();
+    }
+
+    /// Update session count badge
+    pub fn set_active_sessions(&mut self, count: usize) {
+        self.sidebar.active_sessions_count = count;
+        self.card_grid.set_badge(ActionCardId::ActiveSessions, if count > 0 { Some(count) } else { None });
+    }
+}
+
+impl Default for HomeScreenV2State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Layout mode based on terminal size
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutMode {
+    Full,     // 120+ cols, 35+ rows
+    Standard, // 100+ cols, 30+ rows
+    Compact,  // 80+ cols, 24+ rows
+    Minimal,  // Smaller terminals
+}
+
+impl LayoutMode {
+    pub fn detect(area: Rect) -> Self {
+        match (area.width, area.height) {
+            (w, h) if w >= 120 && h >= 35 => Self::Full,
+            (w, h) if w >= 100 && h >= 30 => Self::Standard,
+            (w, h) if w >= 80 && h >= 24 => Self::Compact,
+            _ => Self::Minimal,
+        }
+    }
+}
+
+/// The refreshed home screen component
+pub struct HomeScreenV2Component {
+    sidebar: SidebarComponent,
+}
+
+impl HomeScreenV2Component {
+    pub fn new() -> Self {
+        Self {
+            sidebar: SidebarComponent::new(),
+        }
+    }
+
+    /// Main render function
+    pub fn render(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+        let layout_mode = LayoutMode::detect(area);
+
+        // Main container with dark background
+        let container = Block::default().style(Style::default().bg(DARK_BG));
+        frame.render_widget(container, area);
+
+        match layout_mode {
+            LayoutMode::Full | LayoutMode::Standard => {
+                self.render_full_layout(frame, area, state, app_state);
+            }
+            LayoutMode::Compact => {
+                self.render_compact_layout(frame, area, state, app_state);
+            }
+            LayoutMode::Minimal => {
+                self.render_minimal_layout(frame, area, state, app_state);
+            }
+        }
+    }
+
+    /// Full layout with sidebar, mascot header, and card grid
+    fn render_full_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+        // Vertical layout: header, main content, recent activity, help bar
+        let main_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(7),  // Header with mascot
+                Constraint::Min(16),    // Main content (sidebar + cards)
+                Constraint::Length(3),  // Recent activity
+                Constraint::Length(2),  // Help bar
+            ])
+            .split(area);
+
+        // Render header with mascot
+        self.render_header(frame, main_layout[0], state);
+
+        // Horizontal split: sidebar | card grid
+        let content_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(22), // Sidebar
+                Constraint::Min(60),    // Card grid
+            ])
+            .split(main_layout[1]);
+
+        // Render sidebar
+        self.sidebar.render(frame, content_layout[0], &state.sidebar);
+
+        // Render card grid
+        self.render_card_grid(frame, content_layout[1], state);
+
+        // Render recent activity
+        self.render_recent_activity(frame, main_layout[2], app_state);
+
+        // Render help bar
+        self.render_help_bar(frame, main_layout[3], state);
+    }
+
+    /// Compact layout for smaller terminals
+    fn render_compact_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
+        // Skip sidebar, use full width for cards with mini mascot
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),  // Compact header
+                Constraint::Min(12),    // Card grid
+                Constraint::Length(2),  // Recent activity
+                Constraint::Length(2),  // Help bar
+            ])
+            .split(area);
+
+        self.render_compact_header(frame, layout[0], state);
+        self.render_card_grid(frame, layout[1], state);
+        self.render_recent_activity(frame, layout[2], app_state);
+        self.render_help_bar(frame, layout[3], state);
+    }
+
+    /// Minimal layout for very small terminals
+    fn render_minimal_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, _app_state: &AppState) {
+        // Just show a simple menu
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2),  // Title
+                Constraint::Min(6),     // Simple list
+                Constraint::Length(2),  // Help
+            ])
+            .split(area);
+
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled(" AINB ", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("- Agents in a Box", Style::default().fg(SOFT_WHITE)),
+        ]))
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(DARK_BG));
+
+        frame.render_widget(title, layout[0]);
+
+        // Simple list view of cards
+        let items: Vec<Line> = ActionCardId::all()
+            .iter()
+            .enumerate()
+            .map(|(idx, id)| {
+                let card = id.to_card();
+                let (row, col) = state.card_grid.selected_position;
+                let is_selected = idx == row * 3 + col;
+
+                let indicator = if is_selected { "" } else { "  " };
+                let style = if is_selected {
+                    Style::default().fg(SELECTION_GREEN)
+                } else {
+                    Style::default().fg(SOFT_WHITE)
+                };
+
+                Line::from(vec![
+                    Span::styled(format!("{} ", indicator), Style::default().fg(SELECTION_GREEN)),
+                    Span::styled(card.icon, Style::default().fg(GOLD)),
+                    Span::styled(format!(" {} [{}]", card.title, card.shortcut), style),
+                ])
+            })
+            .collect();
+
+        let list = Paragraph::new(items).style(Style::default().bg(DARK_BG));
+        frame.render_widget(list, layout[1]);
+
+        self.render_help_bar(frame, layout[2], state);
+    }
+
+    /// Render header with mascot and title
+    fn render_header(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
+        let block = Block::default()
+            .borders(Borders::BOTTOM)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .style(Style::default().bg(PANEL_BG));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Split header: mascot | title area
+        let header_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(22), // Mascot area
+                Constraint::Min(40),    // Title and version
+            ])
+            .split(inner);
+
+        // Render mascot
+        render_mascot(frame, header_layout[0], &state.mascot);
+
+        // Render title section
+        let title_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Top padding
+                Constraint::Length(2), // Main title
+                Constraint::Length(1), // Subtitle
+                Constraint::Min(0),    // Bottom padding
+            ])
+            .split(header_layout[1]);
+
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("A I N B", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("  -  ", Style::default().fg(SUBDUED_BORDER)),
+            Span::styled("Agents in a Box", Style::default().fg(SOFT_WHITE)),
+        ]))
+        .style(Style::default().bg(PANEL_BG));
+
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Your AI-Powered Development Hub", Style::default().fg(MUTED_GRAY)),
+            Span::styled("                    ", Style::default()),
+            Span::styled("v2.0.0", Style::default().fg(MUTED_GRAY)),
+        ]))
+        .style(Style::default().bg(PANEL_BG));
+
+        frame.render_widget(title, title_layout[1]);
+        frame.render_widget(subtitle, title_layout[2]);
+    }
+
+    /// Render compact header with mini mascot
+    fn render_compact_header(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
+        let block = Block::default()
+            .borders(Borders::BOTTOM)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .style(Style::default().bg(PANEL_BG));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // For compact, use mini mascot inline with title
+        let mut mascot_copy = state.mascot.clone();
+        mascot_copy.set_mini(true);
+
+        let header_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(8),  // Mini mascot
+                Constraint::Min(30),    // Title
+            ])
+            .split(inner);
+
+        render_mascot(frame, header_layout[0], &mascot_copy);
+
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("AINB", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled(" - Agents in a Box", Style::default().fg(SOFT_WHITE)),
+            Span::styled("  v2.0.0", Style::default().fg(MUTED_GRAY)),
+        ]))
+        .style(Style::default().bg(PANEL_BG));
+
+        frame.render_widget(title, header_layout[1]);
+    }
+
+    /// Render the action card grid
+    fn render_card_grid(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(
+                if state.focus == HomeScreenFocus::CardGrid {
+                    CORNFLOWER_BLUE
+                } else {
+                    SUBDUED_BORDER
+                }
+            ))
+            .style(Style::default().bg(DARK_BG))
+            .title(Line::from(vec![
+                Span::styled("  ", Style::default().fg(GOLD)),
+                Span::styled("Quick Actions", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" ", Style::default()),
+            ]));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Add padding around the grid
+        let padded = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),  // Top padding
+                Constraint::Min(10),    // Grid
+                Constraint::Length(1),  // Bottom padding
+            ])
+            .split(inner);
+
+        let padded_horizontal = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(2),  // Left padding
+                Constraint::Min(50),    // Grid
+                Constraint::Length(2),  // Right padding
+            ])
+            .split(padded[1]);
+
+        render_action_card_grid(frame, padded_horizontal[1], &state.card_grid);
+    }
+
+    /// Render recent activity bar
+    fn render_recent_activity(&self, frame: &mut Frame, area: Rect, app_state: &AppState) {
+        let block = Block::default()
+            .borders(Borders::TOP)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(SUBDUED_BORDER))
+            .style(Style::default().bg(DARK_BG));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Build recent session display
+        let recent_line = if let Some(workspace) = app_state.workspaces.first() {
+            if let Some(session) = workspace.sessions.first() {
+                let status_icon = if session.status.is_running() { "" } else { "" };
+                let status_color = if session.status.is_running() {
+                    SELECTION_GREEN
+                } else {
+                    MUTED_GRAY
+                };
+
+                Line::from(vec![
+                    Span::styled("   Recent: ", Style::default().fg(GOLD)),
+                    Span::styled(
+                        workspace.name.clone(),
+                        Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("/", Style::default().fg(MUTED_GRAY)),
+                    Span::styled(session.branch_name.clone(), Style::default().fg(CORNFLOWER_BLUE)),
+                    Span::styled("  ", Style::default()),
+                    Span::styled(status_icon, Style::default().fg(status_color)),
+                    Span::styled(
+                        if session.status.is_running() { " Running" } else { " Stopped" },
+                        Style::default().fg(status_color),
+                    ),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("   No recent sessions", Style::default().fg(MUTED_GRAY)),
+                ])
+            }
+        } else {
+            Line::from(vec![
+                Span::styled("   No workspaces configured - press ", Style::default().fg(MUTED_GRAY)),
+                Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" to create one", Style::default().fg(MUTED_GRAY)),
+            ])
+        };
+
+        let recent = Paragraph::new(recent_line).style(Style::default().bg(DARK_BG));
+        frame.render_widget(recent, inner);
+    }
+
+    /// Render the bottom help bar
+    fn render_help_bar(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
+        let help_items = if state.focus == HomeScreenFocus::Sidebar {
+            vec![
+                ("Enter", "select"),
+                ("j/k", "navigate"),
+                ("Tab", "switch to cards"),
+                ("?", "help"),
+                ("q", "quit"),
+            ]
+        } else {
+            vec![
+                ("Enter", "select"),
+                ("hjkl", "navigate"),
+                ("Tab", "switch to sidebar"),
+                ("n", "new"),
+                ("s", "sessions"),
+                ("?", "help"),
+            ]
+        };
+
+        let mut spans = Vec::new();
+        spans.push(Span::styled("  ", Style::default()));
+
+        for (i, (key, desc)) in help_items.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" | ", Style::default().fg(SUBDUED_BORDER)));
+            }
+            spans.push(Span::styled(*key, Style::default().fg(GOLD).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" ", Style::default()));
+            spans.push(Span::styled(*desc, Style::default().fg(MUTED_GRAY)));
+        }
+
+        let help_bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(DARK_BG));
+
+        frame.render_widget(help_bar, area);
+    }
+}
+
+impl Default for HomeScreenV2Component {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_layout_mode_detection() {
+        let full = Rect::new(0, 0, 120, 40);
+        assert_eq!(LayoutMode::detect(full), LayoutMode::Full);
+
+        let standard = Rect::new(0, 0, 100, 30);
+        assert_eq!(LayoutMode::detect(standard), LayoutMode::Standard);
+
+        let compact = Rect::new(0, 0, 80, 24);
+        assert_eq!(LayoutMode::detect(compact), LayoutMode::Compact);
+
+        let minimal = Rect::new(0, 0, 60, 20);
+        assert_eq!(LayoutMode::detect(minimal), LayoutMode::Minimal);
+    }
+
+    #[test]
+    fn test_focus_toggle() {
+        let mut state = HomeScreenV2State::new();
+        assert_eq!(state.focus, HomeScreenFocus::CardGrid);
+
+        state.toggle_focus();
+        assert_eq!(state.focus, HomeScreenFocus::Sidebar);
+        assert!(state.sidebar.is_focused);
+        assert!(!state.card_grid.is_focused);
+
+        state.toggle_focus();
+        assert_eq!(state.focus, HomeScreenFocus::CardGrid);
+    }
+
+    #[test]
+    fn test_session_badge() {
+        let mut state = HomeScreenV2State::new();
+        state.set_active_sessions(5);
+
+        assert_eq!(state.sidebar.active_sessions_count, 5);
+        // Card grid should also have badge
+        let card = state.card_grid.cards.iter().find(|c| c.id == ActionCardId::ActiveSessions);
+        assert_eq!(card.unwrap().badge, Some(5));
+    }
+}
