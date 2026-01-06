@@ -2263,6 +2263,14 @@ impl AppState {
     pub async fn load_real_workspaces(&mut self) {
         info!("Loading active sessions (both Docker and Interactive)");
 
+        // Preserve shell_sessions before clearing workspaces
+        // Map workspace path -> shell_session for restoration after reload
+        let preserved_shells: std::collections::HashMap<std::path::PathBuf, crate::models::ShellSession> = self
+            .workspaces
+            .iter()
+            .filter_map(|w| w.shell_session.clone().map(|s| (w.path.clone(), s)))
+            .collect();
+
         // Clear existing workspaces before loading to prevent duplicates
         self.workspaces.clear();
 
@@ -2301,6 +2309,32 @@ impl AppState {
         // Load other tmux sessions (not managed by agents-in-a-box)
         info!("Loading other tmux sessions");
         self.load_other_tmux_sessions().await;
+
+        // Restore preserved shell_sessions to matching workspaces
+        if !preserved_shells.is_empty() {
+            info!("Restoring {} preserved shell sessions", preserved_shells.len());
+            for workspace in &mut self.workspaces {
+                if let Some(shell) = preserved_shells.get(&workspace.path) {
+                    // Only restore if the tmux session still exists
+                    let check = tokio::process::Command::new("tmux")
+                        .args(["has-session", "-t", &shell.tmux_session_name])
+                        .output()
+                        .await;
+
+                    if check.map(|o| o.status.success()).unwrap_or(false) {
+                        info!("Restored shell session '{}' for workspace '{}'",
+                              shell.tmux_session_name, workspace.name);
+                        workspace.set_shell_session(shell.clone());
+                    } else {
+                        info!("Shell session '{}' no longer exists, not restoring",
+                              shell.tmux_session_name);
+                    }
+                }
+            }
+        }
+
+        // Also try to auto-detect workspace shells from tmux
+        self.auto_detect_workspace_shells().await;
 
         // Set initial selection
         if !self.workspaces.is_empty() {
@@ -2468,6 +2502,119 @@ impl AppState {
 
         info!("Discovered {} other tmux sessions", other_sessions.len());
         self.other_tmux_sessions = other_sessions;
+    }
+
+    /// Auto-detect workspace shell sessions from tmux
+    /// Finds ainb-ws-* sessions and matches them to workspaces
+    pub async fn auto_detect_workspace_shells(&mut self) {
+        use tokio::process::Command;
+        use crate::models::{ShellSession, ShellSessionStatus};
+
+        info!("Auto-detecting workspace shell sessions from tmux");
+
+        // Get all tmux sessions with format: name:path
+        // Use pane_current_path to get the current directory of the active pane
+        // Note: #{...} is tmux format syntax, not Rust format
+        #[allow(clippy::literal_string_with_formatting_args)]
+        let tmux_format = "#{session_name}:#{pane_current_path}";
+        let output = match Command::new("tmux")
+            .args(["list-sessions", "-F", tmux_format])
+            .output()
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                debug!("Failed to list tmux sessions for shell detection: {}", e);
+                return;
+            }
+        };
+
+        if !output.status.success() {
+            debug!("No tmux sessions found for shell detection");
+            return;
+        }
+
+        let sessions_output = String::from_utf8_lossy(&output.stdout);
+        let mut detected_count = 0;
+
+        for line in sessions_output.lines() {
+            // Find the last colon to split session name from path
+            // (session names can contain colons, paths typically don't at the start)
+            if let Some(colon_pos) = line.rfind(':') {
+                let session_name = &line[..colon_pos];
+                let session_path = &line[colon_pos + 1..];
+
+                // Only process ainb-ws-* sessions (workspace shells)
+                if !session_name.starts_with("ainb-ws-") {
+                    continue;
+                }
+
+                let session_path = std::path::PathBuf::from(session_path);
+
+                // Try to match to a workspace
+                // First, try exact path match
+                // Then, try parent directory match (for worktree subdirectories)
+                let mut matched_workspace_idx = None;
+
+                for (idx, workspace) in self.workspaces.iter().enumerate() {
+                    // Skip workspaces that already have a shell session
+                    if workspace.shell_session.is_some() {
+                        continue;
+                    }
+
+                    // Exact match
+                    if workspace.path == session_path {
+                        matched_workspace_idx = Some(idx);
+                        break;
+                    }
+
+                    // Check if session path is a subdirectory of workspace
+                    if session_path.starts_with(&workspace.path) {
+                        matched_workspace_idx = Some(idx);
+                        break;
+                    }
+
+                    // Check if workspace is a subdirectory of session path
+                    // (e.g., shell opened in parent directory)
+                    if workspace.path.starts_with(&session_path) {
+                        matched_workspace_idx = Some(idx);
+                        break;
+                    }
+                }
+
+                if let Some(idx) = matched_workspace_idx {
+                    // Create a ShellSession for this detected session
+                    let shell = ShellSession {
+                        id: uuid::Uuid::new_v4(),
+                        name: format!("🐚 {}", self.workspaces[idx].name),
+                        tmux_session_name: session_name.to_string(),
+                        workspace_path: self.workspaces[idx].path.clone(),
+                        working_dir: session_path.clone(),
+                        created_at: chrono::Utc::now(),
+                        last_accessed: chrono::Utc::now(),
+                        status: ShellSessionStatus::Running,
+                        preview_content: None,
+                    };
+
+                    info!(
+                        "Auto-detected shell session '{}' for workspace '{}'",
+                        session_name, self.workspaces[idx].name
+                    );
+
+                    self.workspaces[idx].set_shell_session(shell);
+                    detected_count += 1;
+                } else {
+                    debug!(
+                        "Could not match tmux session '{}' (path: {:?}) to any workspace",
+                        session_name, session_path
+                    );
+                }
+            }
+        }
+
+        if detected_count > 0 {
+            info!("Auto-detected {} workspace shell sessions", detected_count);
+        }
     }
 
     pub fn load_mock_data(&mut self) {
