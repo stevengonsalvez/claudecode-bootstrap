@@ -407,8 +407,8 @@ impl EventHandler {
                 Some(AppEvent::ScrollPreviewDown)
             }
 
-            // Navigation keys depend on focused pane
-            KeyCode::Char('j') | KeyCode::Down => {
+            // Navigation keys depend on focused pane (arrow keys only)
+            KeyCode::Down => {
                 tracing::debug!("Down key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
@@ -421,7 +421,7 @@ impl EventHandler {
                     }
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Up => {
                 tracing::debug!("Up key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
@@ -434,7 +434,7 @@ impl EventHandler {
                     }
                 }
             }
-            KeyCode::Char('h') | KeyCode::Left => {
+            KeyCode::Left => {
                 tracing::debug!("Left key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
@@ -447,7 +447,7 @@ impl EventHandler {
                     }
                 }
             }
-            KeyCode::Char('l') | KeyCode::Right => {
+            KeyCode::Right => {
                 tracing::debug!("Right key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {

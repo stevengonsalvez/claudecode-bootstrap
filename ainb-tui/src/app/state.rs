@@ -2817,8 +2817,29 @@ impl AppState {
                     if session_idx > 0 {
                         self.selected_session_index = Some(session_idx - 1);
                         self.queue_logs_fetch();
+                    } else {
+                        // At first session - try to move to previous workspace's last item
+                        if workspace_idx > 0 {
+                            let prev_idx = workspace_idx - 1;
+                            self.selected_workspace_index = Some(prev_idx);
+                            // Select last item in previous workspace (shell or last session)
+                            if let Some(prev_ws) = self.workspaces.get(prev_idx) {
+                                if prev_ws.shell_session.is_some() {
+                                    self.shell_selected = true;
+                                    self.selected_session_index = None;
+                                } else if !prev_ws.sessions.is_empty() {
+                                    self.selected_session_index = Some(prev_ws.sessions.len() - 1);
+                                    self.shell_selected = false;
+                                    self.queue_logs_fetch();
+                                } else {
+                                    // Empty workspace - select workspace header
+                                    self.selected_session_index = None;
+                                    self.shell_selected = false;
+                                }
+                            }
+                        }
+                        // else: at first workspace, first session - stay (no wrap)
                     }
-                    // At first session - stay (no wrap to other tmux from top)
                 }
             }
         }
