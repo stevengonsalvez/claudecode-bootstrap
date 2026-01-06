@@ -24,6 +24,7 @@ pub mod new_session;
 pub mod session_list;
 pub mod sidebar;
 pub mod tmux_preview;
+pub mod welcome_panel;
 
 pub use action_card::{ActionCard, ActionCardGridState, ActionCardId};
 pub use agent_selection::AgentSelectionComponent;
@@ -46,3 +47,4 @@ pub use session_list::SessionListComponent;
 pub use sidebar::{SidebarComponent, SidebarItem, SidebarState};
 #[allow(unused_imports)]
 pub use tmux_preview::{PreviewMode, TmuxPreviewPane};
+pub use welcome_panel::{WelcomePanelComponent, WelcomePanelState};

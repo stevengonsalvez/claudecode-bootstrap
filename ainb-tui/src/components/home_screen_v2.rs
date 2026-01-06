@@ -1,9 +1,8 @@
-// ABOUTME: Refreshed home screen component with sidebar, mascot, and action card grid
+// ABOUTME: Refreshed home screen component with premium sidebar and welcome panel
 // This is the v2 design for AINB 2.0, featuring:
 // - Animated "Boxy" mascot in the header
-// - VS Code/Discord-style sidebar navigation
-// - 2x3 action card grid for quick access
-// - Recent activity bar for session resume
+// - Premium VS Code/Discord-style sidebar navigation with shortcuts
+// - Welcome panel with getting started guide and architecture overview
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -13,9 +12,9 @@ use ratatui::{
     Frame,
 };
 
-use super::action_card::{render_action_card_grid, ActionCardGridState, ActionCardId};
 use super::mascot::{render_mascot, MascotAnimation};
-use super::sidebar::{SidebarComponent, SidebarItem, SidebarState};
+use super::sidebar::{SidebarComponent, SidebarState};
+use super::welcome_panel::{WelcomePanelComponent, WelcomePanelState};
 use crate::app::state::AppState;
 
 // Color palette from TUI style guide
@@ -28,22 +27,21 @@ const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
-/// Focus area on the home screen
+/// Focus area on the home screen (sidebar is main interactive element)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeScreenFocus {
     Sidebar,
-    CardGrid,
 }
 
 /// State for the refreshed home screen
 #[derive(Debug)]
 pub struct HomeScreenV2State {
-    /// Current focus area
+    /// Current focus (always sidebar for now)
     pub focus: HomeScreenFocus,
     /// Sidebar state
     pub sidebar: SidebarState,
-    /// Action card grid state
-    pub card_grid: ActionCardGridState,
+    /// Welcome panel state
+    pub welcome: WelcomePanelState,
     /// Mascot animation
     pub mascot: MascotAnimation,
 }
@@ -51,26 +49,10 @@ pub struct HomeScreenV2State {
 impl HomeScreenV2State {
     pub fn new() -> Self {
         Self {
-            focus: HomeScreenFocus::CardGrid,
+            focus: HomeScreenFocus::Sidebar,
             sidebar: SidebarState::new(),
-            card_grid: ActionCardGridState::new(),
+            welcome: WelcomePanelState::new(),
             mascot: MascotAnimation::new(),
-        }
-    }
-
-    /// Toggle focus between sidebar and card grid
-    pub fn toggle_focus(&mut self) {
-        match self.focus {
-            HomeScreenFocus::Sidebar => {
-                self.focus = HomeScreenFocus::CardGrid;
-                self.sidebar.is_focused = false;
-                self.card_grid.is_focused = true;
-            }
-            HomeScreenFocus::CardGrid => {
-                self.focus = HomeScreenFocus::Sidebar;
-                self.sidebar.is_focused = true;
-                self.card_grid.is_focused = false;
-            }
         }
     }
 
@@ -82,7 +64,6 @@ impl HomeScreenV2State {
     /// Update session count badge
     pub fn set_active_sessions(&mut self, count: usize) {
         self.sidebar.active_sessions_count = count;
-        self.card_grid.set_badge(ActionCardId::Sessions, if count > 0 { Some(count) } else { None });
     }
 }
 
@@ -115,12 +96,14 @@ impl LayoutMode {
 /// The refreshed home screen component
 pub struct HomeScreenV2Component {
     sidebar: SidebarComponent,
+    welcome_panel: WelcomePanelComponent,
 }
 
 impl HomeScreenV2Component {
     pub fn new() -> Self {
         Self {
             sidebar: SidebarComponent::new(),
+            welcome_panel: WelcomePanelComponent::new(),
         }
     }
 
@@ -145,14 +128,14 @@ impl HomeScreenV2Component {
         }
     }
 
-    /// Full layout with sidebar, mascot header, and card grid
+    /// Full layout with sidebar, mascot header, and welcome panel
     fn render_full_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
         // Vertical layout: header, main content, recent activity, help bar
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(7),  // Header with mascot
-                Constraint::Min(16),    // Main content (sidebar + cards)
+                Constraint::Min(20),    // Main content (sidebar + welcome)
                 Constraint::Length(3),  // Recent activity
                 Constraint::Length(2),  // Help bar
             ])
@@ -161,55 +144,66 @@ impl HomeScreenV2Component {
         // Render header with mascot
         self.render_header(frame, main_layout[0], state);
 
-        // Horizontal split: sidebar | card grid
+        // Horizontal split: sidebar | welcome panel
         let content_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(22), // Sidebar
-                Constraint::Min(60),    // Card grid
+                Constraint::Length(26), // Sidebar (wider for shortcuts)
+                Constraint::Min(50),    // Welcome panel
             ])
             .split(main_layout[1]);
 
         // Render sidebar
         self.sidebar.render(frame, content_layout[0], &state.sidebar);
 
-        // Render card grid
-        self.render_card_grid(frame, content_layout[1], state);
+        // Render welcome panel
+        self.welcome_panel.render(frame, content_layout[1], &state.welcome);
 
         // Render recent activity
         self.render_recent_activity(frame, main_layout[2], app_state);
 
         // Render help bar
-        self.render_help_bar(frame, main_layout[3], state);
+        self.render_help_bar(frame, main_layout[3]);
     }
 
     /// Compact layout for smaller terminals
     fn render_compact_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, app_state: &AppState) {
-        // Skip sidebar, use full width for cards with mini mascot
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(4),  // Compact header
-                Constraint::Min(12),    // Card grid
+                Constraint::Min(16),    // Content
                 Constraint::Length(2),  // Recent activity
                 Constraint::Length(2),  // Help bar
             ])
             .split(area);
 
         self.render_compact_header(frame, layout[0], state);
-        self.render_card_grid(frame, layout[1], state);
+
+        // Horizontal split: sidebar | welcome
+        let content_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(24), // Sidebar
+                Constraint::Min(40),    // Welcome panel
+            ])
+            .split(layout[1]);
+
+        self.sidebar.render(frame, content_layout[0], &state.sidebar);
+        self.welcome_panel.render(frame, content_layout[1], &state.welcome);
+
         self.render_recent_activity(frame, layout[2], app_state);
-        self.render_help_bar(frame, layout[3], state);
+        self.render_help_bar(frame, layout[3]);
     }
 
     /// Minimal layout for very small terminals
     fn render_minimal_layout(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State, _app_state: &AppState) {
-        // Just show a simple menu
+        // Just show sidebar as a simple list
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2),  // Title
-                Constraint::Min(6),     // Simple list
+                Constraint::Min(10),    // Sidebar list
                 Constraint::Length(2),  // Help
             ])
             .split(area);
@@ -223,34 +217,10 @@ impl HomeScreenV2Component {
 
         frame.render_widget(title, layout[0]);
 
-        // Simple list view of cards
-        let items: Vec<Line> = ActionCardId::all()
-            .iter()
-            .enumerate()
-            .map(|(idx, id)| {
-                let card = id.to_card();
-                let (row, col) = state.card_grid.selected_position;
-                let is_selected = idx == row * 3 + col;
+        // Render sidebar directly
+        self.sidebar.render(frame, layout[1], &state.sidebar);
 
-                let indicator = if is_selected { "" } else { "  " };
-                let style = if is_selected {
-                    Style::default().fg(SELECTION_GREEN)
-                } else {
-                    Style::default().fg(SOFT_WHITE)
-                };
-
-                Line::from(vec![
-                    Span::styled(format!("{} ", indicator), Style::default().fg(SELECTION_GREEN)),
-                    Span::styled(card.icon, Style::default().fg(GOLD)),
-                    Span::styled(format!(" {} [{}]", card.title, card.shortcut), style),
-                ])
-            })
-            .collect();
-
-        let list = Paragraph::new(items).style(Style::default().bg(DARK_BG));
-        frame.render_widget(list, layout[1]);
-
-        self.render_help_bar(frame, layout[2], state);
+        self.render_help_bar(frame, layout[2]);
     }
 
     /// Render header with mascot and title
@@ -340,50 +310,6 @@ impl HomeScreenV2Component {
         frame.render_widget(title, header_layout[1]);
     }
 
-    /// Render the action card grid
-    fn render_card_grid(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(
-                if state.focus == HomeScreenFocus::CardGrid {
-                    CORNFLOWER_BLUE
-                } else {
-                    SUBDUED_BORDER
-                }
-            ))
-            .style(Style::default().bg(DARK_BG))
-            .title(Line::from(vec![
-                Span::styled("  ", Style::default().fg(GOLD)),
-                Span::styled("Quick Actions", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                Span::styled(" ", Style::default()),
-            ]));
-
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        // Add padding around the grid
-        let padded = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),  // Top padding
-                Constraint::Min(10),    // Grid
-                Constraint::Length(1),  // Bottom padding
-            ])
-            .split(inner);
-
-        let padded_horizontal = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(2),  // Left padding
-                Constraint::Min(50),    // Grid
-                Constraint::Length(2),  // Right padding
-            ])
-            .split(padded[1]);
-
-        render_action_card_grid(frame, padded_horizontal[1], &state.card_grid);
-    }
-
     /// Render recent activity bar
     fn render_recent_activity(&self, frame: &mut Frame, area: Rect, app_state: &AppState) {
         let block = Block::default()
@@ -428,8 +354,8 @@ impl HomeScreenV2Component {
         } else {
             Line::from(vec![
                 Span::styled("   No workspaces configured - press ", Style::default().fg(MUTED_GRAY)),
-                Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                Span::styled(" to create one", Style::default().fg(MUTED_GRAY)),
+                Span::styled("s", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" to go to Sessions", Style::default().fg(MUTED_GRAY)),
             ])
         };
 
@@ -438,25 +364,15 @@ impl HomeScreenV2Component {
     }
 
     /// Render the bottom help bar
-    fn render_help_bar(&self, frame: &mut Frame, area: Rect, state: &HomeScreenV2State) {
-        let help_items = if state.focus == HomeScreenFocus::Sidebar {
-            vec![
-                ("Enter", "select"),
-                ("j/k", "navigate"),
-                ("Tab", "switch to cards"),
-                ("?", "help"),
-                ("q", "quit"),
-            ]
-        } else {
-            vec![
-                ("Enter", "select"),
-                ("hjkl", "navigate"),
-                ("Tab", "switch to sidebar"),
-                ("n", "new"),
-                ("s", "sessions"),
-                ("?", "help"),
-            ]
-        };
+    fn render_help_bar(&self, frame: &mut Frame, area: Rect) {
+        let help_items = vec![
+            ("Enter", "select"),
+            ("a", "agents"),
+            ("c", "catalog"),
+            ("s", "sessions"),
+            ("?", "help"),
+            ("q", "quit"),
+        ];
 
         let mut spans = Vec::new();
         spans.push(Span::styled("  ", Style::default()));
@@ -502,27 +418,16 @@ mod tests {
     }
 
     #[test]
-    fn test_focus_toggle() {
-        let mut state = HomeScreenV2State::new();
-        assert_eq!(state.focus, HomeScreenFocus::CardGrid);
-
-        state.toggle_focus();
-        assert_eq!(state.focus, HomeScreenFocus::Sidebar);
-        assert!(state.sidebar.is_focused);
-        assert!(!state.card_grid.is_focused);
-
-        state.toggle_focus();
-        assert_eq!(state.focus, HomeScreenFocus::CardGrid);
-    }
-
-    #[test]
     fn test_session_badge() {
         let mut state = HomeScreenV2State::new();
         state.set_active_sessions(5);
 
         assert_eq!(state.sidebar.active_sessions_count, 5);
-        // Card grid should also have badge
-        let card = state.card_grid.cards.iter().find(|c| c.id == ActionCardId::Sessions);
-        assert_eq!(card.unwrap().badge, Some(5));
+    }
+
+    #[test]
+    fn test_default_focus() {
+        let state = HomeScreenV2State::new();
+        assert_eq!(state.focus, HomeScreenFocus::Sidebar);
     }
 }

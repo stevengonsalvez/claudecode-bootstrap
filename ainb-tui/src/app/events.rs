@@ -152,8 +152,7 @@ pub enum AppEvent {
     HomeScreenNavigateDown,      // Navigate down in tile grid
     HomeScreenNavigateLeft,      // Navigate left in tile grid
     HomeScreenNavigateRight,     // Navigate right in tile grid
-    // AINB 2.0: Home screen V2 events (sidebar + card grid)
-    HomeScreenToggleFocus,       // Toggle focus between sidebar and card grid (Tab)
+    // AINB 2.0: Home screen V2 events (sidebar navigation)
     HomeScreenSidebarUp,         // Navigate up in sidebar
     HomeScreenSidebarDown,       // Navigate down in sidebar
     HomeScreenSidebarSelect,     // Select current sidebar item (Enter)
@@ -976,28 +975,18 @@ impl EventHandler {
             KeyCode::Char('i') => return Some(AppEvent::GoToStats),
             KeyCode::Char('?') => return Some(AppEvent::ToggleHelp),
             KeyCode::Char('q') => return Some(AppEvent::Quit),
-            KeyCode::Tab => return Some(AppEvent::HomeScreenToggleFocus),
             _ => {}
         }
 
         // Focus-specific navigation
         let focus = &state.home_screen_v2_state.focus;
+        // Sidebar is the only interactive element now
         let event = match focus {
             HomeScreenFocus::Sidebar => {
                 match key_event.code {
                     KeyCode::Up => Some(AppEvent::HomeScreenSidebarUp),
                     KeyCode::Down => Some(AppEvent::HomeScreenSidebarDown),
                     KeyCode::Enter => Some(AppEvent::HomeScreenSidebarSelect),
-                    _ => None,
-                }
-            }
-            HomeScreenFocus::CardGrid => {
-                match key_event.code {
-                    KeyCode::Up => Some(AppEvent::HomeScreenNavigateUp),
-                    KeyCode::Down => Some(AppEvent::HomeScreenNavigateDown),
-                    KeyCode::Left => Some(AppEvent::HomeScreenNavigateLeft),
-                    KeyCode::Right => Some(AppEvent::HomeScreenNavigateRight),
-                    KeyCode::Enter => Some(AppEvent::HomeScreenSelectTile),
                     _ => None,
                 }
             }
@@ -1807,32 +1796,20 @@ impl EventHandler {
             AppEvent::HomeScreenNavigateUp => {
                 tracing::debug!("HomeScreen navigate up");
                 state.home_screen_state.select_up();
-                // Also update card grid for V2
-                state.home_screen_v2_state.card_grid.move_up();
             }
             AppEvent::HomeScreenNavigateDown => {
                 tracing::debug!("HomeScreen navigate down");
                 state.home_screen_state.select_down();
-                // Also update card grid for V2
-                state.home_screen_v2_state.card_grid.move_down();
             }
             AppEvent::HomeScreenNavigateLeft => {
                 tracing::debug!("HomeScreen navigate left");
                 state.home_screen_state.select_left();
-                // Also update card grid for V2
-                state.home_screen_v2_state.card_grid.move_left();
             }
             AppEvent::HomeScreenNavigateRight => {
                 tracing::debug!("HomeScreen navigate right");
                 state.home_screen_state.select_right();
-                // Also update card grid for V2
-                state.home_screen_v2_state.card_grid.move_right();
             }
             // AINB 2.0: Home screen V2 events
-            AppEvent::HomeScreenToggleFocus => {
-                tracing::debug!("HomeScreen V2 toggle focus");
-                state.home_screen_v2_state.toggle_focus();
-            }
             AppEvent::HomeScreenSidebarUp => {
                 tracing::debug!("HomeScreen V2 sidebar up");
                 state.home_screen_v2_state.sidebar.move_up();

@@ -1,5 +1,5 @@
-// ABOUTME: Sidebar navigation component for AINB home screen
-// Inspired by VS Code, Discord, and Slack sidebar patterns
+// ABOUTME: Premium sidebar navigation component for AINB home screen
+// Inspired by VS Code, Discord, and Slack sidebar patterns with enhanced selection styling
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -14,11 +14,15 @@ const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
 const GOLD: Color = Color::Rgb(255, 215, 0);
 const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
 const DARK_BG: Color = Color::Rgb(25, 25, 35);
-const PANEL_BG: Color = Color::Rgb(30, 30, 40);
 const LIST_HIGHLIGHT_BG: Color = Color::Rgb(40, 40, 60);
 const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
+
+// Premium selection colors
+const ACCENT_CYAN: Color = Color::Rgb(80, 200, 220);
+const SELECTION_BG: Color = Color::Rgb(45, 55, 75);
+const HOVER_BG: Color = Color::Rgb(35, 40, 55);
 
 /// Sidebar navigation items - matches HomeTile options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +84,7 @@ impl SidebarItem {
         }
     }
 
-    /// Get all items in order (2 rows x 3 cols layout)
+    /// Get all items in order
     pub fn all() -> &'static [SidebarItem] {
         &[
             Self::Agents,
@@ -90,26 +94,6 @@ impl SidebarItem {
             Self::Stats,
             Self::Help,
         ]
-    }
-}
-
-/// Sidebar sections for grouping items
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidebarSection {
-    Main,
-    Sessions,
-    Tools,
-    System,
-}
-
-impl SidebarSection {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Main => "",
-            Self::Sessions => "Sessions",
-            Self::Tools => "Tools",
-            Self::System => "",
-        }
     }
 }
 
@@ -170,7 +154,7 @@ impl Default for SidebarState {
     }
 }
 
-/// Sidebar component for rendering
+/// Premium sidebar component for rendering
 pub struct SidebarComponent;
 
 impl SidebarComponent {
@@ -178,9 +162,9 @@ impl SidebarComponent {
         Self
     }
 
-    /// Render the sidebar - simple flat list of 6 items matching HomeTile
+    /// Render the sidebar with premium styling
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &SidebarState) {
-        // Outer block with border
+        // Outer block with subtle border
         let border_color = if state.is_focused {
             CORNFLOWER_BLUE
         } else {
@@ -196,41 +180,59 @@ impl SidebarComponent {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Simple layout: padding + 6 items + flexible space
+        // Layout: title + items + flexible space
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),  // Top padding
-                Constraint::Length(2),  // Agents
-                Constraint::Length(2),  // Catalog
-                Constraint::Length(2),  // Config
-                Constraint::Length(2),  // Sessions (with badge)
-                Constraint::Length(2),  // Stats
-                Constraint::Length(2),  // Help
+                Constraint::Length(2),  // Title area
+                Constraint::Length(1),  // Spacer
+                Constraint::Length(3),  // Agents (taller for premium feel)
+                Constraint::Length(3),  // Catalog
+                Constraint::Length(3),  // Config
+                Constraint::Length(3),  // Sessions
+                Constraint::Length(3),  // Stats
+                Constraint::Length(3),  // Help
                 Constraint::Min(0),     // Flexible space
             ])
             .split(inner);
 
+        // Render title
+        self.render_title(frame, layout[0], state);
+
         let items = SidebarItem::all();
 
-        // Render all 6 items
+        // Render all 6 items with premium styling
         for (idx, item) in items.iter().enumerate() {
             let is_selected = state.selected_index == idx;
-            // Sessions item (index 3) gets a badge
             let badge = if *item == SidebarItem::Sessions && state.active_sessions_count > 0 {
                 Some(state.active_sessions_count)
             } else {
                 None
             };
-            self.render_item_with_badge(frame, layout[idx + 1], item, is_selected, state, badge);
+            self.render_premium_item(frame, layout[idx + 2], item, is_selected, state, badge);
         }
     }
 
-    fn render_item(&self, frame: &mut Frame, area: Rect, item: &SidebarItem, is_selected: bool, state: &SidebarState) {
-        self.render_item_with_badge(frame, area, item, is_selected, state, None);
+    /// Render the sidebar title
+    fn render_title(&self, frame: &mut Frame, area: Rect, state: &SidebarState) {
+        let title_style = if state.is_focused {
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED_GRAY)
+        };
+
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled("◆", Style::default().fg(ACCENT_CYAN)),
+            Span::styled(" AINB", title_style),
+        ]))
+        .style(Style::default().bg(DARK_BG));
+
+        frame.render_widget(title, area);
     }
 
-    fn render_item_with_badge(
+    /// Render a single item with premium selection styling
+    fn render_premium_item(
         &self,
         frame: &mut Frame,
         area: Rect,
@@ -239,56 +241,124 @@ impl SidebarComponent {
         state: &SidebarState,
         badge: Option<usize>,
     ) {
-        let (indicator, icon_style, label_style, bg_style) = if is_selected && state.is_focused {
-            (
-                Span::styled("", Style::default().fg(SELECTION_GREEN)),
-                Style::default().fg(GOLD),
-                Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
-                Style::default().bg(LIST_HIGHLIGHT_BG),
-            )
+        // Premium selection styling
+        let (accent_bar, icon_style, label_style, shortcut_style, bg_color) =
+            if is_selected && state.is_focused {
+                // Selected + focused: full accent bar, bright colors
+                (
+                    "█",
+                    Style::default().fg(GOLD),
+                    Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+                    Style::default().fg(ACCENT_CYAN).add_modifier(Modifier::BOLD),
+                    SELECTION_BG,
+                )
+            } else if is_selected {
+                // Selected but not focused: dimmer accent
+                (
+                    "▐",
+                    Style::default().fg(GOLD),
+                    Style::default().fg(SOFT_WHITE),
+                    Style::default().fg(MUTED_GRAY),
+                    HOVER_BG,
+                )
+            } else {
+                // Not selected: no accent bar
+                (
+                    " ",
+                    Style::default().fg(MUTED_GRAY),
+                    Style::default().fg(MUTED_GRAY),
+                    Style::default().fg(SUBDUED_BORDER),
+                    DARK_BG,
+                )
+            };
+
+        // Split the item area for multi-line content
+        let item_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Top padding
+                Constraint::Length(1), // Main line (icon + label + shortcut)
+                Constraint::Length(1), // Description line
+            ])
+            .split(area);
+
+        // Main line: accent bar + icon + label + shortcut
+        let accent_style = if is_selected && state.is_focused {
+            Style::default().fg(ACCENT_CYAN)
         } else if is_selected {
-            (
-                Span::styled(" ", Style::default()),
-                Style::default().fg(GOLD),
-                Style::default().fg(SOFT_WHITE),
-                Style::default().bg(LIST_HIGHLIGHT_BG),
-            )
+            Style::default().fg(CORNFLOWER_BLUE)
         } else {
-            (
-                Span::styled(" ", Style::default()),
-                Style::default().fg(MUTED_GRAY),
-                Style::default().fg(MUTED_GRAY),
-                Style::default().bg(DARK_BG),
-            )
+            Style::default().fg(DARK_BG)
         };
 
-        let mut spans = vec![
-            indicator,
+        let mut main_spans = vec![
+            Span::styled(accent_bar, accent_style),
             Span::styled(" ", Style::default()),
             Span::styled(item.icon(), icon_style),
         ];
 
         if state.show_labels {
-            spans.push(Span::styled("  ", Style::default()));
-            spans.push(Span::styled(item.label(), label_style));
+            main_spans.push(Span::styled("  ", Style::default()));
+            main_spans.push(Span::styled(item.label(), label_style));
 
             // Add badge if present
             if let Some(count) = badge {
-                spans.push(Span::styled(" (", Style::default().fg(MUTED_GRAY)));
-                spans.push(Span::styled(count.to_string(), Style::default().fg(SELECTION_GREEN)));
-                spans.push(Span::styled(")", Style::default().fg(MUTED_GRAY)));
+                main_spans.push(Span::styled(" ", Style::default()));
+                main_spans.push(Span::styled(
+                    format!("●{}", count),
+                    Style::default().fg(SELECTION_GREEN),
+                ));
             }
+
+            // Push shortcut to the right
+            let label_len = item.label().len();
+            let badge_len = badge.map(|c| format!(" ●{}", c).len()).unwrap_or(0);
+            let used_width = 4 + label_len + badge_len; // accent + space + icon(2) + spaces + label + badge
+            let available = area.width.saturating_sub(used_width as u16 + 6);
+
+            if available > 0 {
+                main_spans.push(Span::styled(
+                    " ".repeat(available as usize),
+                    Style::default(),
+                ));
+            }
+            main_spans.push(Span::styled("[", Style::default().fg(SUBDUED_BORDER)));
+            main_spans.push(Span::styled(item.shortcut(), shortcut_style));
+            main_spans.push(Span::styled("]", Style::default().fg(SUBDUED_BORDER)));
         }
 
-        let line = Paragraph::new(Line::from(spans)).style(bg_style);
+        let main_line = Paragraph::new(Line::from(main_spans))
+            .style(Style::default().bg(bg_color));
+        frame.render_widget(main_line, item_layout[1]);
 
-        frame.render_widget(line, area);
+        // Description line (only when selected and space available)
+        if is_selected && state.show_labels && area.width > 15 {
+            let desc_spans = vec![
+                Span::styled(accent_bar, accent_style),
+                Span::styled("     ", Style::default()), // Indent under icon
+                Span::styled(
+                    item.description(),
+                    Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC),
+                ),
+            ];
+            let desc_line = Paragraph::new(Line::from(desc_spans))
+                .style(Style::default().bg(bg_color));
+            frame.render_widget(desc_line, item_layout[2]);
+        } else {
+            // Empty line with background
+            let empty = Paragraph::new("").style(Style::default().bg(bg_color));
+            frame.render_widget(empty, item_layout[2]);
+        }
+
+        // Top padding with background
+        let padding = Paragraph::new("").style(Style::default().bg(bg_color));
+        frame.render_widget(padding, item_layout[0]);
     }
 
     /// Get the recommended width for the sidebar
     pub fn recommended_width(state: &SidebarState) -> u16 {
         if state.show_labels {
-            20 // With labels
+            24 // With labels + shortcuts
         } else {
             4 // Icons only
         }
