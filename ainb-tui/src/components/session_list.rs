@@ -21,7 +21,7 @@ const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use crate::app::AppState;
-use crate::models::{SessionMode, SessionStatus, Workspace};
+use crate::models::{SessionMode, SessionStatus, ShellSessionStatus, Workspace};
 
 pub struct SessionListComponent {
     list_state: ListState,
@@ -76,6 +76,9 @@ impl SessionListComponent {
                         Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
                         Span::styled(" Enter", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
                         Span::styled(" select ", Style::default().fg(MUTED_GRAY)),
+                        Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                        Span::styled(" $", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
                     ])),
             )
             .highlight_style(Style::default().bg(LIST_HIGHLIGHT_BG))
@@ -90,11 +93,13 @@ impl SessionListComponent {
         for (workspace_idx, workspace) in state.workspaces.iter().enumerate() {
             let is_selected_workspace = state.selected_workspace_index == Some(workspace_idx);
             let session_count = workspace.sessions.len();
+            let has_shell = workspace.shell_session.is_some();
+            let total_count = session_count + if has_shell { 1 } else { 0 };
 
             // Determine expand state: expanded if selected OR if expand_all is true
             let is_expanded = is_selected_workspace || state.expand_all_workspaces;
 
-            let workspace_symbol = if session_count == 0 {
+            let workspace_symbol = if total_count == 0 {
                 "▷"
             } else if is_expanded {
                 "▼"
@@ -109,8 +114,8 @@ impl SessionListComponent {
                 (MUTED_GRAY, SOFT_WHITE)
             };
 
-            let count_display = if session_count > 0 {
-                format!(" ({})", session_count)
+            let count_display = if total_count > 0 {
+                format!(" ({})", total_count)
             } else {
                 String::new()
             };
@@ -180,6 +185,40 @@ impl SessionListComponent {
                     ]);
 
                     items.push(ListItem::new(session_line));
+                }
+
+                // Render workspace shell (single shell per workspace)
+                if let Some(shell_session) = &workspace.shell_session {
+                    let is_selected_shell = is_selected_workspace
+                        && state.selected_session_index.is_none()
+                        && state.shell_selected;
+
+                    // Shell is always last
+                    let tree_prefix = "└─";
+
+                    // Status indicator
+                    let status_indicator = shell_session.status.indicator();
+                    let (name_color, _prefix_color) = if is_selected_shell {
+                        (SELECTION_GREEN, SELECTION_GREEN)
+                    } else {
+                        match shell_session.status {
+                            ShellSessionStatus::Running => (SELECTION_GREEN, GOLD),
+                            ShellSessionStatus::Detached => (SOFT_WHITE, MUTED_GRAY),
+                            ShellSessionStatus::Stopped => (MUTED_GRAY, MUTED_GRAY),
+                        }
+                    };
+
+                    let shell_line = Line::from(vec![
+                        Span::styled("  ", Style::default()),
+                        Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
+                        Span::styled(format!(" {} ", status_indicator), Style::default().fg(name_color)),
+                        Span::styled(
+                            shell_session.name.clone(),
+                            Style::default().fg(name_color).add_modifier(if is_selected_shell { Modifier::BOLD } else { Modifier::empty() })
+                        ),
+                    ]);
+
+                    items.push(ListItem::new(shell_line));
                 }
             }
         }
@@ -265,7 +304,7 @@ impl SessionListComponent {
             let mut current_index = 0;
 
             // When expand_all is true, we need to count items from all workspaces
-            for (idx, _workspace) in state.workspaces.iter().enumerate() {
+            for (idx, workspace) in state.workspaces.iter().enumerate() {
                 if idx == workspace_idx {
                     // Found the selected workspace
                     current_index += idx; // Add workspace line itself (accounting for skipped sessions)
@@ -274,12 +313,18 @@ impl SessionListComponent {
                     if state.expand_all_workspaces {
                         for prior_workspace in state.workspaces.iter().take(idx) {
                             current_index += prior_workspace.sessions.len();
+                            if prior_workspace.shell_session.is_some() {
+                                current_index += 1;
+                            }
                         }
                     }
 
-                    // Add session offset if a session is selected
+                    // Add session offset if a regular session is selected
                     if let Some(session_idx) = state.selected_session_index {
                         current_index += session_idx + 1;
+                    } else if state.shell_selected {
+                        // Shell selected: add all regular sessions + 1 for shell
+                        current_index += workspace.sessions.len() + 1;
                     }
                     break;
                 }
@@ -295,6 +340,9 @@ impl SessionListComponent {
                 current_index += 1; // Workspace header
                 if state.expand_all_workspaces {
                     current_index += workspace.sessions.len();
+                    if workspace.shell_session.is_some() {
+                        current_index += 1;
+                    }
                 }
             }
 
@@ -324,6 +372,9 @@ impl SessionListComponent {
             count += 1; // Workspace header
             if state.expand_all_workspaces {
                 count += workspace.sessions.len();
+                if workspace.shell_session.is_some() {
+                    count += 1;
+                }
             }
         }
 

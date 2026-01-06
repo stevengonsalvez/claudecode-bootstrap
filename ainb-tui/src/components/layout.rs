@@ -234,7 +234,9 @@ impl LayoutComponent {
             Span::styled("e", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
             Span::styled(" restart ", Style::default().fg(MUTED_GRAY)),
             Span::styled("d", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
-            Span::styled("elete", Style::default().fg(MUTED_GRAY)),
+            Span::styled("elete ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("$", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled(" shell", Style::default().fg(MUTED_GRAY)),
             Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
             // Git group
             Span::styled("g", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
@@ -253,7 +255,7 @@ impl LayoutComponent {
             // System group
             Span::styled("r", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::BOLD)),
             Span::styled(" re-auth ", Style::default().fg(MUTED_GRAY)),
-            Span::styled("?", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::BOLD)),
+            Span::styled("H", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
             Span::styled(" help ", Style::default().fg(MUTED_GRAY)),
             Span::styled("q", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
             Span::styled(" home", Style::default().fg(MUTED_GRAY)),

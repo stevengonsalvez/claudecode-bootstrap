@@ -5,5 +5,5 @@ pub mod session;
 pub mod workspace;
 
 pub use other_tmux::OtherTmuxSession;
-pub use session::{GitChanges, Session, SessionMode, SessionStatus};
+pub use session::{GitChanges, Session, SessionAgentType, SessionMode, SessionStatus, ShellSession, ShellSessionStatus};
 pub use workspace::Workspace;

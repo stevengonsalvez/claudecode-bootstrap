@@ -32,6 +32,7 @@ pub enum AppEvent {
     ReauthenticateCredentials,
     RestartSession,
     DeleteSession,
+    OpenQuickShell,  // Open shell in selected workspace/session directory
     CleanupOrphaned, // Clean up orphaned containers
     SwitchToLogs,
     SwitchToTerminal,
@@ -79,6 +80,10 @@ pub enum AppEvent {
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
+    // Agent selection events (new session flow)
+    NewSessionAgentNext,
+    NewSessionAgentPrev,
+    NewSessionAgentSelect,
     // File finder events for @ symbol trigger
     FileFinderNavigateUp,
     FileFinderNavigateDown,
@@ -275,7 +280,7 @@ impl EventHandler {
         if state.help_visible {
             tracing::debug!("Help is visible, handling key: {:?}", key_event.code);
             match key_event.code {
-                KeyCode::Char('?') | KeyCode::Esc => {
+                KeyCode::Char('?' | 'H') | KeyCode::Esc => {
                     tracing::info!("Toggling help off via {:?}", key_event.code);
                     return Some(AppEvent::ToggleHelp);
                 }
@@ -287,7 +292,8 @@ impl EventHandler {
         }
 
         // Handle global help toggle first (should work from any view)
-        if let KeyCode::Char('?') = key_event.code {
+        // Supports both '?' and Shift+H
+        if matches!(key_event.code, KeyCode::Char('?' | 'H')) {
             return Some(AppEvent::ToggleHelp);
         }
 
@@ -391,6 +397,7 @@ impl EventHandler {
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
             KeyCode::Char('E') => Some(AppEvent::ToggleExpandAll), // Toggle expand/collapse all workspaces
+            KeyCode::Char('$') => Some(AppEvent::OpenQuickShell), // Quick shell in current workspace/session
 
             // Tmux preview scroll mode (Shift + Up/Down)
             KeyCode::Up if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -494,6 +501,13 @@ impl EventHandler {
                     KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
                     KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
                     KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
+                    _ => None,
+                },
+                NewSessionStep::SelectAgent => match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::NewSessionAgentNext),
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::NewSessionAgentPrev),
+                    KeyCode::Enter => Some(AppEvent::NewSessionAgentSelect),
                     _ => None,
                 },
                 NewSessionStep::InputBranch => {
@@ -1021,7 +1035,7 @@ impl EventHandler {
                         Some(AppEvent::ConfigEditSetting)
                     }
                 }
-                KeyCode::Char('s') | KeyCode::Char('S') => Some(AppEvent::ConfigSaveAll),
+                KeyCode::Char('s' | 'S') => Some(AppEvent::ConfigSaveAll),
                 _ => None,
             }
         }
@@ -1047,7 +1061,7 @@ impl EventHandler {
                 KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AuthProviderPopupPrev),
                 KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AuthProviderPopupNext),
                 KeyCode::Enter => Some(AppEvent::AuthProviderPopupSelect),
-                KeyCode::Char('d') | KeyCode::Char('D') => Some(AppEvent::AuthProviderPopupDeleteKey),
+                KeyCode::Char('d' | 'D') => Some(AppEvent::AuthProviderPopupDeleteKey),
                 _ => None,
             }
         }
@@ -1153,6 +1167,44 @@ impl EventHandler {
                 tracing::info!("Processing NewSessionCreate event - queueing async action");
                 // Mark for async processing
                 state.pending_async_action = Some(AsyncAction::CreateNewSession);
+            }
+            // Agent selection events (new session flow)
+            AppEvent::NewSessionAgentNext => {
+                tracing::debug!("Event: NewSessionAgentNext");
+                state.new_session_next_agent();
+            }
+            AppEvent::NewSessionAgentPrev => {
+                tracing::debug!("Event: NewSessionAgentPrev");
+                state.new_session_prev_agent();
+            }
+            AppEvent::NewSessionAgentSelect => {
+                tracing::info!("Event: NewSessionAgentSelect");
+                let shell_selected = state.new_session_select_agent();
+                if shell_selected {
+                    // Shell was selected - find or create workspace and open shell
+                    if let Some(ref session_state) = state.new_session_state {
+                        if let Some(repo_path) = session_state.get_selected_repo_path() {
+                            tracing::info!("Opening shell in workspace: {:?}", repo_path);
+
+                            // Find the workspace index for this repo
+                            let workspace_idx = state.workspaces.iter()
+                                .position(|w| w.path == repo_path);
+
+                            if let Some(idx) = workspace_idx {
+                                state.pending_async_action = Some(
+                                    AsyncAction::OpenWorkspaceShell {
+                                        workspace_index: idx,
+                                        target_dir: None, // Open in workspace root
+                                    }
+                                );
+                            } else {
+                                state.add_warning_notification("Workspace not found".to_string());
+                            }
+                        }
+                    }
+                    state.new_session_state = None;
+                    state.current_view = crate::app::state::View::SessionList;
+                }
             }
             AppEvent::SearchWorkspaceInputChar(ch) => {
                 if let Some(ref mut session_state) = state.new_session_state {
@@ -1267,6 +1319,27 @@ impl EventHandler {
             AppEvent::CleanupOrphaned => {
                 // Queue cleanup of orphaned containers
                 state.pending_async_action = Some(AsyncAction::CleanupOrphaned);
+            }
+            AppEvent::OpenQuickShell => {
+                // Open workspace shell and optionally cd to session's worktree
+                if let Some(workspace_idx) = state.selected_workspace_index {
+                    // Get target directory - session worktree if selected, otherwise workspace root
+                    let target_dir = if let Some(session) = state.selected_session() {
+                        // Session selected - cd to its worktree
+                        Some(std::path::PathBuf::from(&session.workspace_path))
+                    } else {
+                        // Just workspace selected - cd to workspace root (or None to stay where we are)
+                        None
+                    };
+
+                    tracing::info!("Opening workspace shell, target_dir: {:?}", target_dir);
+                    state.pending_async_action = Some(AsyncAction::OpenWorkspaceShell {
+                        workspace_index: workspace_idx,
+                        target_dir,
+                    });
+                } else {
+                    state.add_warning_notification("No workspace selected".to_string());
+                }
             }
             AppEvent::SwitchToLogs => {
                 // TODO: Implement view switching

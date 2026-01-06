@@ -11,7 +11,7 @@ use crate::components::live_logs_stream::LogEntry;
 use crate::config::AppConfig;
 use crate::credentials;
 use crate::docker::LogStreamingCoordinator;
-use crate::models::{Session, Workspace};
+use crate::models::{Session, SessionAgentType, Workspace};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -572,6 +572,31 @@ pub enum CostTier {
     Medium,
     High,
     Premium,
+}
+
+// ============================================================================
+// SESSION AGENT SELECTION (for new session flow)
+// ============================================================================
+
+// SessionAgentType is imported from crate::models
+
+/// Option in the agent selection list
+#[derive(Debug, Clone)]
+pub struct SessionAgentOption {
+    pub agent_type: SessionAgentType,
+    pub is_current: bool,  // Is this the currently selected agent for the app?
+}
+
+impl SessionAgentOption {
+    pub fn all() -> Vec<Self> {
+        vec![
+            Self { agent_type: SessionAgentType::Claude, is_current: true },  // Claude is default
+            Self { agent_type: SessionAgentType::Shell, is_current: false },
+            Self { agent_type: SessionAgentType::Codex, is_current: false },
+            Self { agent_type: SessionAgentType::Gemini, is_current: false },
+            Self { agent_type: SessionAgentType::Kiro, is_current: false },
+        ]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1523,6 +1548,7 @@ pub struct AppState {
     pub workspaces: Vec<Workspace>,
     pub selected_workspace_index: Option<usize>,
     pub selected_session_index: Option<usize>,
+    pub shell_selected: bool, // Whether the workspace shell is currently selected
     pub expand_all_workspaces: bool, // When true, show all sessions across all workspaces
     pub current_view: View,
     pub should_quit: bool,
@@ -1612,6 +1638,10 @@ pub struct NewSessionState {
     pub boss_prompt: TextEditor,   // The prompt text editor for boss mode execution
     pub file_finder: FuzzyFileFinderState, // Fuzzy file finder for @ symbol
     pub restart_session_id: Option<Uuid>, // If set, this is a restart operation
+    // Agent selection (NEW)
+    pub selected_agent: SessionAgentType,       // The selected agent for this session
+    pub agent_options: Vec<SessionAgentOption>, // List of available agents
+    pub selected_agent_index: usize,            // Index in agent_options list
 }
 
 impl Default for NewSessionState {
@@ -1629,6 +1659,10 @@ impl Default for NewSessionState {
             boss_prompt: TextEditor::new(),
             file_finder: FuzzyFileFinderState::new(),
             restart_session_id: None,
+            // Agent selection defaults
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         }
     }
 }
@@ -1661,11 +1695,55 @@ impl NewSessionState {
             self.selected_repo_index = Some(0);
         }
     }
+
+    // Agent selection helpers
+    pub fn next_agent(&mut self) {
+        if !self.agent_options.is_empty() {
+            self.selected_agent_index = (self.selected_agent_index + 1) % self.agent_options.len();
+        }
+    }
+
+    pub fn prev_agent(&mut self) {
+        if !self.agent_options.is_empty() {
+            self.selected_agent_index = if self.selected_agent_index == 0 {
+                self.agent_options.len() - 1
+            } else {
+                self.selected_agent_index - 1
+            };
+        }
+    }
+
+    pub fn current_agent_option(&self) -> Option<&SessionAgentOption> {
+        self.agent_options.get(self.selected_agent_index)
+    }
+
+    pub fn current_agent_type(&self) -> SessionAgentType {
+        self.current_agent_option()
+            .map(|o| o.agent_type)
+            .unwrap_or_default()
+    }
+
+    pub fn is_current_agent_available(&self) -> bool {
+        self.current_agent_type().is_available()
+    }
+
+    /// Select the current agent and update selected_agent field
+    pub fn confirm_agent_selection(&mut self) {
+        self.selected_agent = self.current_agent_type();
+    }
+
+    /// Get the selected repo path
+    pub fn get_selected_repo_path(&self) -> Option<std::path::PathBuf> {
+        self.selected_repo_index
+            .and_then(|idx| self.filtered_repos.get(idx))
+            .map(|(_, path)| path.clone())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NewSessionStep {
     SelectRepo,
+    SelectAgent,  // NEW: Choose agent (Claude, Shell, etc.)
     InputBranch,
     SelectMode,  // Choose between Interactive and Boss mode
     InputPrompt, // Enter prompt for Boss mode
@@ -1693,6 +1771,12 @@ pub enum AsyncAction {
     CleanupOrphaned,           // Clean up orphaned containers without worktrees
     AttachToOtherTmux(String), // Attach to a non-agents-in-a-box tmux session by name
     KillOtherTmux(String),     // Kill a non-agents-in-a-box tmux session by name
+    // Shell session actions (one shell per workspace)
+    OpenWorkspaceShell {
+        workspace_index: usize,                      // Index of workspace to open shell for
+        target_dir: Option<std::path::PathBuf>,      // Optional: cd to this directory (worktree)
+    },
+    KillWorkspaceShell(usize), // Kill workspace shell by workspace index
 }
 
 impl Default for AppState {
@@ -1707,6 +1791,7 @@ impl Default for AppState {
             workspaces: Vec::new(),
             selected_workspace_index: None,
             selected_session_index: None,
+            shell_selected: false,
             expand_all_workspaces: true, // Default to expanded view
             current_view: View::HomeScreen,
             should_quit: false,
@@ -1995,15 +2080,14 @@ impl AppState {
                                     .unwrap_or_else(|| "unknown".to_string())
                             );
                             return true;
-                        } else {
-                            warn!(
-                                "OAuth token has expired at: {}",
-                                chrono::DateTime::from_timestamp_millis(expires_at as i64)
-                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                                    .unwrap_or_else(|| "unknown".to_string())
-                            );
-                            return false;
                         }
+                        warn!(
+                            "OAuth token has expired at: {}",
+                            chrono::DateTime::from_timestamp_millis(expires_at as i64)
+                                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                                .unwrap_or_else(|| "unknown".to_string())
+                        );
+                        return false;
                     }
                 }
             }
@@ -2360,8 +2444,15 @@ impl AppState {
                 // Session name may contain colons, so reconstruct from all parts except last two
                 let name = parts[..parts.len() - 2].join(":");
 
-                // Skip agents-in-a-box managed sessions (tmux_ prefix)
-                if name.starts_with("tmux_") {
+                // Skip agents-in-a-box managed sessions
+                // - tmux_ prefix: AI agent sessions
+                // - ainb-ws- prefix: Workspace shell sessions (current format)
+                // - ainb-sh- prefix: Shell sessions (legacy per-branch format)
+                // - ainb-shell- prefix: Shell sessions (old legacy format)
+                if name.starts_with("tmux_")
+                    || name.starts_with("ainb-ws-")
+                    || name.starts_with("ainb-sh-")
+                    || name.starts_with("ainb-shell-") {
                     continue;
                 }
 
@@ -2462,6 +2553,14 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx)
     }
 
+    pub fn selected_shell_session(&self) -> Option<&crate::models::ShellSession> {
+        if !self.shell_selected {
+            return None;
+        }
+        let workspace_idx = self.selected_workspace_index?;
+        self.workspaces.get(workspace_idx)?.shell_session.as_ref()
+    }
+
     pub fn selected_workspace(&self) -> Option<&Workspace> {
         let workspace_idx = self.selected_workspace_index?;
         self.workspaces.get(workspace_idx)
@@ -2481,19 +2580,43 @@ impl AppState {
 
         if let Some(workspace_idx) = self.selected_workspace_index {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
-                if !workspace.sessions.is_empty() {
-                    let current = self.selected_session_index.unwrap_or(0);
-                    if current + 1 < workspace.sessions.len() {
+                // Currently on shell session?
+                if self.shell_selected {
+                    // Shell is last in workspace - move to "Other tmux" if available
+                    if !self.other_tmux_sessions.is_empty() {
+                        self.selected_workspace_index = None;
+                        self.selected_session_index = None;
+                        self.shell_selected = false;
+                        self.selected_other_tmux_index = Some(0);
+                    }
+                    // Else: stay at shell
+                    return;
+                }
+
+                // Currently in regular sessions
+                if let Some(session_idx) = self.selected_session_index {
+                    if session_idx + 1 < workspace.sessions.len() {
                         // Move to next session in this workspace
-                        self.selected_session_index = Some(current + 1);
+                        self.selected_session_index = Some(session_idx + 1);
                         self.queue_logs_fetch();
+                    } else if workspace.shell_session.is_some() {
+                        // At last regular session - move to shell session
+                        self.selected_session_index = None;
+                        self.shell_selected = true;
                     } else if !self.other_tmux_sessions.is_empty() {
-                        // At last session - move to "Other tmux" section
+                        // No shell session - move to "Other tmux" section
                         self.selected_workspace_index = None;
                         self.selected_session_index = None;
                         self.selected_other_tmux_index = Some(0);
                     }
                     // Else: stay at last session
+                } else if !workspace.sessions.is_empty() {
+                    // No session selected, select first
+                    self.selected_session_index = Some(0);
+                    self.queue_logs_fetch();
+                } else if workspace.shell_session.is_some() {
+                    // No regular sessions, go to shell session
+                    self.shell_selected = true;
                 }
             }
         }
@@ -2509,15 +2632,19 @@ impl AppState {
                 // At first other_tmux session - move back to workspaces
                 if !self.workspaces.is_empty() {
                     let last_workspace_idx = self.workspaces.len() - 1;
+                    let workspace = &self.workspaces[last_workspace_idx];
                     self.selected_workspace_index = Some(last_workspace_idx);
-                    let last_session_idx = self.workspaces[last_workspace_idx].sessions.len().saturating_sub(1);
-                    self.selected_session_index = if self.workspaces[last_workspace_idx].sessions.is_empty() {
-                        None
-                    } else {
-                        Some(last_session_idx)
-                    };
                     self.selected_other_tmux_index = None;
-                    self.queue_logs_fetch();
+
+                    // Go to shell session if exists, else last regular session
+                    if workspace.shell_session.is_some() {
+                        self.selected_session_index = None;
+                        self.shell_selected = true;
+                    } else if !workspace.sessions.is_empty() {
+                        self.selected_session_index = Some(workspace.sessions.len() - 1);
+                        self.shell_selected = false;
+                        self.queue_logs_fetch();
+                    }
                 }
             }
             return;
@@ -2525,13 +2652,25 @@ impl AppState {
 
         if let Some(workspace_idx) = self.selected_workspace_index {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
-                if !workspace.sessions.is_empty() {
-                    let current = self.selected_session_index.unwrap_or(0);
-                    if current > 0 {
-                        self.selected_session_index = Some(current - 1);
+                // Currently on shell session?
+                if self.shell_selected {
+                    if !workspace.sessions.is_empty() {
+                        // Go back to last regular session
+                        self.shell_selected = false;
+                        self.selected_session_index = Some(workspace.sessions.len() - 1);
+                        self.queue_logs_fetch();
+                    }
+                    // Else: stay at shell session (it's the only item)
+                    return;
+                }
+
+                // Currently in regular sessions
+                if let Some(session_idx) = self.selected_session_index {
+                    if session_idx > 0 {
+                        self.selected_session_index = Some(session_idx - 1);
+                        self.queue_logs_fetch();
                     }
                     // At first session - stay (no wrap to other tmux from top)
-                    self.queue_logs_fetch();
                 }
             }
         }
@@ -3197,18 +3336,79 @@ impl AppState {
                     }
                 }
 
-                state.step = NewSessionStep::InputBranch;
-                let uuid_str = uuid::Uuid::new_v4().to_string();
-                state.branch_name = format!("agents-session-{}", &uuid_str[..8]);
+                // Go to agent selection step
+                state.step = NewSessionStep::SelectAgent;
+                state.selected_agent_index = 0; // Reset to Claude (default)
 
-                // Change view from SearchWorkspace to NewSession to show branch input
+                // Change view from SearchWorkspace to NewSession to show agent selection
                 self.current_view = View::NewSession;
                 tracing::info!(
-                    "Repository confirmed, transitioning to branch input step with branch: {}",
-                    state.branch_name
+                    "Repository confirmed, transitioning to agent selection step"
                 );
             }
         }
+    }
+
+    /// Navigate to next agent in new session flow
+    pub fn new_session_next_agent(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectAgent {
+                state.next_agent();
+            }
+        }
+    }
+
+    /// Navigate to previous agent in new session flow
+    pub fn new_session_prev_agent(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectAgent {
+                state.prev_agent();
+            }
+        }
+    }
+
+    /// Select agent and proceed to next step (or create shell session)
+    /// Returns true if Shell was selected (needs async handling)
+    pub fn new_session_select_agent(&mut self) -> bool {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step != NewSessionStep::SelectAgent {
+                return false;
+            }
+
+            let agent_type = state.current_agent_type();
+
+            // Check if agent is available
+            if !agent_type.is_available() {
+                self.add_info_notification(format!(
+                    "{} {} - Coming Soon!",
+                    agent_type.icon(),
+                    agent_type.name()
+                ));
+                return false;
+            }
+
+            // Store the selected agent
+            state.confirm_agent_selection();
+            tracing::info!("Selected agent: {:?}", state.selected_agent);
+
+            // If Shell is selected, we need async handling to create shell session
+            if agent_type == SessionAgentType::Shell {
+                tracing::info!("Shell agent selected - will create shell session");
+                return true; // Signal that async shell creation is needed
+            }
+
+            // For AI agents, proceed to branch input
+            state.step = NewSessionStep::InputBranch;
+            let uuid_str = uuid::Uuid::new_v4().to_string();
+            state.branch_name = format!("agents-session-{}", &uuid_str[..8]);
+
+            tracing::info!(
+                "Agent selected: {:?}, transitioning to branch input with branch: {}",
+                state.selected_agent,
+                state.branch_name
+            );
+        }
+        false
     }
 
     pub fn new_session_update_branch(&mut self, ch: char) {
@@ -4096,34 +4296,28 @@ impl AppState {
                 if let Ok(session_id) = uuid::Uuid::parse_str(session_id_str) {
                     // Check if worktree exists for this session
                     let worktree_manager = crate::git::WorktreeManager::new()?;
-                    match worktree_manager.get_worktree_info(session_id) {
-                        Ok(_) => {
-                            // Worktree exists, container is not orphaned
-                            continue;
-                        }
-                        Err(_) => {
-                            // Worktree missing, this is an orphaned container
-                            info!(
-                                "Found orphaned container for session {}, removing it",
-                                session_id
-                            );
+                    // Only process if worktree is missing (orphaned container)
+                    if worktree_manager.get_worktree_info(session_id).is_err() {
+                        info!(
+                            "Found orphaned container for session {}, removing it",
+                            session_id
+                        );
 
-                            if let Some(container_id) = &container.id {
-                                // Remove the orphaned container (this will stop it first)
-                                if let Err(e) =
-                                    container_manager.remove_container_by_id(container_id).await
-                                {
-                                    warn!(
-                                        "Failed to remove orphaned container {}: {}",
-                                        container_id, e
-                                    );
-                                } else {
-                                    cleaned_up += 1;
-                                    info!(
-                                        "Successfully removed orphaned container {}",
-                                        container_id
-                                    );
-                                }
+                        if let Some(container_id) = &container.id {
+                            // Remove the orphaned container (this will stop it first)
+                            if let Err(e) =
+                                container_manager.remove_container_by_id(container_id).await
+                            {
+                                warn!(
+                                    "Failed to remove orphaned container {}: {}",
+                                    container_id, e
+                                );
+                            } else {
+                                cleaned_up += 1;
+                                info!(
+                                    "Successfully removed orphaned container {}",
+                                    container_id
+                                );
                             }
                         }
                     }
@@ -4484,6 +4678,15 @@ impl AppState {
                     warn!("KillOtherTmux action should be handled in main loop, not here");
                     self.ui_needs_refresh = true;
                 }
+                // Workspace shell actions - handled in main.rs where terminal access is available
+                AsyncAction::OpenWorkspaceShell { .. } => {
+                    warn!("OpenWorkspaceShell action should be handled in main loop, not here");
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::KillWorkspaceShell(_) => {
+                    warn!("KillWorkspaceShell action should be handled in main loop, not here");
+                    self.ui_needs_refresh = true;
+                }
             }
         }
         Ok(())
@@ -4825,7 +5028,7 @@ impl AppState {
                         filtered_repos: vec![(0, workspace.path.clone())],
                         selected_repo_index: Some(0),
                         branch_name: session.branch_name.clone(),
-                        step: NewSessionStep::InputBranch, // Start at branch input since repo is pre-selected
+                        step: NewSessionStep::InputBranch, // Start at branch input since repo is pre-selected (skip agent selection for restart)
                         filter_text: String::new(),
                         is_current_dir_mode: false,
                         skip_permissions: session.skip_permissions,
@@ -4837,6 +5040,10 @@ impl AppState {
                         },
                         file_finder: FuzzyFileFinderState::new(),
                         restart_session_id: Some(session_id), // Mark this as a restart operation
+                        // Agent selection - default to Claude for restart
+                        selected_agent: SessionAgentType::Claude,
+                        agent_options: SessionAgentOption::all(),
+                        selected_agent_index: 0,
                     });
 
                     self.add_info_notification(

@@ -271,10 +271,9 @@ fn calculate_fuzzy_score(path: &str, query: &str) -> usize {
                 consecutive_matches += 1;
                 path_idx += 1;
                 break;
-            } else {
-                consecutive_matches = 0;
-                path_idx += 1;
             }
+            consecutive_matches = 0;
+            path_idx += 1;
         }
 
         if !found {

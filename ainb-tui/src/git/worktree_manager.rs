@@ -350,6 +350,24 @@ impl WorktreeManager {
         worktree_path: &Path,
         branch_name: &str,
     ) -> Result<(), WorktreeError> {
+        // Check if transcrypt is configured (smudge/clean filters cause issues with worktrees)
+        // Transcrypt's smudge filter tries to find .git/crypt which doesn't exist in worktrees
+        let transcrypt_smudge = self.get_git_config(repo_path, "filter.crypt.smudge");
+        let transcrypt_clean = self.get_git_config(repo_path, "filter.crypt.clean");
+        let has_transcrypt = transcrypt_smudge.is_some() || transcrypt_clean.is_some();
+
+        // Temporarily disable transcrypt filters if configured
+        if has_transcrypt {
+            info!("Detected transcrypt - temporarily disabling filters for worktree creation");
+            if transcrypt_smudge.is_some() {
+                self.set_git_config(repo_path, "filter.crypt.smudge", "cat")?;
+            }
+            if transcrypt_clean.is_some() {
+                self.set_git_config(repo_path, "filter.crypt.clean", "cat")?;
+            }
+        }
+
+        // Create the worktree
         let output = Command::new("git")
             .current_dir(repo_path)
             .args([
@@ -360,6 +378,35 @@ impl WorktreeManager {
             ])
             .output()?;
 
+        // Always restore transcrypt filters, regardless of worktree creation result
+        let restore_result = if has_transcrypt {
+            info!("Restoring transcrypt filters");
+            let mut restore_errors = Vec::new();
+
+            if let Some(ref original) = transcrypt_smudge {
+                if let Err(e) = self.set_git_config(repo_path, "filter.crypt.smudge", original) {
+                    restore_errors.push(format!("smudge: {}", e));
+                }
+            }
+            if let Some(ref original) = transcrypt_clean {
+                if let Err(e) = self.set_git_config(repo_path, "filter.crypt.clean", original) {
+                    restore_errors.push(format!("clean: {}", e));
+                }
+            }
+
+            if restore_errors.is_empty() {
+                Ok(())
+            } else {
+                Err(WorktreeError::CommandFailed(format!(
+                    "Failed to restore transcrypt filters: {}",
+                    restore_errors.join(", ")
+                )))
+            }
+        } else {
+            Ok(())
+        };
+
+        // Check worktree creation result first (prioritize this error)
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
             return Err(WorktreeError::CommandFailed(format!(
@@ -368,6 +415,44 @@ impl WorktreeManager {
             )));
         }
 
+        // If worktree creation succeeded but filter restoration failed, report that
+        restore_result?;
+
+        Ok(())
+    }
+
+    /// Get a git config value if set
+    fn get_git_config(&self, repo_path: &Path, key: &str) -> Option<String> {
+        let output = Command::new("git")
+            .current_dir(repo_path)
+            .args(["config", "--get", key])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // Return None for empty values or passthrough "cat" filter
+            if !value.is_empty() && value != "cat" {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    /// Set a git config value
+    fn set_git_config(&self, repo_path: &Path, key: &str, value: &str) -> Result<(), WorktreeError> {
+        let output = Command::new("git")
+            .current_dir(repo_path)
+            .args(["config", "--local", key, value])
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(WorktreeError::CommandFailed(format!(
+                "Failed to set git config {}: {}",
+                key, error
+            )));
+        }
         Ok(())
     }
 

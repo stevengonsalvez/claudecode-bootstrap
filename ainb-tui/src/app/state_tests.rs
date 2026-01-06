@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::{AppState, NewSessionState, NewSessionStep};
-    use crate::models::SessionMode;
+    use crate::app::state::{AppState, NewSessionState, NewSessionStep, SessionAgentOption};
+    use crate::models::{SessionMode, SessionAgentType};
     use std::path::PathBuf;
 
     /// Test that pressing 'n' for new session should go through mode selection
@@ -16,11 +16,10 @@ mod tests {
         // This should NOT skip mode selection like current directory mode does
 
         // First, we need to simulate having workspaces available
-        state.workspaces = vec![crate::models::Workspace {
-            name: "test-workspace".to_string(),
-            path: PathBuf::from("/test/path"),
-            sessions: vec![],
-        }];
+        state.workspaces = vec![crate::models::Workspace::new(
+            "test-workspace".to_string(),
+            PathBuf::from("/test/path"),
+        )];
 
         // Simulate the async action that happens when 'n' is pressed
         // This should create a session that goes through ALL steps including mode selection
@@ -40,6 +39,9 @@ mod tests {
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
             restart_session_id: None, // Not a restart
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         });
 
         // Now simulate pressing Enter in InputBranch step
@@ -82,6 +84,9 @@ mod tests {
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
             restart_session_id: None, // Not a restart
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         });
 
         // In current directory mode, pressing Enter should skip mode selection
@@ -117,6 +122,9 @@ mod tests {
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
             restart_session_id: None, // Not a restart
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         });
 
         // Test toggling mode
@@ -162,6 +170,9 @@ mod tests {
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
             restart_session_id: None, // Not a restart
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         });
 
         state.new_session_proceed_from_mode();
@@ -188,6 +199,9 @@ mod tests {
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
             restart_session_id: None, // Not a restart
+            selected_agent: SessionAgentType::default(),
+            agent_options: SessionAgentOption::all(),
+            selected_agent_index: 0,
         });
 
         state.new_session_proceed_from_mode();
@@ -207,11 +221,10 @@ mod tests {
         let mut state = AppState::new();
 
         // Simulate having workspaces available
-        state.workspaces = vec![crate::models::Workspace {
-            name: "test-workspace".to_string(),
-            path: PathBuf::from("/test/path"),
-            sessions: vec![],
-        }];
+        state.workspaces = vec![crate::models::Workspace::new(
+            "test-workspace".to_string(),
+            PathBuf::from("/test/path"),
+        )];
 
         // Simulate the 'n' key press by setting the async action that would be triggered
         state.pending_async_action = Some(crate::app::state::AsyncAction::NewSessionNormal);

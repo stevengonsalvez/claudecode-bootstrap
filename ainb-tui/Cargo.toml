@@ -37,6 +37,7 @@ async-stream = "0.3"
 tokio-stream = "0.1"
 
 # Utils
+shell-escape = "0.1"  # Safe shell escaping for paths
 anyhow = "1.0"
 thiserror = "1.0"
 directories = "5.0"

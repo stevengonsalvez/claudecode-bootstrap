@@ -38,6 +38,9 @@ impl NewSessionComponent {
                         self.render_repo_selection(frame, popup_area, session_state)
                     }
                 }
+                NewSessionStep::SelectAgent => {
+                    self.render_agent_selection(frame, popup_area, session_state)
+                }
                 NewSessionStep::InputBranch => {
                     self.render_branch_input(frame, popup_area, session_state)
                 }
@@ -371,6 +374,167 @@ impl NewSessionComponent {
         let instructions_widget = Paragraph::new(instructions)
             .alignment(Alignment::Center)
             .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
+    }
+
+    fn render_agent_selection(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+    ) {
+        // Modern color palette (from TUI style guide)
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(60, 60, 80);
+        let coming_soon_gray = Color::Rgb(80, 80, 100);
+        let list_highlight_bg = Color::Rgb(40, 40, 60);
+
+        // Draw outer border with modern styling
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(Span::styled(
+                " 🤖 Select Agent ",
+                Style::default()
+                    .fg(gold)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
+
+        // Inner area for content
+        let inner = block.inner(area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(2), // Header text
+                Constraint::Length(1), // Spacer
+                Constraint::Min(0),    // Agent list
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
+            ])
+            .split(inner);
+
+        // Header text
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled("Choose which AI agent to use for this session", Style::default().fg(soft_white)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(header, chunks[0]);
+
+        // Build agent list items
+        let items: Vec<ListItem> = session_state
+            .agent_options
+            .iter()
+            .enumerate()
+            .map(|(idx, option)| {
+                let is_selected = idx == session_state.selected_agent_index;
+                let agent = option.agent_type;
+                let is_available = agent.is_available();
+
+                let mut spans = vec![];
+
+                // Selection indicator
+                if is_selected {
+                    spans.push(Span::styled("▶ ", Style::default().fg(selection_green)));
+                } else {
+                    spans.push(Span::raw("  "));
+                }
+
+                // Icon
+                spans.push(Span::styled(
+                    format!("{} ", agent.icon()),
+                    Style::default().fg(if is_available { soft_white } else { coming_soon_gray }),
+                ));
+
+                // Name
+                let name_style = if is_selected && is_available {
+                    Style::default().fg(selection_green).add_modifier(Modifier::BOLD)
+                } else if is_available {
+                    Style::default().fg(soft_white)
+                } else {
+                    Style::default().fg(coming_soon_gray)
+                };
+                spans.push(Span::styled(agent.name(), name_style));
+
+                // Coming Soon badge
+                if !is_available {
+                    spans.push(Span::styled(
+                        " [Coming Soon]",
+                        Style::default().fg(coming_soon_gray).add_modifier(Modifier::ITALIC),
+                    ));
+                }
+
+                // Current agent indicator
+                if option.is_current && is_available {
+                    spans.push(Span::styled(
+                        " [Current]",
+                        Style::default().fg(selection_green),
+                    ));
+                }
+
+                // Description on a new line for selected items
+                let base_style = if is_selected {
+                    Style::default().bg(list_highlight_bg)
+                } else {
+                    Style::default()
+                };
+
+                let lines = if is_selected {
+                    vec![
+                        Line::from(spans),
+                        Line::from(vec![
+                            Span::raw("     "),
+                            Span::styled(
+                                agent.description(),
+                                Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC),
+                            ),
+                        ]),
+                    ]
+                } else {
+                    vec![Line::from(spans)]
+                };
+
+                ListItem::new(lines).style(base_style)
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(subdued_border))
+                    .style(Style::default().bg(dark_bg)),
+            )
+            .highlight_style(Style::default().bg(list_highlight_bg));
+
+        frame.render_widget(list, chunks[2]);
+
+        // Instructions
+        let instructions = Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled("Navigate  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled(" Enter ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled("Select  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled(" Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel", Style::default().fg(muted_gray)),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
         frame.render_widget(instructions_widget, chunks[4]);
     }
 

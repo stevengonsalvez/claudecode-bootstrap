@@ -513,6 +513,177 @@ async fn run_tui_loop(
                         app.state.ui_needs_refresh = true;
                     }
 
+                    // Workspace shell handling (one shell per workspace, cd to switch directories)
+                    AsyncAction::OpenWorkspaceShell { workspace_index, target_dir } => {
+                        use crate::app::AttachHandler;
+                        use crate::models::ShellSession;
+                        use shell_escape::escape;
+                        use std::borrow::Cow;
+                        use tokio::process::Command;
+
+                        info!("[ACTION] Opening workspace shell, index: {}, target_dir: {:?}", workspace_index, target_dir);
+
+                        // Get workspace info
+                        let (workspace_path, workspace_name, existing_shell) = {
+                            if let Some(workspace) = app.state.workspaces.get(workspace_index) {
+                                (
+                                    workspace.path.clone(),
+                                    workspace.name.clone(),
+                                    workspace.shell_session.as_ref().map(|s| s.tmux_session_name.clone()),
+                                )
+                            } else {
+                                app.state.add_error_notification("Workspace not found".to_string());
+                                app.state.ui_needs_refresh = true;
+                                continue;
+                            }
+                        };
+
+                        // Determine tmux session name - use existing or create new
+                        let (tmux_name, is_new_shell) = if let Some(existing) = existing_shell {
+                            (existing, false)
+                        } else {
+                            let shell = ShellSession::new_workspace_shell(workspace_path.clone(), &workspace_name);
+                            let name = shell.tmux_session_name.clone();
+                            // Store the new shell in workspace
+                            if let Some(workspace) = app.state.workspaces.get_mut(workspace_index) {
+                                workspace.set_shell_session(shell);
+                            }
+                            (name, true)
+                        };
+
+                        // Use atomic session creation: -A flag attaches if exists, creates if not
+                        // This eliminates the TOCTOU race condition
+                        let workspace_path_str = workspace_path.to_str().unwrap_or(".");
+                        let create_result = Command::new("tmux")
+                            .arg("new-session")
+                            .arg("-A")  // Atomic: attach if exists, create if not
+                            .arg("-d")  // Detached (we'll attach separately for TUI handling)
+                            .arg("-s")
+                            .arg(&tmux_name)
+                            .arg("-c")
+                            .arg(workspace_path_str)
+                            .output()
+                            .await;
+
+                        match create_result {
+                            Ok(output) if output.status.success() => {
+                                if is_new_shell {
+                                    info!("[ACTION] Created new workspace shell: {}", tmux_name);
+                                    app.state.add_success_notification(
+                                        format!("$ Created workspace shell: {}", workspace_name)
+                                    );
+                                } else {
+                                    info!("[ACTION] Reusing workspace shell: {}", tmux_name);
+                                }
+                            }
+                            Ok(output) => {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                error!("[ACTION] Failed to create/attach tmux session: {}", stderr);
+                                app.state.add_error_notification(format!("Failed to create shell: {}", stderr));
+                                app.state.ui_needs_refresh = true;
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("[ACTION] Failed to create tmux session: {}", e);
+                                app.state.add_error_notification(format!("Failed to create shell: {}", e));
+                                app.state.ui_needs_refresh = true;
+                                continue;
+                            }
+                        }
+
+                        // If target_dir specified, cd to it before attaching
+                        if let Some(ref dir) = target_dir {
+                            let dir_str = dir.to_str().unwrap_or(".");
+                            info!("[ACTION] Sending cd command to shell: {}", dir_str);
+
+                            // Use proper shell escaping to prevent command injection
+                            // This handles paths with spaces, quotes, and special characters
+                            let escaped_path = escape(Cow::Borrowed(dir_str));
+                            let cd_cmd = format!("cd {} && clear", escaped_path);
+
+                            let cd_result = Command::new("tmux")
+                                .args(["send-keys", "-t", &tmux_name, &cd_cmd, "Enter"])
+                                .output()
+                                .await;
+
+                            match cd_result {
+                                Ok(output) if output.status.success() => {
+                                    // Update stored working_dir for state consistency
+                                    if let Some(workspace) = app.state.workspaces.get_mut(workspace_index) {
+                                        if let Some(shell) = workspace.get_shell_session_mut() {
+                                            shell.set_working_dir(dir.clone());
+                                        }
+                                    }
+                                }
+                                Ok(output) => {
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    warn!("[ACTION] tmux send-keys may have failed: {}", stderr);
+                                    app.state.add_warning_notification(
+                                        format!("May have failed to cd to: {}", dir_str)
+                                    );
+                                }
+                                Err(e) => {
+                                    error!("[ACTION] tmux send-keys error: {}", e);
+                                    app.state.add_error_notification(
+                                        format!("Shell command error: {}", e)
+                                    );
+                                }
+                            }
+                        }
+
+                        // Update shell's last accessed time
+                        if let Some(workspace) = app.state.workspaces.get_mut(workspace_index) {
+                            if let Some(shell) = workspace.get_shell_session_mut() {
+                                shell.touch();
+                            }
+                        }
+
+                        // Attach to the shell
+                        let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                        match attach_handler.attach_to_session(&tmux_name).await {
+                            Ok(()) => {
+                                info!("[ACTION] Successfully attached to workspace shell");
+                            }
+                            Err(e) => {
+                                error!("[ACTION] Failed to attach to shell: {}", e);
+                                app.state.add_error_notification(format!("Failed to attach: {}", e));
+                            }
+                        }
+
+                        app.state.ui_needs_refresh = true;
+                    }
+
+                    AsyncAction::KillWorkspaceShell(workspace_index) => {
+                        use tokio::process::Command;
+
+                        info!("[ACTION] Killing workspace shell, index: {}", workspace_index);
+
+                        // Extract info first to avoid borrow issues
+                        let shell_info = if let Some(workspace) = app.state.workspaces.get_mut(workspace_index) {
+                            if let Some(shell) = workspace.shell_session.take() {
+                                Some((shell.tmux_session_name.clone(), workspace.name.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some((tmux_name, workspace_name)) = shell_info {
+                            // Kill the tmux session
+                            let _ = Command::new("tmux")
+                                .args(["kill-session", "-t", &tmux_name])
+                                .output()
+                                .await;
+
+                            app.state.add_success_notification(
+                                format!("Killed workspace shell: {}", workspace_name)
+                            );
+                        }
+
+                        app.state.ui_needs_refresh = true;
+                    }
+
                     AsyncAction::AttachToTmuxSession(session_id) => {
                         use crate::app::AttachHandler;
 
