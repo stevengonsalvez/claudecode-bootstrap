@@ -1311,6 +1311,13 @@ impl EventHandler {
                     if let Some(other_session) = state.selected_other_tmux_session() {
                         state.show_kill_other_tmux_confirmation(other_session.name.clone());
                     }
+                } else if state.shell_selected {
+                    // Shell session selected - show kill shell confirmation
+                    if let Some(workspace_idx) = state.selected_workspace_index {
+                        if state.workspaces.get(workspace_idx).and_then(|w| w.shell_session.as_ref()).is_some() {
+                            state.show_kill_shell_confirmation(workspace_idx);
+                        }
+                    }
                 } else if let Some(session) = state.selected_session() {
                     // Show confirmation dialog for regular session
                     state.show_delete_confirmation(session.id);
@@ -1392,6 +1399,10 @@ impl EventHandler {
                             crate::app::state::ConfirmAction::KillOtherTmux(session_name) => {
                                 state.pending_async_action =
                                     Some(AsyncAction::KillOtherTmux(session_name));
+                            }
+                            crate::app::state::ConfirmAction::KillWorkspaceShell(workspace_idx) => {
+                                state.pending_async_action =
+                                    Some(AsyncAction::KillWorkspaceShell(workspace_idx));
                             }
                         }
                     }

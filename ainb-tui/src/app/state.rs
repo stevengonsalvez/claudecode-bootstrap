@@ -419,7 +419,8 @@ pub struct ConfirmationDialog {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     DeleteSession(Uuid),
-    KillOtherTmux(String), // Kill a non-agents-in-a-box tmux session by name
+    KillOtherTmux(String),        // Kill a non-agents-in-a-box tmux session by name
+    KillWorkspaceShell(usize),    // Kill workspace shell by workspace index
 }
 
 // ============================================================================
@@ -2914,6 +2915,28 @@ impl AppState {
             title: "Kill tmux Session".to_string(),
             message: format!("Are you sure you want to kill tmux session '{}'?", session_name),
             confirm_action: ConfirmAction::KillOtherTmux(session_name),
+            selected_option: false, // Default to "No"
+        });
+    }
+
+    /// Show confirmation dialog for killing a workspace shell session
+    pub fn show_kill_shell_confirmation(&mut self, workspace_index: usize) {
+        let shell_name = self.workspaces
+            .get(workspace_index)
+            .and_then(|w| w.shell_session.as_ref())
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "shell".to_string());
+
+        let workspace_name = self.workspaces
+            .get(workspace_index)
+            .map(|w| w.name.clone())
+            .unwrap_or_else(|| "workspace".to_string());
+
+        info!("Showing kill confirmation for workspace shell: {} in {}", shell_name, workspace_name);
+        self.confirmation_dialog = Some(ConfirmationDialog {
+            title: "Kill Shell Session".to_string(),
+            message: format!("Are you sure you want to kill shell '{}' in workspace '{}'?", shell_name, workspace_name),
+            confirm_action: ConfirmAction::KillWorkspaceShell(workspace_index),
             selected_option: false, // Default to "No"
         });
     }
