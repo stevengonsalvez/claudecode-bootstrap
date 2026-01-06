@@ -1226,9 +1226,10 @@ impl EventHandler {
             AppEvent::AttachTmuxSession => {
                 tracing::info!("[ACTION] Processing AttachTmuxSession event");
                 tracing::debug!(
-                    "[ACTION] State: workspace_idx={:?}, session_idx={:?}, is_other_tmux={}, other_tmux_idx={:?}",
+                    "[ACTION] State: workspace_idx={:?}, session_idx={:?}, shell_selected={}, is_other_tmux={}, other_tmux_idx={:?}",
                     state.selected_workspace_index,
                     state.selected_session_index,
+                    state.shell_selected,
                     state.is_other_tmux_selected(),
                     state.selected_other_tmux_index
                 );
@@ -1241,6 +1242,20 @@ impl EventHandler {
                         state.pending_async_action = Some(AsyncAction::AttachToOtherTmux(session_name));
                     } else {
                         tracing::warn!("[ACTION] Other tmux selected but no session found");
+                    }
+                } else if state.shell_selected {
+                    // Shell session selected - attach to its tmux session
+                    if let Some(workspace_idx) = state.selected_workspace_index {
+                        if let Some(workspace) = state.workspaces.get(workspace_idx) {
+                            if let Some(shell) = &workspace.shell_session {
+                                let session_name = shell.tmux_session_name.clone();
+                                tracing::info!("[ACTION] Attaching to workspace shell: {}", session_name);
+                                state.pending_async_action = Some(AsyncAction::AttachToOtherTmux(session_name));
+                            } else {
+                                tracing::warn!("[ACTION] Shell selected but no shell session found in workspace");
+                                state.add_error_notification("No shell session found".to_string());
+                            }
+                        }
                     }
                 } else if let Some(session_id) = state.get_selected_session_id() {
                     // Get more info about the session for logging
