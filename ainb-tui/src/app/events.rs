@@ -157,10 +157,11 @@ pub enum AppEvent {
     HomeScreenSidebarUp,         // Navigate up in sidebar
     HomeScreenSidebarDown,       // Navigate down in sidebar
     HomeScreenSidebarSelect,     // Select current sidebar item (Enter)
-    GoToSessionList,             // Navigate to session list view
-    GoToGitView,                 // Navigate to git view
+    GoToAgentSelection,          // Navigate to agent selection view
     GoToCatalog,                 // Navigate to catalog view (coming soon)
     GoToConfig,                  // Navigate to config view
+    GoToSessionList,             // Navigate to session list view
+    GoToStats,                   // Navigate to stats view (coming soon)
     // AINB 2.0: Agent selection events
     AgentSelectionBack,          // Return to home screen (Esc)
     AgentSelectionNextProvider,  // Navigate to next provider
@@ -966,13 +967,14 @@ impl EventHandler {
 
         tracing::debug!("HomeScreen V2 key handler: {:?}", key_event.code);
 
-        // Global shortcuts that work regardless of focus
+        // Global shortcuts that work regardless of focus (matches HomeTile shortcuts)
         match key_event.code {
-            KeyCode::Char('n') => return Some(AppEvent::NewSession),
-            KeyCode::Char('s') => return Some(AppEvent::GoToSessionList),
-            KeyCode::Char('g') => return Some(AppEvent::GoToGitView),
+            KeyCode::Char('a') => return Some(AppEvent::GoToAgentSelection),
             KeyCode::Char('c') => return Some(AppEvent::GoToCatalog),
             KeyCode::Char('C') => return Some(AppEvent::GoToConfig),
+            KeyCode::Char('s') => return Some(AppEvent::GoToSessionList),
+            KeyCode::Char('i') => return Some(AppEvent::GoToStats),
+            KeyCode::Char('?') => return Some(AppEvent::ToggleHelp),
             KeyCode::Char('q') => return Some(AppEvent::Quit),
             KeyCode::Tab => return Some(AppEvent::HomeScreenToggleFocus),
             _ => {}
@@ -1844,19 +1846,8 @@ impl EventHandler {
                 tracing::debug!("HomeScreen V2 sidebar select");
                 let selected = state.home_screen_v2_state.sidebar.selected_item();
                 match selected {
-                    SidebarItem::Home => { /* Already on home */ }
-                    SidebarItem::NewAgent => {
-                        state.pending_async_action = Some(AsyncAction::NewSessionNormal);
-                    }
-                    SidebarItem::ActiveSessions => {
-                        state.current_view = View::SessionList;
-                    }
-                    SidebarItem::History => {
-                        state.add_info_notification("Session history coming soon!".to_string());
-                    }
-                    SidebarItem::Git => {
-                        // Show git view (uses currently selected workspace)
-                        state.show_git_view();
+                    SidebarItem::Agents => {
+                        state.current_view = View::AgentSelection;
                     }
                     SidebarItem::Catalog => {
                         state.add_info_notification("Skill catalog coming soon!".to_string());
@@ -1864,21 +1855,20 @@ impl EventHandler {
                     SidebarItem::Config => {
                         state.current_view = View::Config;
                     }
+                    SidebarItem::Sessions => {
+                        state.current_view = View::SessionList;
+                    }
+                    SidebarItem::Stats => {
+                        state.add_info_notification("Usage & Analytics coming soon!".to_string());
+                    }
                     SidebarItem::Help => {
                         state.help_visible = true;
                     }
-                    SidebarItem::Quit => {
-                        state.quit();
-                    }
                 }
             }
-            AppEvent::GoToSessionList => {
-                tracing::info!("Navigating to SessionList");
-                state.current_view = View::SessionList;
-            }
-            AppEvent::GoToGitView => {
-                // Show git view (uses currently selected workspace)
-                state.show_git_view();
+            AppEvent::GoToAgentSelection => {
+                tracing::info!("Navigating to AgentSelection");
+                state.current_view = View::AgentSelection;
             }
             AppEvent::GoToCatalog => {
                 state.add_info_notification("Skill catalog coming soon!".to_string());
@@ -1886,6 +1876,13 @@ impl EventHandler {
             AppEvent::GoToConfig => {
                 tracing::info!("Navigating to Config");
                 state.current_view = View::Config;
+            }
+            AppEvent::GoToSessionList => {
+                tracing::info!("Navigating to SessionList");
+                state.current_view = View::SessionList;
+            }
+            AppEvent::GoToStats => {
+                state.add_info_notification("Usage & Analytics coming soon!".to_string());
             }
             // AINB 2.0: Agent selection events
             AppEvent::AgentSelectionBack => {

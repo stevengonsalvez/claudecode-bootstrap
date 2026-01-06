@@ -20,92 +20,75 @@ const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
-/// Sidebar navigation items
+/// Sidebar navigation items - matches HomeTile options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarItem {
-    // Main section
-    Home,
-    // Sessions section
-    NewAgent,
-    ActiveSessions,
-    History,
-    // Tools section
-    Git,
-    Catalog,
-    Config,
-    // System section
-    Help,
-    Quit,
+    Agents,    // Agent selection
+    Catalog,   // Browse catalog/marketplace
+    Config,    // Settings & presets
+    Sessions,  // Session manager
+    Stats,     // Analytics & usage
+    Help,      // Docs & guides
 }
 
 impl SidebarItem {
-    /// Get the display icon for this item
+    /// Get the display icon for this item (emoji)
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Home => "",
-            Self::NewAgent => "",
-            Self::ActiveSessions => "",
-            Self::History => "",
-            Self::Git => "",
-            Self::Catalog => "",
-            Self::Config => "",
-            Self::Help => "",
-            Self::Quit => "",
+            Self::Agents => "🤖",
+            Self::Catalog => "📦",
+            Self::Config => "⚙️",
+            Self::Sessions => "🚀",
+            Self::Stats => "📊",
+            Self::Help => "❓",
         }
     }
 
     /// Get the display label for this item
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Home => "Home",
-            Self::NewAgent => "New Agent",
-            Self::ActiveSessions => "Sessions",
-            Self::History => "History",
-            Self::Git => "Git",
+            Self::Agents => "Agents",
             Self::Catalog => "Catalog",
             Self::Config => "Config",
+            Self::Sessions => "Sessions",
+            Self::Stats => "Stats",
             Self::Help => "Help",
-            Self::Quit => "Quit",
+        }
+    }
+
+    /// Get the description for this item
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Agents => "Select & Configure",
+            Self::Catalog => "Browse & Bootstrap",
+            Self::Config => "Settings & Presets",
+            Self::Sessions => "Manage Active",
+            Self::Stats => "Usage & Analytics",
+            Self::Help => "Docs & Guides",
         }
     }
 
     /// Get the keyboard shortcut for this item
     pub fn shortcut(&self) -> &'static str {
         match self {
-            Self::Home => "q",
-            Self::NewAgent => "n",
-            Self::ActiveSessions => "s",
-            Self::History => "h",
-            Self::Git => "g",
+            Self::Agents => "a",
             Self::Catalog => "c",
             Self::Config => "C",
+            Self::Sessions => "s",
+            Self::Stats => "i",
             Self::Help => "?",
-            Self::Quit => "Q",
         }
     }
 
-    /// Get the section this item belongs to
-    pub fn section(&self) -> SidebarSection {
-        match self {
-            Self::Home => SidebarSection::Main,
-            Self::NewAgent | Self::ActiveSessions | Self::History => SidebarSection::Sessions,
-            Self::Git | Self::Catalog | Self::Config => SidebarSection::Tools,
-            Self::Help | Self::Quit => SidebarSection::System,
-        }
-    }
-
-    /// Get all items in order
+    /// Get all items in order (2 rows x 3 cols layout)
     pub fn all() -> &'static [SidebarItem] {
         &[
-            Self::Home,
-            Self::NewAgent,
-            Self::ActiveSessions,
-            Self::History,
-            Self::Git,
+            Self::Agents,
             Self::Catalog,
             Self::Config,
+            Self::Sessions,
+            Self::Stats,
             Self::Help,
-            Self::Quit,
         ]
     }
 }
@@ -195,7 +178,7 @@ impl SidebarComponent {
         Self
     }
 
-    /// Render the sidebar
+    /// Render the sidebar - simple flat list of 6 items matching HomeTile
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &SidebarState) {
         // Outer block with border
         let border_color = if state.is_focused {
@@ -213,98 +196,34 @@ impl SidebarComponent {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Calculate layout for sections
+        // Simple layout: padding + 6 items + flexible space
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),  // Top padding
-                Constraint::Length(2),  // Home (main section)
-                Constraint::Length(1),  // Separator
-                Constraint::Length(1),  // Sessions header
-                Constraint::Length(4),  // Session items (3 items + spacing)
-                Constraint::Length(1),  // Separator
-                Constraint::Length(1),  // Tools header
-                Constraint::Length(4),  // Tool items (3 items + spacing)
-                Constraint::Length(1),  // Separator
+                Constraint::Length(2),  // Agents
+                Constraint::Length(2),  // Catalog
+                Constraint::Length(2),  // Config
+                Constraint::Length(2),  // Sessions (with badge)
+                Constraint::Length(2),  // Stats
+                Constraint::Length(2),  // Help
                 Constraint::Min(0),     // Flexible space
-                Constraint::Length(3),  // System items (Help, Quit)
             ])
             .split(inner);
 
         let items = SidebarItem::all();
-        let mut current_section = SidebarSection::Main;
 
-        // Render Home item
-        self.render_item(frame, layout[1], &items[0], state.selected_index == 0, state);
-
-        // Sessions section header
-        self.render_section_header(frame, layout[3], "Sessions");
-
-        // Session items (indices 1-3)
-        let session_area = layout[4];
-        let session_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(session_area);
-
-        for (i, item_idx) in (1..=3).enumerate() {
-            let is_selected = state.selected_index == item_idx;
-            let badge = if items[item_idx] == SidebarItem::ActiveSessions && state.active_sessions_count > 0 {
+        // Render all 6 items
+        for (idx, item) in items.iter().enumerate() {
+            let is_selected = state.selected_index == idx;
+            // Sessions item (index 3) gets a badge
+            let badge = if *item == SidebarItem::Sessions && state.active_sessions_count > 0 {
                 Some(state.active_sessions_count)
             } else {
                 None
             };
-            self.render_item_with_badge(frame, session_layout[i], &items[item_idx], is_selected, state, badge);
+            self.render_item_with_badge(frame, layout[idx + 1], item, is_selected, state, badge);
         }
-
-        // Tools section header
-        self.render_section_header(frame, layout[6], "Tools");
-
-        // Tool items (indices 4-6)
-        let tools_area = layout[7];
-        let tools_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(tools_area);
-
-        for (i, item_idx) in (4..=6).enumerate() {
-            self.render_item(frame, tools_layout[i], &items[item_idx], state.selected_index == item_idx, state);
-        }
-
-        // System items at bottom (indices 7-8)
-        let system_area = layout[10];
-        let system_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(system_area);
-
-        for (i, item_idx) in (7..=8).enumerate() {
-            self.render_item(frame, system_layout[i], &items[item_idx], state.selected_index == item_idx, state);
-        }
-    }
-
-    fn render_section_header(&self, frame: &mut Frame, area: Rect, label: &str) {
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(" ", Style::default()),
-            Span::styled(label.to_uppercase(), Style::default().fg(MUTED_GRAY).add_modifier(Modifier::DIM)),
-        ]))
-        .style(Style::default().bg(DARK_BG));
-
-        frame.render_widget(header, area);
     }
 
     fn render_item(&self, frame: &mut Frame, area: Rect, item: &SidebarItem, is_selected: bool, state: &SidebarState) {
@@ -404,16 +323,15 @@ mod tests {
 
     #[test]
     fn test_sidebar_item_properties() {
-        let item = SidebarItem::NewAgent;
-        assert_eq!(item.label(), "New Agent");
-        assert_eq!(item.shortcut(), "n");
-        assert_eq!(item.section(), SidebarSection::Sessions);
+        let item = SidebarItem::Agents;
+        assert_eq!(item.label(), "Agents");
+        assert_eq!(item.icon(), "🤖");
     }
 
     #[test]
     fn test_select_specific_item() {
         let mut state = SidebarState::new();
-        state.select(SidebarItem::Git);
-        assert_eq!(state.selected_item(), SidebarItem::Git);
+        state.select(SidebarItem::Config);
+        assert_eq!(state.selected_item(), SidebarItem::Config);
     }
 }

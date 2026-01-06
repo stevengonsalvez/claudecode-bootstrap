@@ -36,15 +36,15 @@ pub struct ActionCard {
     pub disabled: bool,
 }
 
-/// Card identifiers for the home screen
+/// Card identifiers for the home screen - matches HomeTile
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionCardId {
-    NewAgent,
-    ActiveSessions,
-    GitOperations,
-    SkillCatalog,
-    Configuration,
-    SessionStats,
+    Agents,    // Agent selection
+    Catalog,   // Browse catalog/marketplace
+    Config,    // Settings & presets
+    Sessions,  // Session manager
+    Stats,     // Analytics & usage
+    Help,      // Docs & guides
 }
 
 impl ActionCardId {
@@ -52,70 +52,70 @@ impl ActionCardId {
     pub fn all() -> &'static [ActionCardId] {
         &[
             // Row 1
-            Self::NewAgent,
-            Self::ActiveSessions,
-            Self::GitOperations,
+            Self::Agents,
+            Self::Catalog,
+            Self::Config,
             // Row 2
-            Self::SkillCatalog,
-            Self::Configuration,
-            Self::SessionStats,
+            Self::Sessions,
+            Self::Stats,
+            Self::Help,
         ]
     }
 
     /// Get the card configuration for this ID
     pub fn to_card(&self) -> ActionCard {
         match self {
-            Self::NewAgent => ActionCard {
+            Self::Agents => ActionCard {
                 id: *self,
-                icon: "",
-                title: "New Agent",
-                shortcut: "n",
-                description: "Start a new Claude coding session",
+                icon: "🤖",
+                title: "Agents",
+                shortcut: "a",
+                description: "Select & Configure",
                 badge: None,
                 disabled: false,
             },
-            Self::ActiveSessions => ActionCard {
+            Self::Catalog => ActionCard {
                 id: *self,
-                icon: "",
-                title: "Sessions",
-                shortcut: "s",
-                description: "View and manage running agents",
-                badge: None,
-                disabled: false,
-            },
-            Self::GitOperations => ActionCard {
-                id: *self,
-                icon: "",
-                title: "Git",
-                shortcut: "g",
-                description: "Commits, branches, worktrees",
-                badge: None,
-                disabled: false,
-            },
-            Self::SkillCatalog => ActionCard {
-                id: *self,
-                icon: "",
+                icon: "📦",
                 title: "Catalog",
                 shortcut: "c",
-                description: "Browse and manage skills",
+                description: "Browse & Bootstrap",
                 badge: None,
                 disabled: false,
             },
-            Self::Configuration => ActionCard {
+            Self::Config => ActionCard {
                 id: *self,
-                icon: "",
+                icon: "⚙️",
                 title: "Config",
                 shortcut: "C",
-                description: "API keys, themes, preferences",
+                description: "Settings & Presets",
                 badge: None,
                 disabled: false,
             },
-            Self::SessionStats => ActionCard {
+            Self::Sessions => ActionCard {
                 id: *self,
-                icon: "",
+                icon: "🚀",
+                title: "Sessions",
+                shortcut: "s",
+                description: "Manage Active",
+                badge: None,
+                disabled: false,
+            },
+            Self::Stats => ActionCard {
+                id: *self,
+                icon: "📊",
                 title: "Stats",
                 shortcut: "i",
-                description: "Usage metrics and history",
+                description: "Usage & Analytics",
+                badge: None,
+                disabled: false,
+            },
+            Self::Help => ActionCard {
+                id: *self,
+                icon: "❓",
+                title: "Help",
+                shortcut: "?",
+                description: "Docs & Guides",
                 badge: None,
                 disabled: false,
             },
@@ -366,17 +366,17 @@ mod tests {
 
     #[test]
     fn test_card_id_from_position() {
-        assert_eq!(ActionCardId::from_position(0, 0), Some(ActionCardId::NewAgent));
-        assert_eq!(ActionCardId::from_position(1, 2), Some(ActionCardId::SessionStats));
+        assert_eq!(ActionCardId::from_position(0, 0), Some(ActionCardId::Agents));
+        assert_eq!(ActionCardId::from_position(1, 2), Some(ActionCardId::Help));
         assert_eq!(ActionCardId::from_position(2, 0), None);
     }
 
     #[test]
     fn test_set_badge() {
         let mut state = ActionCardGridState::new();
-        state.set_badge(ActionCardId::ActiveSessions, Some(5));
+        state.set_badge(ActionCardId::Sessions, Some(5));
 
-        let card = state.cards.iter().find(|c| c.id == ActionCardId::ActiveSessions);
+        let card = state.cards.iter().find(|c| c.id == ActionCardId::Sessions);
         assert_eq!(card.unwrap().badge, Some(5));
     }
 }

@@ -82,7 +82,7 @@ impl HomeScreenV2State {
     /// Update session count badge
     pub fn set_active_sessions(&mut self, count: usize) {
         self.sidebar.active_sessions_count = count;
-        self.card_grid.set_badge(ActionCardId::ActiveSessions, if count > 0 { Some(count) } else { None });
+        self.card_grid.set_badge(ActionCardId::Sessions, if count > 0 { Some(count) } else { None });
     }
 }
 
@@ -522,7 +522,7 @@ mod tests {
 
         assert_eq!(state.sidebar.active_sessions_count, 5);
         // Card grid should also have badge
-        let card = state.card_grid.cards.iter().find(|c| c.id == ActionCardId::ActiveSessions);
+        let card = state.card_grid.cards.iter().find(|c| c.id == ActionCardId::Sessions);
         assert_eq!(card.unwrap().badge, Some(5));
     }
 }
