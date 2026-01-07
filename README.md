@@ -10,7 +10,7 @@ A comprehensive toolkit for AI coding agents - featuring a terminal UI for manag
 
 ---
 
-<!-- TODO: Add demo GIF - see issue #XX -->
+<!-- TODO: Add demo GIF - see https://github.com/stevengonsalvez/agents-in-a-box/issues/20 -->
 <p align="center">
   <img src="docs/assets/demo.gif" alt="ainb demo" width="800">
   <br>
@@ -123,7 +123,7 @@ claude --version
 
 ### Screenshots
 
-<!-- TODO: Add screenshots - see issue #XX -->
+<!-- TODO: Add screenshots - see https://github.com/stevengonsalvez/agents-in-a-box/issues/20 -->
 
 <details>
 <summary><b>Home Screen</b></summary>
