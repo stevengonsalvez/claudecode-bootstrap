@@ -32,9 +32,11 @@ jobs:
     strategy:
       matrix:
         include:
+          # macOS Intel (native build on Intel runner)
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13
             ext: ""
+          # macOS Apple Silicon (native build on ARM runner)
           - target: aarch64-apple-darwin
             os: macos-latest
             ext: ""
