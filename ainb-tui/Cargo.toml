@@ -32,7 +32,7 @@ serde_json = "1.0"
 toml = "0.8"
 
 # Claude API integration
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls"] }
 async-stream = "0.3"
 tokio-stream = "0.1"
 
