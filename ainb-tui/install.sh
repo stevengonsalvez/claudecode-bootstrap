@@ -124,10 +124,24 @@ main() {
     # Build target name
     local target
     case "${os}-${arch}" in
-        darwin-x86_64)  target="x86_64-apple-darwin" ;;
+        darwin-x86_64)
+            warn "Intel Mac binaries are not pre-built."
+            warn "Please install via cargo:"
+            echo ""
+            echo "  cargo install --git https://github.com/${REPO} --branch v2 agents-box"
+            echo ""
+            exit 0
+            ;;
         darwin-aarch64) target="aarch64-apple-darwin" ;;
         linux-x86_64)   target="x86_64-unknown-linux-gnu" ;;
-        linux-aarch64)  target="aarch64-unknown-linux-gnu" ;;
+        linux-aarch64)
+            warn "ARM64 Linux binaries are not pre-built."
+            warn "Please install via cargo:"
+            echo ""
+            echo "  cargo install --git https://github.com/${REPO} --branch v2 agents-box"
+            echo ""
+            exit 0
+            ;;
         *) error "Unsupported platform: ${os}-${arch}" ;;
     esac
 

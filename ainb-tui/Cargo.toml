@@ -23,8 +23,8 @@ tar = "0.4"
 # Tmux/PTY support
 portable-pty = "0.8"
 
-# Git operations
-git2 = "0.18"
+# Git operations (vendored-openssl for cross-compilation support)
+git2 = { version = "0.18", features = ["vendored-openssl"] }
 
 # Data persistence
 serde = { version = "1.0", features = ["derive"] }

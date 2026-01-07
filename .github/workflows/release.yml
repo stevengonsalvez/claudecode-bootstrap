@@ -32,18 +32,12 @@ jobs:
     strategy:
       matrix:
         include:
-          # macOS Intel (native build on Intel runner)
-          - target: x86_64-apple-darwin
-            os: macos-13
-            ext: ""
           # macOS Apple Silicon (native build on ARM runner)
           - target: aarch64-apple-darwin
             os: macos-latest
             ext: ""
+          # Linux glibc (works on most distributions)
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: ""
-          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             ext: ""
 
@@ -138,5 +132,7 @@ jobs:
             ```
 
             ## Supported Platforms
-            - macOS (Intel & Apple Silicon)
-            - Linux (x86_64, glibc & musl)
+            - macOS Apple Silicon (M1/M2/M3)
+            - Linux x86_64
+
+            *Intel Mac users: Use `cargo install` or run the Linux binary via Rosetta 2*
