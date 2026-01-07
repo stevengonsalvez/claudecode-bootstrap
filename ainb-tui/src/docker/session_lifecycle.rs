@@ -11,7 +11,7 @@ use crate::config::{
 };
 use crate::credentials;
 use crate::git::{WorktreeInfo, WorktreeManager};
-use crate::models::{Session, SessionStatus};
+use crate::models::{ClaudeModel, Session, SessionAgentType, SessionStatus};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -61,6 +61,8 @@ pub struct SessionRequest {
     pub skip_permissions: bool,
     pub mode: crate::models::SessionMode,
     pub boss_prompt: Option<String>,
+    pub agent_type: SessionAgentType,
+    pub model: Option<ClaudeModel>,
 }
 
 impl SessionLifecycleManager {
@@ -170,6 +172,8 @@ impl SessionLifecycleManager {
             request.skip_permissions,
             request.mode.clone(),
             request.boss_prompt.clone(),
+            request.agent_type,
+            request.model,
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -1023,6 +1027,8 @@ impl SessionLifecycleManager {
             request.skip_permissions,
             request.mode.clone(),
             request.boss_prompt.clone(),
+            request.agent_type,
+            request.model,
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -1081,6 +1087,8 @@ impl SessionLifecycleManager {
             request.skip_permissions,
             request.mode.clone(),
             request.boss_prompt.clone(),
+            request.agent_type,
+            request.model,
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -1187,6 +1195,8 @@ impl SessionRequest {
             skip_permissions: false,
             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
             boss_prompt: None,
+            agent_type: crate::models::SessionAgentType::Claude, // Default to Claude
+            model: None,
         }
     }
 
@@ -1218,6 +1228,8 @@ impl SessionRequest {
             skip_permissions: false,
             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
             boss_prompt: None,
+            agent_type: crate::models::SessionAgentType::Claude, // Claude dev session
+            model: None,
         }
     }
 

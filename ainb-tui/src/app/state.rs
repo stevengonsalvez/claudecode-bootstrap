@@ -12,7 +12,7 @@ use crate::components::live_logs_stream::LogEntry;
 use crate::config::AppConfig;
 use crate::credentials;
 use crate::docker::LogStreamingCoordinator;
-use crate::models::{Session, SessionAgentType, Workspace};
+use crate::models::{ClaudeModel, Session, SessionAgentType, Workspace};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -398,6 +398,7 @@ pub enum View {
     Analytics,       // Usage statistics and cost tracking
     SessionList,
     Logs,
+    LogHistory,      // Historical JSONL log viewer
     Terminal,
     Help,
     NewSession,
@@ -1625,6 +1626,17 @@ pub struct AppState {
 
     // Persistent configuration (saved to ~/.agents-in-a-box/config/config.toml)
     pub app_config: AppConfig,
+
+    // Log history viewer state
+    pub log_history_state: crate::components::LogHistoryViewerState,
+}
+
+/// Focus state for the combined Agent + Model selection panel
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentModelFocus {
+    #[default]
+    Agent,
+    Model,
 }
 
 #[derive(Debug)]
@@ -1641,10 +1653,15 @@ pub struct NewSessionState {
     pub boss_prompt: TextEditor,   // The prompt text editor for boss mode execution
     pub file_finder: FuzzyFileFinderState, // Fuzzy file finder for @ symbol
     pub restart_session_id: Option<Uuid>, // If set, this is a restart operation
-    // Agent selection (NEW)
+    // Agent selection
     pub selected_agent: SessionAgentType,       // The selected agent for this session
     pub agent_options: Vec<SessionAgentOption>, // List of available agents
     pub selected_agent_index: usize,            // Index in agent_options list
+    // Model selection (for Claude agent)
+    pub selected_model: ClaudeModel,     // The selected model for this session
+    pub model_options: Vec<ClaudeModel>, // List of available models
+    pub selected_model_index: usize,     // Index in model_options list
+    pub agent_model_focus: AgentModelFocus, // Which panel has focus (Agent or Model)
 }
 
 impl Default for NewSessionState {
@@ -1666,6 +1683,11 @@ impl Default for NewSessionState {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            // Model selection defaults (Sonnet as default)
+            selected_model: ClaudeModel::default(),
+            model_options: ClaudeModel::all(),
+            selected_model_index: 0,
+            agent_model_focus: AgentModelFocus::default(),
         }
     }
 }
@@ -1740,6 +1762,58 @@ impl NewSessionState {
         self.selected_repo_index
             .and_then(|idx| self.filtered_repos.get(idx))
             .map(|(_, path)| path.clone())
+    }
+
+    // Model selection helpers
+
+    /// Move to next model in the list
+    pub fn next_model(&mut self) {
+        if !self.model_options.is_empty() {
+            self.selected_model_index = (self.selected_model_index + 1) % self.model_options.len();
+            self.selected_model = self.model_options[self.selected_model_index];
+        }
+    }
+
+    /// Move to previous model in the list
+    pub fn prev_model(&mut self) {
+        if !self.model_options.is_empty() {
+            self.selected_model_index = if self.selected_model_index == 0 {
+                self.model_options.len() - 1
+            } else {
+                self.selected_model_index - 1
+            };
+            self.selected_model = self.model_options[self.selected_model_index];
+        }
+    }
+
+    /// Get the currently selected model
+    pub fn current_model(&self) -> ClaudeModel {
+        self.model_options
+            .get(self.selected_model_index)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Toggle focus between Agent and Model panels
+    pub fn toggle_agent_model_focus(&mut self) {
+        self.agent_model_focus = match self.agent_model_focus {
+            AgentModelFocus::Agent => AgentModelFocus::Model,
+            AgentModelFocus::Model => AgentModelFocus::Agent,
+        };
+    }
+
+    /// Check if model selection should be shown (only for Claude agent)
+    pub fn should_show_model_selection(&self) -> bool {
+        self.current_agent_type() == SessionAgentType::Claude
+    }
+
+    /// Get the model to use for session creation (None for non-Claude agents)
+    pub fn get_session_model(&self) -> Option<ClaudeModel> {
+        if self.current_agent_type() == SessionAgentType::Claude {
+            Some(self.selected_model)
+        } else {
+            None
+        }
     }
 }
 
@@ -1845,6 +1919,9 @@ impl Default for AppState {
 
             // Persistent configuration
             app_config,
+
+            // Log history viewer state
+            log_history_state: crate::components::LogHistoryViewerState::new(),
         }
     }
 }
@@ -1852,6 +1929,11 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Get the log directory path for the log history viewer
+    pub fn log_dir(&self) -> Option<std::path::PathBuf> {
+        dirs::home_dir().map(|h| h.join(".agents-in-a-box").join("logs"))
     }
 
     /// Initialize Claude integration if authentication is available
@@ -3555,14 +3637,16 @@ impl AppState {
                     }
                 }
 
-                // Go to agent selection step
-                state.step = NewSessionStep::SelectAgent;
-                state.selected_agent_index = 0; // Reset to Claude (default)
+                // Skip agent selection step (agent/model selected on search screen)
+                // Go directly to branch input
+                state.step = NewSessionStep::InputBranch;
 
-                // Change view from SearchWorkspace to NewSession to show agent selection
+                // Change view from SearchWorkspace to NewSession
                 self.current_view = View::NewSession;
                 tracing::info!(
-                    "Repository confirmed, transitioning to agent selection step"
+                    "Repository confirmed (agent: {:?}, model: {:?}), transitioning to branch input",
+                    state.selected_agent,
+                    state.selected_model
                 );
             }
         }
@@ -3571,7 +3655,8 @@ impl AppState {
     /// Navigate to next agent in new session flow
     pub fn new_session_next_agent(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
-            if state.step == NewSessionStep::SelectAgent {
+            // Allow agent selection on both SelectAgent and InputBranch steps
+            if state.step == NewSessionStep::SelectAgent || state.step == NewSessionStep::InputBranch {
                 state.next_agent();
             }
         }
@@ -3580,8 +3665,38 @@ impl AppState {
     /// Navigate to previous agent in new session flow
     pub fn new_session_prev_agent(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
-            if state.step == NewSessionStep::SelectAgent {
+            // Allow agent selection on both SelectAgent and InputBranch steps
+            if state.step == NewSessionStep::SelectAgent || state.step == NewSessionStep::InputBranch {
                 state.prev_agent();
+            }
+        }
+    }
+
+    /// Navigate to next model in new session flow
+    pub fn new_session_next_model(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            // Allow model selection on both SelectAgent and InputBranch steps
+            if state.step == NewSessionStep::SelectAgent || state.step == NewSessionStep::InputBranch {
+                state.next_model();
+            }
+        }
+    }
+
+    /// Navigate to previous model in new session flow
+    pub fn new_session_prev_model(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            // Allow model selection on both SelectAgent and InputBranch steps
+            if state.step == NewSessionStep::SelectAgent || state.step == NewSessionStep::InputBranch {
+                state.prev_model();
+            }
+        }
+    }
+
+    /// Toggle focus between agent and model panels
+    pub fn new_session_toggle_agent_model_focus(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectAgent || state.step == NewSessionStep::InputBranch {
+                state.toggle_agent_model_focus();
             }
         }
     }
@@ -3964,6 +4079,8 @@ impl AppState {
             mode,
             boss_prompt,
             restart_session_id,
+            agent_type,
+            session_model,
         ) = {
             if let Some(ref mut state) = self.new_session_state {
                 tracing::info!("new_session_create called with step: {:?}", state.step);
@@ -4007,6 +4124,8 @@ impl AppState {
                                     None
                                 },
                                 state.restart_session_id, // Pass restart session ID
+                                state.selected_agent,     // Agent type for session
+                                state.get_session_model(), // Model (only for Claude agent)
                             )
                         } else {
                             tracing::error!(
@@ -4054,6 +4173,8 @@ impl AppState {
                 skip_permissions,
                 mode,
                 boss_prompt,
+                agent_type,
+                session_model,
             )
             .await
         } else {
@@ -4065,6 +4186,8 @@ impl AppState {
                 skip_permissions,
                 mode,
                 boss_prompt,
+                agent_type,
+                session_model,
             )
             .await
         };
@@ -4102,6 +4225,8 @@ impl AppState {
         skip_permissions: bool,
         mode: crate::models::SessionMode,
         boss_prompt: Option<String>,
+        agent_type: crate::models::SessionAgentType,
+        model: Option<crate::models::ClaudeModel>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
         use std::path::PathBuf;
@@ -4154,6 +4279,8 @@ impl AppState {
             skip_permissions,
             mode,
             boss_prompt,
+            agent_type,
+            model,
         };
 
         // Add initial log message
@@ -4293,6 +4420,8 @@ impl AppState {
         skip_permissions: bool,
         mode: crate::models::SessionMode,
         boss_prompt: Option<String>,
+        agent_type: crate::models::SessionAgentType,
+        model: Option<crate::models::ClaudeModel>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Branch based on session mode
         match mode {
@@ -4302,6 +4431,8 @@ impl AppState {
                     branch_name,
                     session_id,
                     skip_permissions,
+                    agent_type,
+                    model,
                 )
                 .await
             }
@@ -4325,6 +4456,8 @@ impl AppState {
         branch_name: &str,
         session_id: Uuid,
         skip_permissions: bool,
+        agent_type: crate::models::SessionAgentType,
+        model: Option<crate::models::ClaudeModel>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::interactive::InteractiveSessionManager;
 
@@ -4375,6 +4508,8 @@ impl AppState {
                 branch_name.to_string(),
                 None, // base_branch
                 skip_permissions,
+                agent_type,
+                model,
             )
             .await;
 
@@ -4489,6 +4624,8 @@ impl AppState {
             skip_permissions,
             mode: crate::models::SessionMode::Boss,
             boss_prompt,
+            agent_type: crate::models::SessionAgentType::Claude, // Boss mode is Docker-based Claude
+            model: None, // Boss mode manages model separately
         };
 
         // Add initial log message
@@ -5291,6 +5428,11 @@ impl AppState {
                         selected_agent: SessionAgentType::Claude,
                         agent_options: SessionAgentOption::all(),
                         selected_agent_index: 0,
+                        // Model selection - use session's model or default to Sonnet
+                        selected_model: session.model.unwrap_or_default(),
+                        model_options: crate::models::ClaudeModel::all(),
+                        selected_model_index: 0,
+                        agent_model_focus: AgentModelFocus::default(),
                     });
 
                     self.add_info_notification(

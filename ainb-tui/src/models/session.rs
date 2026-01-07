@@ -68,6 +68,58 @@ impl SessionAgentType {
     }
 }
 
+/// Available Claude models for session
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ClaudeModel {
+    #[default]
+    Sonnet,
+    Opus,
+    Haiku,
+}
+
+impl ClaudeModel {
+    /// Get the CLI value to pass to `claude --model`
+    pub fn cli_value(&self) -> &'static str {
+        match self {
+            ClaudeModel::Sonnet => "sonnet",
+            ClaudeModel::Opus => "opus",
+            ClaudeModel::Haiku => "haiku",
+        }
+    }
+
+    /// Get human-readable display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ClaudeModel::Sonnet => "Sonnet",
+            ClaudeModel::Opus => "Opus",
+            ClaudeModel::Haiku => "Haiku",
+        }
+    }
+
+    /// Get model description for UI
+    pub fn description(&self) -> &'static str {
+        match self {
+            ClaudeModel::Sonnet => "Balanced speed and intelligence (default)",
+            ClaudeModel::Opus => "Most capable, best for complex tasks",
+            ClaudeModel::Haiku => "Fastest, best for simple tasks",
+        }
+    }
+
+    /// Get all available models
+    pub fn all() -> Vec<ClaudeModel> {
+        vec![ClaudeModel::Sonnet, ClaudeModel::Opus, ClaudeModel::Haiku]
+    }
+
+    /// Get icon for the model
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ClaudeModel::Sonnet => "⚖️",
+            ClaudeModel::Opus => "🎭",
+            ClaudeModel::Haiku => "⚡",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionStatus {
     Running,
@@ -113,6 +165,8 @@ pub struct Session {
     pub boss_prompt: Option<String>, // The prompt for boss mode execution
     #[serde(default)]
     pub agent_type: SessionAgentType, // The AI agent or shell for this session
+    #[serde(default)]
+    pub model: Option<ClaudeModel>, // Claude model for this session (only for Claude agent)
 
     // Tmux integration fields
     pub tmux_session_name: Option<String>, // Name of the tmux session if using tmux backend
@@ -303,7 +357,15 @@ impl ShellSession {
 
 impl Session {
     pub fn new(name: String, workspace_path: String) -> Self {
-        Self::new_with_options(name, workspace_path, false, SessionMode::Interactive, None)
+        Self::new_with_options(
+            name,
+            workspace_path,
+            false,
+            SessionMode::Interactive,
+            None,
+            SessionAgentType::default(),
+            None,
+        )
     }
 
     pub fn new_with_options(
@@ -312,6 +374,8 @@ impl Session {
         skip_permissions: bool,
         mode: SessionMode,
         boss_prompt: Option<String>,
+        agent_type: SessionAgentType,
+        model: Option<ClaudeModel>,
     ) -> Self {
         let now = Utc::now();
         let branch_name = format!("ainb/{}", name.replace(' ', "-").to_lowercase());
@@ -330,7 +394,8 @@ impl Session {
             skip_permissions,
             mode,
             boss_prompt,
-            agent_type: SessionAgentType::default(), // Default to Claude
+            agent_type,
+            model,
             tmux_session_name: None,
             preview_content: None,
             is_attached: false,

@@ -12,7 +12,7 @@
 #![allow(dead_code)]
 
 use crate::git::WorktreeManager;
-use crate::models::{Session, SessionMode, SessionStatus};
+use crate::models::{ClaudeModel, Session, SessionAgentType, SessionMode, SessionStatus};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -56,6 +56,8 @@ pub struct InteractiveSession {
     pub branch_name: String,
     pub workspace_name: String,
     pub created_at: DateTime<Utc>,
+    pub agent_type: SessionAgentType, // The AI agent or shell for this session
+    pub model: Option<ClaudeModel>,   // Claude model for this session (only for Claude agent)
 }
 
 /// Manager for Interactive mode sessions (host-based, no Docker)
@@ -97,10 +99,12 @@ impl InteractiveSessionManager {
         branch_name: String,
         base_branch: Option<String>,
         skip_permissions: bool,
+        agent_type: SessionAgentType,
+        model: Option<ClaudeModel>,
     ) -> Result<InteractiveSession, InteractiveSessionError> {
         info!(
-            "Creating Interactive session {} for branch '{}' in workspace '{}' (skip_permissions={})",
-            session_id, branch_name, workspace_name, skip_permissions
+            "Creating Interactive session {} for branch '{}' in workspace '{}' (agent={:?}, model={:?}, skip_permissions={})",
+            session_id, branch_name, workspace_name, agent_type, model, skip_permissions
         );
 
         // Check if session already exists
@@ -126,9 +130,13 @@ impl InteractiveSessionManager {
         info!("Starting tmux session: {}", tmux_session_name);
         self.start_tmux_session(&tmux_session_name, &worktree_info.path).await?;
 
-        // Step 4: Start claude CLI in tmux session
-        info!("Starting claude CLI in tmux session (skip_permissions={})", skip_permissions);
-        self.start_claude_in_tmux(&tmux_session_name, skip_permissions).await?;
+        // Step 4: Start claude CLI in tmux session (only for Claude agent)
+        if agent_type == SessionAgentType::Claude {
+            info!("Starting claude CLI in tmux session (model={:?}, skip_permissions={})", model, skip_permissions);
+            self.start_claude_in_tmux(&tmux_session_name, skip_permissions, model).await?;
+        } else {
+            info!("Skipping claude CLI for agent type: {:?}", agent_type);
+        }
 
         // Step 5: Create session record
         let session = InteractiveSession {
@@ -139,6 +147,8 @@ impl InteractiveSessionManager {
             branch_name: branch_name.clone(),
             workspace_name: workspace_name.clone(),
             created_at: Utc::now(),
+            agent_type,
+            model,
         };
 
         self.active_sessions.insert(session_id, session.clone());
@@ -234,6 +244,8 @@ impl InteractiveSessionManager {
                     branch_name: worktree.branch_name,
                     workspace_name,
                     created_at: Utc::now(), // We don't persist creation time
+                    agent_type: SessionAgentType::Claude, // Discovered sessions are assumed to be Claude
+                    model: None, // Model not tracked for discovered sessions
                 });
             }
         }
@@ -424,13 +436,31 @@ impl InteractiveSessionManager {
     }
 
     /// Start claude CLI in the tmux session
-    async fn start_claude_in_tmux(&self, session_name: &str, skip_permissions: bool) -> Result<(), InteractiveSessionError> {
+    async fn start_claude_in_tmux(
+        &self,
+        session_name: &str,
+        skip_permissions: bool,
+        model: Option<ClaudeModel>,
+    ) -> Result<(), InteractiveSessionError> {
+        // Build environment setup for API key injection
+        let env_setup = Self::build_env_setup();
+
         // Build the claude command with appropriate flags
-        let claude_cmd = if skip_permissions {
-            "claude --dangerously-skip-permissions"
-        } else {
-            "claude"
-        };
+        let mut cmd_parts = vec!["claude".to_string()];
+
+        // Add model flag if specified
+        if let Some(m) = model {
+            cmd_parts.push("--model".to_string());
+            cmd_parts.push(m.cli_value().to_string());
+        }
+
+        // Add permissions flag if specified
+        if skip_permissions {
+            cmd_parts.push("--dangerously-skip-permissions".to_string());
+        }
+
+        let claude_cmd = cmd_parts.join(" ");
+        let full_cmd = format!("{}{}", env_setup, claude_cmd);
 
         info!("Starting claude with command: {}", claude_cmd);
 
@@ -438,7 +468,7 @@ impl InteractiveSessionManager {
         let output = Command::new("tmux")
             .args([
                 "send-keys", "-t", session_name,
-                claude_cmd, "C-m"  // C-m = Enter key
+                &full_cmd, "C-m"  // C-m = Enter key
             ])
             .output()
             .await?;
@@ -450,8 +480,34 @@ impl InteractiveSessionManager {
             ));
         }
 
-        info!("Started claude CLI in tmux session: {} (skip_permissions={})", session_name, skip_permissions);
+        info!(
+            "Started claude CLI in tmux session: {} (model={:?}, skip_permissions={})",
+            session_name, model, skip_permissions
+        );
         Ok(())
+    }
+
+    /// Build environment setup for injecting API key if using ApiKey auth mode
+    fn build_env_setup() -> String {
+        use crate::config::{AppConfig, ClaudeAuthProvider};
+        use crate::credentials;
+
+        // Check auth provider from config
+        let auth_provider = AppConfig::load()
+            .map(|c| c.authentication.claude_provider.clone())
+            .unwrap_or(ClaudeAuthProvider::SystemAuth);
+
+        // Only inject API key if using ApiKey auth mode (not Pro/Max subscription)
+        if matches!(auth_provider, ClaudeAuthProvider::ApiKey) {
+            if let Ok(Some(api_key)) = credentials::get_anthropic_api_key() {
+                info!("Injecting ANTHROPIC_API_KEY for API key auth mode");
+                return format!("export ANTHROPIC_API_KEY='{}' && ", api_key);
+            } else {
+                warn!("ApiKey auth mode configured but no API key found in keychain");
+            }
+        }
+
+        String::new()
     }
 }
 
@@ -464,6 +520,8 @@ impl InteractiveSession {
             false, // skip_permissions
             SessionMode::Interactive,
             None, // boss_prompt
+            self.agent_type,
+            self.model,
         );
 
         session.id = self.session_id;
