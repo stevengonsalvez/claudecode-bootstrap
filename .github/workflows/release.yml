@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - v2
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - v2
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: agents-box
+  WORKING_DIR: ainb-tui
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            ext: ""
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: ""
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            ext: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux)
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            VERSION="${VERSION}-dev.$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${BINARY_NAME}-${VERSION}-${{ matrix.target }}"
+
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${BINARY_NAME}${{ matrix.ext }} dist/
+          cd dist
+          tar -czf "${ARCHIVE}.tar.gz" "${BINARY_NAME}${{ matrix.ext }}"
+          shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ env.WORKING_DIR }}/dist/*.tar.gz
+            ${{ env.WORKING_DIR }}/dist/*.sha256
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only create releases for tags, not branch pushes
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
+          body: |
+            ## Installation
+
+            ### One-liner Install (Recommended)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/stevengonsalvez/agents-in-a-box/v2/ainb-tui/install.sh | bash
+            ```
+
+            ### Manual Install
+            1. Download the appropriate archive for your platform from the assets below
+            2. Extract: `tar -xzf agents-box-*.tar.gz`
+            3. Move to PATH: `sudo mv agents-box /usr/local/bin/`
+
+            ### With Cargo (requires Rust)
+            ```bash
+            cargo install --git https://github.com/stevengonsalvez/agents-in-a-box --branch v2 --root ~/.local agents-box
+            ```
+
+            ## Supported Platforms
+            - macOS (Intel & Apple Silicon)
+            - Linux (x86_64, glibc & musl)
