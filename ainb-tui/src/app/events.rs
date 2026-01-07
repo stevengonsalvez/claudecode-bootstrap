@@ -2649,14 +2649,11 @@ impl EventHandler {
                 }
             }
             AppEvent::OnboardingCheckDeps => {
-                tracing::debug!("Running dependency check");
+                tracing::debug!("Queuing dependency check as async action");
                 if let Some(ref mut onboarding_state) = state.onboarding_state {
-                    use crate::components::onboarding::DependencyChecker;
                     onboarding_state.dependency_check_running = true;
-                    let status = DependencyChecker::check_all();
-                    onboarding_state.dependency_status = Some(status);
-                    onboarding_state.dependency_check_running = false;
                 }
+                state.pending_async_action = Some(AsyncAction::OnboardingCheckDeps);
             }
             AppEvent::OnboardingSkipAuth => {
                 tracing::debug!("Skipping authentication");
@@ -2696,7 +2693,7 @@ impl EventHandler {
                                     tracing::error!("Factory reset failed: {}", e);
                                 } else {
                                     tracing::info!("Factory reset completed");
-                                    state.start_onboarding(true);
+                                    state.start_onboarding(true, None);
                                 }
                             }
                             _ => {}
@@ -2704,31 +2701,20 @@ impl EventHandler {
                     }
                 } else {
                     // Request action (may show confirmation for dangerous actions)
+                    use crate::components::onboarding::OnboardingStep;
                     if let Some(item) = state.setup_menu_state.request_action() {
                         match item {
                             SetupMenuItem::RerunWizard => {
-                                state.start_onboarding(true);
+                                state.start_onboarding(true, None);
                             }
                             SetupMenuItem::CheckDependencies => {
-                                // Start onboarding at dependency check step
-                                state.start_onboarding(true);
-                                if let Some(ref mut onboarding_state) = state.onboarding_state {
-                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::DependencyCheck;
-                                }
+                                state.start_onboarding(true, Some(OnboardingStep::DependencyCheck));
                             }
                             SetupMenuItem::ConfigureGitPaths => {
-                                // Start onboarding at git directories step
-                                state.start_onboarding(true);
-                                if let Some(ref mut onboarding_state) = state.onboarding_state {
-                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::GitDirectories;
-                                }
+                                state.start_onboarding(true, Some(OnboardingStep::GitDirectories));
                             }
                             SetupMenuItem::AuthenticationSettings => {
-                                // Start onboarding at auth step
-                                state.start_onboarding(true);
-                                if let Some(ref mut onboarding_state) = state.onboarding_state {
-                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::Authentication;
-                                }
+                                state.start_onboarding(true, Some(OnboardingStep::Authentication));
                             }
                             SetupMenuItem::FactoryReset => {
                                 // This shouldn't happen as it's handled by confirmation
@@ -2751,7 +2737,7 @@ impl EventHandler {
             }
             AppEvent::StartOnboarding => {
                 tracing::debug!("Starting onboarding from setup menu");
-                state.start_onboarding(true); // Mark as factory reset
+                state.start_onboarding(true, None);
             }
             AppEvent::FactoryReset => {
                 tracing::debug!("Factory reset requested");
@@ -2760,7 +2746,7 @@ impl EventHandler {
                     tracing::error!("Factory reset failed: {}", e);
                 } else {
                     tracing::info!("Factory reset completed");
-                    state.start_onboarding(true);
+                    state.start_onboarding(true, None);
                 }
             }
             // Mouse events are handled directly in the main event loop

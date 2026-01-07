@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
             // Check if first-time setup is needed
             if app::state::AppState::needs_onboarding() {
                 tracing::info!("First-time setup detected - starting onboarding wizard");
-                app.state.start_onboarding(false);
+                app.state.start_onboarding(false, None);
 
                 // CRITICAL: Clear any pending async actions set during init()
                 // The check_current_directory_status() in init() may have set StartWorkspaceSearch,

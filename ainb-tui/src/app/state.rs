@@ -2261,14 +2261,26 @@ impl AppState {
     }
 
     /// Start the onboarding wizard
-    pub fn start_onboarding(&mut self, is_factory_reset: bool) {
+    /// Optionally start at a specific step (useful for setup menu shortcuts)
+    pub fn start_onboarding(
+        &mut self,
+        is_factory_reset: bool,
+        start_step: Option<crate::components::onboarding::OnboardingStep>,
+    ) {
         use crate::components::onboarding::OnboardingState;
 
-        self.onboarding_state = Some(if is_factory_reset {
+        let mut state = if is_factory_reset {
             OnboardingState::for_factory_reset()
         } else {
             OnboardingState::new()
-        });
+        };
+
+        // If a specific start step is provided, jump to it
+        if let Some(step) = start_step {
+            state.current_step = step;
+        }
+
+        self.onboarding_state = Some(state);
         self.current_view = View::Onboarding;
     }
 
@@ -2286,7 +2298,9 @@ impl AppState {
 
             // Update app config with git directories
             self.app_config.workspace_defaults.workspace_scan_paths = state.get_valid_directories();
-            let _ = self.app_config.save();
+            if let Err(e) = self.app_config.save() {
+                warn!("Failed to save app config during onboarding completion: {}", e);
+            }
         }
 
         // Clean up and return to home
@@ -5152,13 +5166,22 @@ impl AppState {
                 }
                 AsyncAction::OnboardingCheckDeps => {
                     info!("Running onboarding dependency check");
-                    if let Some(ref mut onboarding_state) = self.onboarding_state {
-                        use crate::components::onboarding::DependencyChecker;
-                        // dependency_check_running should already be true from when we queued this action
-                        let status = DependencyChecker::check_all();
-                        onboarding_state.dependency_status = Some(status);
-                        onboarding_state.dependency_check_running = false;
-                        self.ui_needs_refresh = true;
+                    use crate::components::onboarding::DependencyChecker;
+                    // Run blocking I/O on dedicated thread pool to avoid blocking async runtime
+                    match tokio::task::spawn_blocking(DependencyChecker::check_all).await {
+                        Ok(status) => {
+                            if let Some(ref mut onboarding_state) = self.onboarding_state {
+                                onboarding_state.dependency_status = Some(status);
+                                onboarding_state.dependency_check_running = false;
+                                self.ui_needs_refresh = true;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Dependency check task failed: {}", e);
+                            if let Some(ref mut onboarding_state) = self.onboarding_state {
+                                onboarding_state.dependency_check_running = false;
+                            }
+                        }
                     }
                 }
             }
