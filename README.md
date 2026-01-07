@@ -10,6 +10,15 @@ A comprehensive toolkit for AI coding agents - featuring a terminal UI for manag
 
 ---
 
+<!-- TODO: Add demo GIF - see issue #XX -->
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="ainb demo" width="800">
+  <br>
+  <em>Creating a new Claude Code session with model selection</em>
+</p>
+
+---
+
 ## What's Inside
 
 | Component | Description |
@@ -114,13 +123,35 @@ claude --version
 
 ### Screenshots
 
-```
-┌─ Sessions ────────────────────────────────────────────────────┐
-│  ▶ feature-auth     main → feature/auth     Claude Sonnet    │
-│    bugfix-api       main → fix/api-error    Claude Haiku     │
-│    refactor-db      main → refactor/db      Shell            │
-└───────────────────────────────────────────────────────────────┘
-```
+<!-- TODO: Add screenshots - see issue #XX -->
+
+<details>
+<summary><b>Home Screen</b></summary>
+<br>
+<img src="docs/assets/screenshots/home.png" alt="Home screen with session list" width="700">
+<p><em>Main dashboard showing active sessions with status indicators</em></p>
+</details>
+
+<details>
+<summary><b>New Session</b></summary>
+<br>
+<img src="docs/assets/screenshots/new-session.png" alt="New session creation" width="700">
+<p><em>Creating a new session with repository, branch, agent, and model selection</em></p>
+</details>
+
+<details>
+<summary><b>Live Logs</b></summary>
+<br>
+<img src="docs/assets/screenshots/logs.png" alt="Live log viewer" width="700">
+<p><em>Real-time log streaming with level filtering and search</em></p>
+</details>
+
+<details>
+<summary><b>Session View</b></summary>
+<br>
+<img src="docs/assets/screenshots/session.png" alt="Active session" width="700">
+<p><em>Attached to a Claude Code session with tmux integration</em></p>
+</details>
 
 ### Keyboard Shortcuts
 
