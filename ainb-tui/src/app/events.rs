@@ -85,6 +85,13 @@ pub enum AppEvent {
     NewSessionAgentNext,
     NewSessionAgentPrev,
     NewSessionAgentSelect,
+    NewSessionOpenShell,  // Open shell directly when Shell agent is selected
+    // Model selection events (new session flow - for Claude agent)
+    NewSessionModelNext,
+    NewSessionModelPrev,
+    NewSessionToggleAgentModelFocus, // Tab to switch between agent and model panels
+    // Notification events
+    ShowNotification(String),  // Display a notification message to the user
     // File finder events for @ symbol trigger
     FileFinderNavigateUp,
     FileFinderNavigateDown,
@@ -201,6 +208,19 @@ pub enum AppEvent {
     AuthProviderPopupInputChar(char), // Input character for API key
     AuthProviderPopupBackspace,  // Backspace in API key input
     AuthProviderPopupDeleteKey,  // Delete stored API key (D)
+    // Log history viewer events
+    LogHistoryBack,              // Return to home screen (Esc)
+    LogHistoryNextSession,       // Navigate to next session
+    LogHistoryPrevSession,       // Navigate to previous session
+    LogHistorySelectSession,     // Select/load session logs (Enter)
+    LogHistoryToggleFocus,       // Toggle focus between sessions and logs (Tab)
+    LogHistoryScrollUp,          // Scroll log entries up
+    LogHistoryScrollDown,        // Scroll log entries down
+    LogHistoryPageUp,            // Page up in log entries
+    LogHistoryPageDown,          // Page down in log entries
+    LogHistoryCycleFilter,       // Cycle through filter levels (f)
+    LogHistoryRefresh,           // Refresh session list (r)
+    LogHistoryCopySelection,     // Copy selected text to clipboard (y or Ctrl+c)
 }
 
 pub struct EventHandler;
@@ -382,6 +402,12 @@ impl EventHandler {
             return Self::handle_git_view_keys(key_event, state);
         }
 
+        // Handle log history view
+        if state.current_view == View::LogHistory {
+            tracing::debug!("In log history view, handling log history keys");
+            return Self::handle_log_history_keys(key_event, state);
+        }
+
         // Handle key events based on focused pane
         use crate::app::state::FocusedPane;
 
@@ -512,36 +538,68 @@ impl EventHandler {
 
         if let Some(ref session_state) = state.new_session_state {
             match session_state.step {
-                NewSessionStep::SelectRepo => match key_event.code {
-                    KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                    KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-                    KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
-                    KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
-                    _ => None,
-                },
-                NewSessionStep::SelectAgent => match key_event.code {
-                    KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::NewSessionAgentNext),
-                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::NewSessionAgentPrev),
-                    KeyCode::Enter => Some(AppEvent::NewSessionAgentSelect),
-                    _ => None,
-                },
+                NewSessionStep::SelectRepo => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+                        KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+                        KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::SelectAgent => {
+                    // Simplified UX: Up/Down for agent, Left/Right for model
+                    let show_model = session_state.should_show_model_selection();
+
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        // Agent navigation (vertical)
+                        KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::NewSessionAgentNext),
+                        KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::NewSessionAgentPrev),
+                        // Model navigation (horizontal) - only when Claude is selected
+                        KeyCode::Right | KeyCode::Char('l') if show_model => Some(AppEvent::NewSessionModelNext),
+                        KeyCode::Left | KeyCode::Char('h') if show_model => Some(AppEvent::NewSessionModelPrev),
+                        KeyCode::Enter => Some(AppEvent::NewSessionAgentSelect),
+                        _ => None,
+                    }
+                }
                 NewSessionStep::InputBranch => {
+                    // Check if model selection is available (Claude selected)
+                    let show_model = session_state.should_show_model_selection();
+
+                    // Get selected agent info
+                    let selected_agent = session_state.selected_agent;
+                    let agent_available = selected_agent.is_available();
+
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
                         KeyCode::Enter => {
-                            // Check if we're in current directory mode
-                            if let Some(ref session_state) = state.new_session_state {
-                                if session_state.is_current_dir_mode {
-                                    // Skip mode selection and permissions for current directory mode
-                                    Some(AppEvent::NewSessionCreate)
+                            // Check if selected agent is available
+                            if !agent_available {
+                                // Agent not available yet (Coming Soon)
+                                Some(AppEvent::ShowNotification("This agent is coming soon!".to_string()))
+                            } else if selected_agent == crate::models::SessionAgentType::Shell {
+                                // Shell selected - open shell directly
+                                Some(AppEvent::NewSessionOpenShell)
+                            } else {
+                                // Claude or other available agent
+                                if let Some(ref session_state) = state.new_session_state {
+                                    if session_state.is_current_dir_mode {
+                                        // Skip mode selection and permissions for current directory mode
+                                        Some(AppEvent::NewSessionCreate)
+                                    } else {
+                                        Some(AppEvent::NewSessionProceedToModeSelection)
+                                    }
                                 } else {
                                     Some(AppEvent::NewSessionProceedToModeSelection)
                                 }
-                            } else {
-                                Some(AppEvent::NewSessionProceedToModeSelection)
                             }
                         }
+                        // Tab cycles through agents
+                        KeyCode::Tab => Some(AppEvent::NewSessionAgentNext),
+                        // Left/Right for model selection (only when Claude is selected)
+                        KeyCode::Left if show_model => Some(AppEvent::NewSessionModelPrev),
+                        KeyCode::Right if show_model => Some(AppEvent::NewSessionModelNext),
                         KeyCode::Backspace
                             if key_event.modifiers.contains(KeyModifiers::SHIFT) =>
                         {
@@ -966,6 +1024,47 @@ impl EventHandler {
         }
     }
 
+    /// Handle key events for the log history viewer
+    fn handle_log_history_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        use crate::components::log_history_viewer::LogViewerFocus;
+
+        tracing::debug!("Log history key handler: {:?}", key_event.code);
+
+        // Global shortcuts
+        match key_event.code {
+            KeyCode::Esc => return Some(AppEvent::LogHistoryBack),
+            KeyCode::Char('f') => return Some(AppEvent::LogHistoryCycleFilter),
+            KeyCode::Char('r') => return Some(AppEvent::LogHistoryRefresh),
+            KeyCode::Char('y') => return Some(AppEvent::LogHistoryCopySelection),
+            KeyCode::Char('c') if key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                return Some(AppEvent::LogHistoryCopySelection);
+            }
+            KeyCode::Tab => return Some(AppEvent::LogHistoryToggleFocus),
+            _ => {}
+        }
+
+        // Focus-specific navigation
+        match state.log_history_state.focus {
+            LogViewerFocus::SessionList => {
+                match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::LogHistoryPrevSession),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::LogHistoryNextSession),
+                    KeyCode::Enter => Some(AppEvent::LogHistorySelectSession),
+                    _ => None,
+                }
+            }
+            LogViewerFocus::LogEntries => {
+                match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::LogHistoryScrollUp),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::LogHistoryScrollDown),
+                    KeyCode::PageUp => Some(AppEvent::LogHistoryPageUp),
+                    KeyCode::PageDown => Some(AppEvent::LogHistoryPageDown),
+                    _ => None,
+                }
+            }
+        }
+    }
+
     // AINB 2.0: Home screen key handling (V2 with sidebar and card grid)
     fn handle_home_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
         use crate::components::home_screen_v2::HomeScreenFocus;
@@ -1263,6 +1362,49 @@ impl EventHandler {
                     state.new_session_state = None;
                     state.current_view = crate::app::state::View::SessionList;
                 }
+            }
+            AppEvent::NewSessionOpenShell => {
+                tracing::info!("Event: NewSessionOpenShell - opening shell from branch input");
+                // Open shell directly from branch input screen when Shell agent is selected
+                if let Some(ref session_state) = state.new_session_state {
+                    if let Some(repo_path) = session_state.get_selected_repo_path() {
+                        tracing::info!("Opening shell in workspace: {:?}", repo_path);
+
+                        // Find the workspace index for this repo
+                        let workspace_idx = state.workspaces.iter()
+                            .position(|w| w.path == repo_path);
+
+                        if let Some(idx) = workspace_idx {
+                            state.pending_async_action = Some(
+                                AsyncAction::OpenWorkspaceShell {
+                                    workspace_index: idx,
+                                    target_dir: None, // Open in workspace root
+                                }
+                            );
+                        } else {
+                            state.add_warning_notification("Workspace not found".to_string());
+                        }
+                    }
+                }
+                state.new_session_state = None;
+                state.current_view = crate::app::state::View::SessionList;
+            }
+            AppEvent::ShowNotification(message) => {
+                tracing::info!("Event: ShowNotification - {}", message);
+                state.add_warning_notification(message);
+            }
+            // Model selection events (new session flow - for Claude agent)
+            AppEvent::NewSessionModelNext => {
+                tracing::debug!("Event: NewSessionModelNext");
+                state.new_session_next_model();
+            }
+            AppEvent::NewSessionModelPrev => {
+                tracing::debug!("Event: NewSessionModelPrev");
+                state.new_session_prev_model();
+            }
+            AppEvent::NewSessionToggleAgentModelFocus => {
+                tracing::debug!("Event: NewSessionToggleAgentModelFocus");
+                state.new_session_toggle_agent_model_focus();
             }
             AppEvent::SearchWorkspaceInputChar(ch) => {
                 if let Some(ref mut session_state) = state.new_session_state {
@@ -1854,6 +1996,14 @@ impl EventHandler {
                     SidebarItem::Sessions => {
                         state.current_view = View::SessionList;
                     }
+                    SidebarItem::Logs => {
+                        // Initialize log history viewer with log directory
+                        if let Some(log_dir) = state.log_dir() {
+                            state.log_history_state.set_log_dir(log_dir);
+                        }
+                        state.log_history_state.show();
+                        state.current_view = View::LogHistory;
+                    }
                     SidebarItem::Stats => {
                         state.add_info_notification("Usage & Analytics coming soon!".to_string());
                     }
@@ -2231,6 +2381,60 @@ impl EventHandler {
                     Err(e) => {
                         state.add_error_notification(format!("Failed to delete: {}", e));
                     }
+                }
+            }
+            // Log history viewer events
+            AppEvent::LogHistoryBack => {
+                tracing::debug!("Log history back");
+                state.log_history_state.hide();
+                state.current_view = View::HomeScreen;
+            }
+            AppEvent::LogHistoryNextSession => {
+                tracing::debug!("Log history next session");
+                state.log_history_state.select_next_session();
+            }
+            AppEvent::LogHistoryPrevSession => {
+                tracing::debug!("Log history prev session");
+                state.log_history_state.select_prev_session();
+            }
+            AppEvent::LogHistorySelectSession => {
+                tracing::debug!("Log history select session");
+                state.log_history_state.load_selected_session();
+            }
+            AppEvent::LogHistoryToggleFocus => {
+                tracing::debug!("Log history toggle focus");
+                state.log_history_state.toggle_focus();
+            }
+            AppEvent::LogHistoryScrollUp => {
+                tracing::debug!("Log history scroll up");
+                state.log_history_state.scroll_up();
+            }
+            AppEvent::LogHistoryScrollDown => {
+                tracing::debug!("Log history scroll down");
+                state.log_history_state.scroll_down();
+            }
+            AppEvent::LogHistoryPageUp => {
+                tracing::debug!("Log history page up");
+                state.log_history_state.page_up(20);
+            }
+            AppEvent::LogHistoryPageDown => {
+                tracing::debug!("Log history page down");
+                state.log_history_state.page_down(20);
+            }
+            AppEvent::LogHistoryCycleFilter => {
+                tracing::debug!("Log history cycle filter");
+                state.log_history_state.cycle_filter();
+            }
+            AppEvent::LogHistoryRefresh => {
+                tracing::debug!("Log history refresh");
+                state.log_history_state.refresh_sessions();
+            }
+            AppEvent::LogHistoryCopySelection => {
+                tracing::debug!("Log history copy selection");
+                if let Err(e) = state.log_history_state.copy_selection_to_clipboard() {
+                    tracing::warn!("Failed to copy to clipboard: {}", e);
+                } else {
+                    tracing::info!("Copied selection to clipboard");
                 }
             }
             // Mouse events are handled directly in the main event loop

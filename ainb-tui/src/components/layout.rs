@@ -21,7 +21,7 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
-    HomeScreenV2Component,
+    HomeScreenV2Component, LogHistoryViewerComponent,
     LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, SessionListComponent,
     TmuxPreviewPane,
 };
@@ -44,6 +44,7 @@ pub struct LayoutComponent {
     agent_selection: AgentSelectionComponent,
     config_screen: ConfigScreenComponent,
     auth_provider_popup: AuthProviderPopupComponent,
+    log_history_viewer: LogHistoryViewerComponent,
 }
 
 impl LayoutComponent {
@@ -65,6 +66,7 @@ impl LayoutComponent {
             agent_selection: AgentSelectionComponent::new(),
             config_screen: ConfigScreenComponent::new(),
             auth_provider_popup: AuthProviderPopupComponent::new(),
+            log_history_viewer: LogHistoryViewerComponent::new(),
         }
     }
 
@@ -128,6 +130,18 @@ impl LayoutComponent {
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on Config");
+                self.help.render(frame, frame.size());
+            }
+            return;
+        }
+
+        // AINB 2.0: Log history viewer (full screen)
+        if state.current_view == View::LogHistory {
+            tracing::debug!("Rendering LogHistory view");
+            self.log_history_viewer.render(frame, frame.size(), &mut state.log_history_state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on LogHistory");
                 self.help.render(frame, frame.size());
             }
             return;

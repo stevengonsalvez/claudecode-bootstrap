@@ -31,6 +31,7 @@ pub enum SidebarItem {
     Catalog,   // Browse catalog/marketplace
     Config,    // Settings & presets
     Sessions,  // Session manager
+    Logs,      // Log history viewer
     Stats,     // Analytics & usage
     Help,      // Docs & guides
 }
@@ -43,6 +44,7 @@ impl SidebarItem {
             Self::Catalog => "📦",
             Self::Config => "⚙️",
             Self::Sessions => "🚀",
+            Self::Logs => "📋",
             Self::Stats => "📊",
             Self::Help => "❓",
         }
@@ -55,6 +57,7 @@ impl SidebarItem {
             Self::Catalog => "Catalog",
             Self::Config => "Config",
             Self::Sessions => "Sessions",
+            Self::Logs => "Logs",
             Self::Stats => "Stats",
             Self::Help => "Help",
         }
@@ -67,6 +70,7 @@ impl SidebarItem {
             Self::Catalog => "Browse & Bootstrap",
             Self::Config => "Settings & Presets",
             Self::Sessions => "Manage Active",
+            Self::Logs => "View Log History",
             Self::Stats => "Usage & Analytics",
             Self::Help => "Docs & Guides",
         }
@@ -79,6 +83,7 @@ impl SidebarItem {
             Self::Catalog => "c",
             Self::Config => "C",
             Self::Sessions => "s",
+            Self::Logs => "l",
             Self::Stats => "i",
             Self::Help => "?",
         }
@@ -91,6 +96,7 @@ impl SidebarItem {
             Self::Catalog,
             Self::Config,
             Self::Sessions,
+            Self::Logs,
             Self::Stats,
             Self::Help,
         ]
@@ -190,6 +196,7 @@ impl SidebarComponent {
                 Constraint::Length(3),  // Catalog
                 Constraint::Length(3),  // Config
                 Constraint::Length(3),  // Sessions
+                Constraint::Length(3),  // Logs
                 Constraint::Length(3),  // Stats
                 Constraint::Length(3),  // Help
                 Constraint::Min(0),     // Flexible space
@@ -201,7 +208,7 @@ impl SidebarComponent {
 
         let items = SidebarItem::all();
 
-        // Render all 6 items with premium styling
+        // Render all 7 items with premium styling
         for (idx, item) in items.iter().enumerate() {
             let is_selected = state.selected_index == idx;
             let badge = if *item == SidebarItem::Sessions && state.active_sessions_count > 0 {

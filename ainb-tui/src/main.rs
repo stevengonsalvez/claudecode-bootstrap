@@ -368,7 +368,12 @@ async fn run_tui_loop(
                         MouseEventKind::Down(MouseButton::Left) => {
                             // Convert coordinates to pane focus
                             let (col, row) = (mouse_event.column, mouse_event.row);
-                            if let Some(app_event) = EventHandler::handle_mouse_event(
+
+                            // Handle log history view clicks directly
+                            if app.state.current_view == crate::app::state::View::LogHistory {
+                                // Log history viewer takes full screen, starts at (0, 0)
+                                app.state.log_history_state.handle_click(col, row, 0, 0);
+                            } else if let Some(app_event) = EventHandler::handle_mouse_event(
                                 AppEvent::MouseClick { x: col, y: row },
                                 &mut app.state
                             ) {
@@ -415,6 +420,13 @@ async fn run_tui_loop(
                                         _ => {}
                                     }
                                 }
+                            } else if app.state.current_view == View::LogHistory {
+                                // Scroll log history viewer
+                                if is_down {
+                                    app.state.log_history_state.scroll_down_by(SCROLL_LINES);
+                                } else {
+                                    app.state.log_history_state.scroll_up_by(SCROLL_LINES);
+                                }
                             } else {
                                 // Default: scroll live logs
                                 if is_down {
@@ -428,7 +440,11 @@ async fn run_tui_loop(
                         }
                         MouseEventKind::Drag(MouseButton::Left) => {
                             let (col, row) = (mouse_event.column, mouse_event.row);
-                            if let Some(app_event) = EventHandler::handle_mouse_event(
+
+                            // Handle log history text selection drag
+                            if app.state.current_view == crate::app::state::View::LogHistory {
+                                app.state.log_history_state.update_selection(col, row);
+                            } else if let Some(app_event) = EventHandler::handle_mouse_event(
                                 AppEvent::MouseDragging { x: col, y: row },
                                 &mut app.state
                             ) {
@@ -437,7 +453,11 @@ async fn run_tui_loop(
                         }
                         MouseEventKind::Up(MouseButton::Left) => {
                             let (col, row) = (mouse_event.column, mouse_event.row);
-                            if let Some(app_event) = EventHandler::handle_mouse_event(
+
+                            // Handle log history text selection end
+                            if app.state.current_view == crate::app::state::View::LogHistory {
+                                app.state.log_history_state.end_selection();
+                            } else if let Some(app_event) = EventHandler::handle_mouse_event(
                                 AppEvent::MouseDragEnd { x: col, y: row },
                                 &mut app.state
                             ) {
@@ -818,9 +838,9 @@ fn setup_logging() {
 
     let _ = std::fs::create_dir_all(&log_dir);
 
-    // Create log file with timestamp
+    // Create JSONL log file with timestamp
     let log_file = log_dir.join(format!(
-        "agents-in-a-box-{}.log",
+        "agents-in-a-box-{}.jsonl",
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
 
@@ -834,9 +854,10 @@ fn setup_logging() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
-                .with_target(false)
+                .json()             // Output in JSON Lines format
+                .with_target(true)  // Include target module in JSON
                 .with_writer(file)
-                .with_ansi(false), // No ANSI colors in log file
+                .with_ansi(false),
         )
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()

@@ -392,18 +392,20 @@ impl Default for LiveLogsStreamComponent {
 }
 
 // Log entry types that correspond to app state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LogEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub level: LogEntryLevel,
     pub source: String, // Container name or source
     pub message: String,
     pub session_id: Option<uuid::Uuid>,
-    pub parsed_data: Option<super::log_parser::ParsedLog>, // Rich parsed metadata
+    #[serde(skip)]
+    pub parsed_data: Option<super::log_parser::ParsedLog>, // Rich parsed metadata (not serialized)
+    #[serde(default)]
     pub metadata: std::collections::HashMap<String, String>, // Additional metadata for agent events
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LogEntryLevel {
     Debug,
     Info,

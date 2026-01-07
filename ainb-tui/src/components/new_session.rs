@@ -71,6 +71,8 @@ impl NewSessionComponent {
         let soft_white = Color::Rgb(220, 220, 230);
         let muted_gray = Color::Rgb(120, 120, 140);
         let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(60, 60, 80);
+        let list_highlight_bg = Color::Rgb(40, 40, 60);
 
         // Clear background
         let background = Block::default().style(Style::default().bg(dark_bg));
@@ -98,9 +100,10 @@ impl NewSessionComponent {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([
-                Constraint::Length(3), // Subtitle
+            .constraints(vec![
+                Constraint::Length(2), // Subtitle
                 Constraint::Min(0),    // Repository list
+                Constraint::Length(1), // Spacer
                 Constraint::Length(2), // Footer
             ])
             .split(inner);
@@ -165,27 +168,29 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .border_style(Style::default().fg(subdued_border))
                     .title(list_title)
                     .style(Style::default().bg(dark_bg)),
             )
-            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 60)));
+            .highlight_style(Style::default().bg(list_highlight_bg));
 
         frame.render_widget(repo_list, chunks[1]);
 
-        // Modern footer with keyboard hints
-        let footer = Paragraph::new(Line::from(vec![
+        // Modern footer with keyboard hints (simplified - no agent/model here)
+        let footer_spans = vec![
             Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
-            Span::styled(" Navigate", Style::default().fg(muted_gray)),
-            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled(" Repos", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
             Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
             Span::styled(" Select", Style::default().fg(muted_gray)),
-            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
-            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Esc", Style::default().fg(Color::Rgb(255, 100, 100))),
             Span::styled(" Cancel", Style::default().fg(muted_gray)),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(footer, chunks[2]);
+        ];
+
+        let footer = Paragraph::new(Line::from(footer_spans))
+            .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[3]);
     }
 
     fn render_search_workspace(
@@ -194,19 +199,28 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
+        // Color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let muted_gray = Color::Rgb(128, 128, 128);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(70, 70, 90);
+        let list_highlight_bg = Color::Rgb(45, 45, 60);
+
         // Draw outer border with gradient-like effect using rounded corners
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .border_style(Style::default().fg(cornflower_blue))
             .title(Span::styled(
                 " 🔍 Search Repositories ",
                 Style::default()
-                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .fg(gold)
                     .add_modifier(Modifier::BOLD),
             ))
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+            .style(Style::default().bg(dark_bg));
         frame.render_widget(block.clone(), area);
 
         // Inner area for content
@@ -215,7 +229,7 @@ impl NewSessionComponent {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([
+            .constraints(vec![
                 Constraint::Length(3), // Search input
                 Constraint::Length(1), // Spacer
                 Constraint::Min(0),    // Repository list
@@ -230,17 +244,17 @@ impl NewSessionComponent {
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     "Type to search repositories...",
-                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                    Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC),
                 ),
             ])
         } else {
             Line::from(vec![
-                Span::styled("  ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled("  ", Style::default().fg(selection_green)),
                 Span::styled(
                     &session_state.filter_text,
                     Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))), // Cursor
+                Span::styled("█", Style::default().fg(selection_green)), // Cursor
             ])
         };
 
@@ -249,7 +263,7 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .border_style(Style::default().fg(selection_green))
                     .style(Style::default().bg(Color::Rgb(35, 35, 45))),
             );
         frame.render_widget(search_input, chunks[0]);
@@ -282,12 +296,12 @@ impl NewSessionComponent {
                     // Selected item - highlighted with arrow and full styling
                     let lines = vec![
                         Line::from(vec![
-                            Span::styled("  ▶ ", Style::default().fg(Color::Rgb(255, 215, 0))),
+                            Span::styled("  ▶ ", Style::default().fg(gold)),
                             Span::styled("📁 ", Style::default()),
                             Span::styled(
                                 repo_name,
                                 Style::default()
-                                    .fg(Color::Rgb(255, 215, 0))
+                                    .fg(gold)
                                     .add_modifier(Modifier::BOLD),
                             ),
                         ]),
@@ -299,7 +313,7 @@ impl NewSessionComponent {
                             ),
                         ]),
                     ];
-                    ListItem::new(lines).style(Style::default().bg(Color::Rgb(45, 45, 60)))
+                    ListItem::new(lines).style(Style::default().bg(list_highlight_bg))
                 } else {
                     // Non-selected item
                     let lines = vec![
@@ -328,7 +342,7 @@ impl NewSessionComponent {
         let count_style = if filtered_count < total_repos {
             Style::default().fg(Color::Rgb(255, 165, 0)) // Orange when filtered
         } else {
-            Style::default().fg(Color::Rgb(100, 200, 100)) // Green when showing all
+            Style::default().fg(selection_green) // Green when showing all
         };
 
         let title_spans = vec![
@@ -345,7 +359,7 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .border_style(Style::default().fg(subdued_border))
                     .title(Line::from(title_spans))
                     .style(Style::default().bg(Color::Rgb(30, 30, 40))),
             );
@@ -355,26 +369,127 @@ impl NewSessionComponent {
 
         frame.render_stateful_widget(repo_list, chunks[2], &mut self.search_list_state);
 
-        // Styled instructions footer
-        let instructions = Line::from(vec![
+        // Styled instructions footer (simplified - no agent/model here)
+        let instruction_spans = vec![
             Span::styled("  ⌨️  ", Style::default()),
-            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
-            Span::styled(" to filter  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
-            Span::styled("  ↑↓ ", Style::default().fg(Color::Rgb(100, 200, 100))),
-            Span::styled("Navigate  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
-            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
-            Span::styled("Select  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("Type", Style::default().fg(selection_green)),
+            Span::styled(" filter  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled("  ↑↓ ", Style::default().fg(selection_green)),
+            Span::styled("Repos  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled("  ⏎ ", Style::default().fg(selection_green)),
+            Span::styled("Select  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
             Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
-            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-        ]);
+            Span::styled("Cancel", Style::default().fg(muted_gray)),
+        ];
 
+        let instructions = Line::from(instruction_spans);
         let instructions_widget = Paragraph::new(instructions)
             .alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+            .style(Style::default().bg(dark_bg));
         frame.render_widget(instructions_widget, chunks[4]);
+    }
+
+    /// Render a compact inline agent selector (single line)
+    fn render_inline_agent_selector(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+        colors: &[Color],
+    ) {
+        let [gold, soft_white, muted_gray, selection_green, _list_highlight_bg] = colors[..] else {
+            return;
+        };
+
+        let mut spans = vec![
+            Span::styled("Agent: ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+        ];
+
+        for (idx, option) in session_state.agent_options.iter().enumerate() {
+            let is_selected = idx == session_state.selected_agent_index;
+            let agent = option.agent_type;
+            let is_available = agent.is_available();
+
+            if idx > 0 {
+                spans.push(Span::styled("  │  ", Style::default().fg(muted_gray)));
+            }
+
+            if is_selected {
+                spans.push(Span::styled("▶ ", Style::default().fg(selection_green)));
+                spans.push(Span::styled(
+                    format!("{} ", agent.icon()),
+                    Style::default().fg(soft_white),
+                ));
+                spans.push(Span::styled(
+                    agent.name(),
+                    Style::default().fg(selection_green).add_modifier(Modifier::BOLD),
+                ));
+            } else if is_available {
+                spans.push(Span::styled(
+                    format!("{} {}", agent.icon(), agent.name()),
+                    Style::default().fg(soft_white),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!("{} {} [Soon]", agent.icon(), agent.name()),
+                    Style::default().fg(Color::Rgb(80, 80, 100)),
+                ));
+            }
+        }
+
+        let agent_line = Paragraph::new(Line::from(spans))
+            .alignment(Alignment::Center);
+        frame.render_widget(agent_line, area);
+    }
+
+    /// Render a compact inline model selector (single line)
+    fn render_inline_model_selector(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+        colors: &[Color],
+    ) {
+        let [gold, soft_white, muted_gray, selection_green, _list_highlight_bg] = colors[..] else {
+            return;
+        };
+
+        let mut spans = vec![
+            Span::styled("Model: ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+        ];
+
+        for (idx, model) in session_state.model_options.iter().enumerate() {
+            let is_selected = idx == session_state.selected_model_index;
+
+            if idx > 0 {
+                spans.push(Span::styled("  │  ", Style::default().fg(muted_gray)));
+            }
+
+            if is_selected {
+                spans.push(Span::styled("◀ ", Style::default().fg(selection_green)));
+                spans.push(Span::styled(
+                    format!("{} ", model.icon()),
+                    Style::default().fg(soft_white),
+                ));
+                spans.push(Span::styled(
+                    model.display_name(),
+                    Style::default().fg(selection_green).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(" ▶", Style::default().fg(selection_green)));
+            } else {
+                spans.push(Span::styled(
+                    format!("{} {}", model.icon(), model.display_name()),
+                    Style::default().fg(soft_white),
+                ));
+            }
+        }
+
+        let model_line = Paragraph::new(Line::from(spans))
+            .alignment(Alignment::Center);
+        frame.render_widget(model_line, area);
     }
 
     fn render_agent_selection(
@@ -412,24 +527,97 @@ impl NewSessionComponent {
         // Inner area for content
         let inner = block.inner(area);
 
+        // Determine if model selection should be shown
+        let show_model = session_state.should_show_model_selection();
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([
-                Constraint::Length(2), // Header text
-                Constraint::Length(1), // Spacer
-                Constraint::Min(0),    // Agent list
-                Constraint::Length(1), // Spacer
-                Constraint::Length(2), // Instructions
-            ])
+            .constraints(if show_model {
+                vec![
+                    Constraint::Length(2), // Header text
+                    Constraint::Length(1), // Spacer
+                    Constraint::Min(0),    // Agent list
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(3), // Model selection bar
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(2), // Instructions
+                ]
+            } else {
+                vec![
+                    Constraint::Length(2), // Header text
+                    Constraint::Length(1), // Spacer
+                    Constraint::Min(0),    // Agent list
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(2), // Instructions
+                ]
+            })
             .split(inner);
 
         // Header text
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("Choose which AI agent to use for this session", Style::default().fg(soft_white)),
+            Span::styled("Choose an AI agent for this session", Style::default().fg(soft_white)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(header, chunks[0]);
+
+        // Agent list
+        let agent_area = chunks[2];
+        self.render_agent_list(frame, agent_area, session_state, &[
+            cornflower_blue, dark_bg, gold, soft_white, muted_gray, selection_green,
+            subdued_border, coming_soon_gray, list_highlight_bg,
+        ]);
+
+        // Model selection bar (if Claude is selected)
+        if show_model {
+            self.render_model_selector(frame, chunks[4], session_state, &[
+                cornflower_blue, dark_bg, gold, soft_white, muted_gray, selection_green,
+                subdued_border, list_highlight_bg,
+            ]);
+        }
+
+        // Instructions
+        let instruction_area = if show_model { chunks[6] } else { chunks[4] };
+        let mut instruction_spans = vec![
+            Span::styled(" ↑↓ ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled("Agent  ", Style::default().fg(muted_gray)),
+        ];
+
+        if show_model {
+            instruction_spans.extend(vec![
+                Span::styled("│", Style::default().fg(subdued_border)),
+                Span::styled(" ←→ ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled("Model  ", Style::default().fg(muted_gray)),
+            ]);
+        }
+
+        instruction_spans.extend(vec![
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled(" Enter ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled("Confirm  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled(" Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel", Style::default().fg(muted_gray)),
+        ]);
+
+        let instructions = Line::from(instruction_spans);
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(instructions_widget, instruction_area);
+    }
+
+    fn render_agent_list(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+        colors: &[Color],
+    ) {
+        let [_cornflower_blue, dark_bg, _gold, soft_white, muted_gray, selection_green,
+            subdued_border, coming_soon_gray, list_highlight_bg] = colors[..] else {
+            return;
+        };
 
         // Build agent list items
         let items: Vec<ListItem> = session_state
@@ -469,7 +657,7 @@ impl NewSessionComponent {
                 // Coming Soon badge
                 if !is_available {
                     spans.push(Span::styled(
-                        " [Coming Soon]",
+                        " [Soon]",
                         Style::default().fg(coming_soon_gray).add_modifier(Modifier::ITALIC),
                     ));
                 }
@@ -518,55 +706,130 @@ impl NewSessionComponent {
             )
             .highlight_style(Style::default().bg(list_highlight_bg));
 
-        frame.render_widget(list, chunks[2]);
+        frame.render_widget(list, area);
+    }
 
-        // Instructions
-        let instructions = Line::from(vec![
-            Span::styled(" ↑↓ ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
-            Span::styled("Navigate  ", Style::default().fg(muted_gray)),
-            Span::styled("│", Style::default().fg(subdued_border)),
-            Span::styled(" Enter ", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
-            Span::styled("Select  ", Style::default().fg(muted_gray)),
-            Span::styled("│", Style::default().fg(subdued_border)),
-            Span::styled(" Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
-            Span::styled("Cancel", Style::default().fg(muted_gray)),
-        ]);
+    /// Render a compact horizontal model selector bar
+    fn render_model_selector(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+        colors: &[Color],
+    ) {
+        let [cornflower_blue, dark_bg, gold, soft_white, muted_gray, selection_green,
+            _subdued_border, list_highlight_bg] = colors[..] else {
+            return;
+        };
 
-        let instructions_widget = Paragraph::new(instructions)
+        // Create the model selector block
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(Span::styled(" Model ", Style::default().fg(gold)))
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
+
+        let inner = block.inner(area);
+
+        // Build horizontal model options
+        let mut spans = vec![Span::raw(" ")];
+
+        for (idx, model) in session_state.model_options.iter().enumerate() {
+            let is_selected = idx == session_state.selected_model_index;
+
+            if idx > 0 {
+                spans.push(Span::styled("  │  ", Style::default().fg(muted_gray)));
+            }
+
+            // Selection bracket and icon
+            if is_selected {
+                spans.push(Span::styled("◀ ", Style::default().fg(selection_green)));
+                spans.push(Span::styled(
+                    format!("{} ", model.icon()),
+                    Style::default().fg(soft_white),
+                ));
+                spans.push(Span::styled(
+                    model.display_name(),
+                    Style::default().fg(selection_green).add_modifier(Modifier::BOLD).bg(list_highlight_bg),
+                ));
+                spans.push(Span::styled(" ▶", Style::default().fg(selection_green)));
+            } else {
+                spans.push(Span::styled(
+                    format!("{} ", model.icon()),
+                    Style::default().fg(muted_gray),
+                ));
+                spans.push(Span::styled(
+                    model.display_name(),
+                    Style::default().fg(soft_white),
+                ));
+            }
+        }
+
+        let model_line = Paragraph::new(Line::from(spans))
             .alignment(Alignment::Center)
             .style(Style::default().bg(dark_bg));
-        frame.render_widget(instructions_widget, chunks[4]);
+        frame.render_widget(model_line, inner);
     }
 
     fn render_branch_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(128, 128, 128);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(70, 70, 90);
+        let list_highlight_bg = Color::Rgb(40, 40, 60);
+
         // Draw outer border with modern styling
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .border_style(Style::default().fg(cornflower_blue))
             .title(Span::styled(
                 " 🌿 New Session ",
                 Style::default()
-                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .fg(gold)
                     .add_modifier(Modifier::BOLD),
             ))
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+            .style(Style::default().bg(dark_bg));
         frame.render_widget(block.clone(), area);
 
         // Inner area for content
         let inner = block.inner(area);
 
+        // Check if model selector should be shown
+        let show_model = session_state.should_show_model_selection();
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([
-                Constraint::Length(6), // Repository info card
-                Constraint::Length(1), // Spacer
-                Constraint::Length(3), // Branch input
-                Constraint::Length(1), // Spacer
-                Constraint::Length(2), // Instructions
-            ])
+            .constraints(if show_model {
+                vec![
+                    Constraint::Length(6), // Repository info card
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(3), // Branch input
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(1), // Agent selector
+                    Constraint::Length(1), // Model selector
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(2), // Instructions
+                ]
+            } else {
+                vec![
+                    Constraint::Length(6), // Repository info card
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(3), // Branch input
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(1), // Agent selector
+                    Constraint::Length(1), // Spacer
+                    Constraint::Length(2), // Instructions
+                ]
+            })
             .split(inner);
 
         // Repository info card with icon
@@ -621,7 +884,7 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .border_style(Style::default().fg(subdued_border))
                     .style(Style::default().bg(Color::Rgb(30, 30, 40))),
             );
         frame.render_widget(repo_display, chunks[0]);
@@ -629,21 +892,21 @@ impl NewSessionComponent {
         // Branch input with icon and cursor
         let branch_text = if session_state.branch_name.is_empty() {
             Line::from(vec![
-                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled("  🔀 ", Style::default().fg(selection_green)),
                 Span::styled(
                     "ainb/",
-                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                    Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC),
                 ),
-                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled("█", Style::default().fg(selection_green)),
             ])
         } else {
             Line::from(vec![
-                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled("  🔀 ", Style::default().fg(selection_green)),
                 Span::styled(
                     &session_state.branch_name,
                     Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled("█", Style::default().fg(selection_green)),
             ])
         };
 
@@ -652,32 +915,63 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .border_style(Style::default().fg(selection_green))
                     .title(Span::styled(
                         " Branch Name ",
-                        Style::default().fg(Color::Rgb(100, 200, 100)),
+                        Style::default().fg(selection_green),
                     ))
                     .style(Style::default().bg(Color::Rgb(35, 35, 45))),
             );
         frame.render_widget(branch_input, chunks[2]);
 
-        // Styled instructions footer
-        let instructions = Line::from(vec![
-            Span::styled("  ⌨️  ", Style::default()),
-            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
-            Span::styled(" branch name  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
-            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
-            Span::styled("Create Session  ", Style::default().fg(Color::Rgb(128, 128, 128))),
-            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
-            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
-            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        // Agent selector bar
+        let agent_area = chunks[4];
+        self.render_inline_agent_selector(frame, agent_area, session_state, &[
+            gold, soft_white, muted_gray, selection_green, list_highlight_bg,
         ]);
 
+        // Model selector bar (only if Claude is selected)
+        let instruction_area_idx = if show_model {
+            self.render_inline_model_selector(frame, chunks[5], session_state, &[
+                gold, soft_white, muted_gray, selection_green, list_highlight_bg,
+            ]);
+            7 // Instructions at index 7
+        } else {
+            6 // Instructions at index 6
+        };
+
+        // Styled instructions footer
+        let mut instruction_spans = vec![
+            Span::styled("  ⌨️  ", Style::default()),
+            Span::styled("Type", Style::default().fg(selection_green)),
+            Span::styled(" branch  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled("  Tab ", Style::default().fg(gold)),
+            Span::styled("Agent  ", Style::default().fg(muted_gray)),
+        ];
+
+        if show_model {
+            instruction_spans.extend(vec![
+                Span::styled("│", Style::default().fg(subdued_border)),
+                Span::styled("  ←→ ", Style::default().fg(gold)),
+                Span::styled("Model  ", Style::default().fg(muted_gray)),
+            ]);
+        }
+
+        instruction_spans.extend(vec![
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled("  ⏎ ", Style::default().fg(selection_green)),
+            Span::styled("Create  ", Style::default().fg(muted_gray)),
+            Span::styled("│", Style::default().fg(subdued_border)),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel", Style::default().fg(muted_gray)),
+        ]);
+
+        let instructions = Line::from(instruction_spans);
         let instructions_widget = Paragraph::new(instructions)
             .alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
-        frame.render_widget(instructions_widget, chunks[4]);
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(instructions_widget, chunks[instruction_area_idx]);
     }
 
     fn render_permissions_config(
