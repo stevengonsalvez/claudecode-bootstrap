@@ -22,8 +22,8 @@ use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
     HomeScreenV2Component, LogHistoryViewerComponent,
-    LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, SessionListComponent,
-    TmuxPreviewPane,
+    LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, OnboardingComponent, SessionListComponent,
+    SetupMenuComponent, TmuxPreviewPane,
 };
 use crate::app::{AppState, state::View};
 
@@ -45,6 +45,8 @@ pub struct LayoutComponent {
     config_screen: ConfigScreenComponent,
     auth_provider_popup: AuthProviderPopupComponent,
     log_history_viewer: LogHistoryViewerComponent,
+    onboarding: OnboardingComponent,
+    setup_menu: SetupMenuComponent,
 }
 
 impl LayoutComponent {
@@ -67,10 +69,31 @@ impl LayoutComponent {
             config_screen: ConfigScreenComponent::new(),
             auth_provider_popup: AuthProviderPopupComponent::new(),
             log_history_viewer: LogHistoryViewerComponent::new(),
+            onboarding: OnboardingComponent::new(),
+            setup_menu: SetupMenuComponent::new(),
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
+        // Special handling for onboarding wizard view (full screen)
+        if state.current_view == View::Onboarding {
+            if let Some(ref onboarding_state) = state.onboarding_state {
+                tracing::debug!("Rendering Onboarding view");
+                self.onboarding.render(frame, frame.size(), onboarding_state);
+            }
+            return;
+        }
+
+        // Special handling for setup menu view (overlay on home screen)
+        if state.current_view == View::SetupMenu {
+            tracing::debug!("Rendering SetupMenu view");
+            // First render the home screen as background
+            self.home_screen_v2.render(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces);
+            // Then render setup menu as overlay
+            self.setup_menu.render(frame, frame.size(), &state.setup_menu_state);
+            return;
+        }
+
         // Special handling for auth setup view (full screen)
         if state.current_view == View::AuthSetup {
             let centered_area = centered_rect(60, 60, frame.size());

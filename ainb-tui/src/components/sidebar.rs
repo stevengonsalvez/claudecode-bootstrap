@@ -33,6 +33,7 @@ pub enum SidebarItem {
     Sessions,  // Session manager
     Logs,      // Log history viewer
     Stats,     // Analytics & usage
+    Setup,     // Setup wizard & factory reset
     Help,      // Docs & guides
 }
 
@@ -46,6 +47,7 @@ impl SidebarItem {
             Self::Sessions => "🚀",
             Self::Logs => "📋",
             Self::Stats => "📊",
+            Self::Setup => "🛠️",
             Self::Help => "❓",
         }
     }
@@ -59,6 +61,7 @@ impl SidebarItem {
             Self::Sessions => "Sessions",
             Self::Logs => "Logs",
             Self::Stats => "Stats",
+            Self::Setup => "Setup",
             Self::Help => "Help",
         }
     }
@@ -72,6 +75,7 @@ impl SidebarItem {
             Self::Sessions => "Manage Active",
             Self::Logs => "View Log History",
             Self::Stats => "Usage & Analytics",
+            Self::Setup => "Setup & Reset",
             Self::Help => "Docs & Guides",
         }
     }
@@ -85,6 +89,7 @@ impl SidebarItem {
             Self::Sessions => "s",
             Self::Logs => "l",
             Self::Stats => "i",
+            Self::Setup => "S",
             Self::Help => "?",
         }
     }
@@ -98,6 +103,7 @@ impl SidebarItem {
             Self::Sessions,
             Self::Logs,
             Self::Stats,
+            Self::Setup,
             Self::Help,
         ]
     }
@@ -198,6 +204,7 @@ impl SidebarComponent {
                 Constraint::Length(3),  // Sessions
                 Constraint::Length(3),  // Logs
                 Constraint::Length(3),  // Stats
+                Constraint::Length(3),  // Setup
                 Constraint::Length(3),  // Help
                 Constraint::Min(0),     // Flexible space
             ])
@@ -208,7 +215,7 @@ impl SidebarComponent {
 
         let items = SidebarItem::all();
 
-        // Render all 7 items with premium styling
+        // Render all 8 items with premium styling
         for (idx, item) in items.iter().enumerate() {
             let is_selected = state.selected_index == idx;
             let badge = if *item == SidebarItem::Sessions && state.active_sessions_count > 0 {

@@ -408,6 +408,8 @@ pub enum View {
     AuthSetup,  // New view for authentication setup
     ClaudeChat, // Claude chat popup overlay
     GitView,    // Git status and diff view
+    Onboarding, // First-time setup wizard
+    SetupMenu,  // Setup menu with factory reset option
 }
 
 #[derive(Debug, Clone)]
@@ -1624,6 +1626,12 @@ pub struct AppState {
     pub config_screen_state: ConfigScreenState,
     pub auth_provider_popup_state: AuthProviderPopupState,
 
+    // Onboarding wizard state
+    pub onboarding_state: Option<crate::components::onboarding::OnboardingState>,
+
+    // Setup menu state
+    pub setup_menu_state: crate::components::setup_menu::SetupMenuState,
+
     // Persistent configuration (saved to ~/.agents-in-a-box/config/config.toml)
     pub app_config: AppConfig,
 
@@ -1916,6 +1924,12 @@ impl Default for AppState {
             agent_selection_state: AgentSelectionState::default(),
             config_screen_state: ConfigScreenState::from_app_config(&app_config),
             auth_provider_popup_state: AuthProviderPopupState::from_app_config(&app_config),
+
+            // Onboarding wizard state (initialized to None, set during app init)
+            onboarding_state: None,
+
+            // Setup menu state
+            setup_menu_state: crate::components::setup_menu::SetupMenuState::new(),
 
             // Persistent configuration
             app_config,
@@ -2221,6 +2235,69 @@ impl AppState {
         }
 
         false
+    }
+
+    /// Check if onboarding wizard should be shown
+    /// Returns true if:
+    /// - ~/.agents-in-a-box directory doesn't exist
+    /// - OR onboarding config doesn't exist
+    /// - OR onboarding not completed
+    /// - OR major version changed
+    pub fn needs_onboarding() -> bool {
+        use crate::config::OnboardingConfig;
+
+        // First check: does the base directory exist at all?
+        if !OnboardingConfig::base_dir_exists() {
+            return true;
+        }
+
+        // Second check: load and check onboarding config
+        match OnboardingConfig::load() {
+            Ok(config) => config.needs_onboarding(),
+            Err(_) => true, // If we can't load config, need onboarding
+        }
+    }
+
+    /// Start the onboarding wizard
+    pub fn start_onboarding(&mut self, is_factory_reset: bool) {
+        use crate::components::onboarding::OnboardingState;
+
+        self.onboarding_state = Some(if is_factory_reset {
+            OnboardingState::for_factory_reset()
+        } else {
+            OnboardingState::new()
+        });
+        self.current_view = View::Onboarding;
+    }
+
+    /// Complete the onboarding process
+    pub fn complete_onboarding(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::config::OnboardingConfig;
+
+        if let Some(state) = &self.onboarding_state {
+            // Save onboarding config
+            let mut config = OnboardingConfig::default();
+            config.mark_completed();
+            config.git_directories = state.get_valid_directories();
+            config.skipped_dependencies = state.skipped_dependencies.clone();
+            config.save().map_err(|e| format!("Failed to save onboarding config: {}", e))?;
+
+            // Update app config with git directories
+            self.app_config.workspace_defaults.workspace_scan_paths = state.get_valid_directories();
+            let _ = self.app_config.save();
+        }
+
+        // Clean up and return to home
+        self.onboarding_state = None;
+        self.current_view = View::HomeScreen;
+
+        Ok(())
+    }
+
+    /// Cancel onboarding and return to home (for factory reset scenario)
+    pub fn cancel_onboarding(&mut self) {
+        self.onboarding_state = None;
+        self.current_view = View::HomeScreen;
     }
 
     /// Refresh OAuth tokens using the refresh token
@@ -6078,8 +6155,13 @@ impl App {
             Err(e) => {
                 warn!("Error processing async action: {}", e);
                 // Return to safe state if there was an error
-                self.state.new_session_state = None;
-                self.state.current_view = View::SessionList;
+                // BUT don't interrupt onboarding wizard or setup menu
+                if self.state.current_view != View::Onboarding
+                    && self.state.current_view != View::SetupMenu
+                {
+                    self.state.new_session_state = None;
+                    self.state.current_view = View::SessionList;
+                }
                 self.state.pending_async_action = None;
             }
         }

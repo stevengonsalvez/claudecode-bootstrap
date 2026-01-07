@@ -221,6 +221,27 @@ pub enum AppEvent {
     LogHistoryCycleFilter,       // Cycle through filter levels (f)
     LogHistoryRefresh,           // Refresh session list (r)
     LogHistoryCopySelection,     // Copy selected text to clipboard (y or Ctrl+c)
+    // Onboarding wizard events
+    OnboardingNext,              // Go to next step (Enter/Right Arrow)
+    OnboardingBack,              // Go to previous step (Backspace/Left Arrow)
+    OnboardingCancel,            // Cancel onboarding (Esc)
+    OnboardingInputChar(char),   // Input character for git directories
+    OnboardingBackspace,         // Backspace in git directories input
+    OnboardingDelete,            // Delete character in input
+    OnboardingCursorLeft,        // Move cursor left in input
+    OnboardingCursorRight,       // Move cursor right in input
+    OnboardingCursorHome,        // Move cursor to start of input
+    OnboardingCursorEnd,         // Move cursor to end of input
+    OnboardingCheckDeps,         // Run dependency check
+    OnboardingSkipAuth,          // Skip authentication step
+    OnboardingFinish,            // Complete onboarding
+    // Setup menu events
+    SetupMenuBack,               // Return to home screen (Esc)
+    SetupMenuSelect,             // Select menu item (Enter)
+    SetupMenuUp,                 // Navigate up
+    SetupMenuDown,               // Navigate down
+    StartOnboarding,             // Start onboarding wizard (from setup menu)
+    FactoryReset,                // Factory reset AINB
 }
 
 pub struct EventHandler;
@@ -311,6 +332,17 @@ impl EventHandler {
                 }
                 _ => return None,
             }
+        }
+
+        // Handle onboarding wizard view FIRST (before any other handlers)
+        // Onboarding is a modal experience that should not be interrupted by global keybinds
+        if state.current_view == View::Onboarding {
+            return Self::handle_onboarding_keys(key_event, state);
+        }
+
+        // Handle setup menu view (same priority as onboarding)
+        if state.current_view == View::SetupMenu {
+            return Self::handle_setup_menu_keys(key_event, state);
         }
 
         if state.help_visible {
@@ -915,6 +947,99 @@ impl EventHandler {
             }
         } else {
             None
+        }
+    }
+
+    fn handle_onboarding_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        use crate::components::onboarding::OnboardingStep;
+
+        if let Some(ref onboarding_state) = state.onboarding_state {
+            // Different handling based on current step
+            match onboarding_state.current_step {
+                OnboardingStep::GitDirectories => {
+                    // Text input mode for git directories
+                    match key_event.code {
+                        KeyCode::Enter => Some(AppEvent::OnboardingNext),
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Backspace => Some(AppEvent::OnboardingBackspace),
+                        KeyCode::Delete => Some(AppEvent::OnboardingDelete),
+                        KeyCode::Left => Some(AppEvent::OnboardingCursorLeft),
+                        KeyCode::Right => Some(AppEvent::OnboardingCursorRight),
+                        KeyCode::Home => Some(AppEvent::OnboardingCursorHome),
+                        KeyCode::End => Some(AppEvent::OnboardingCursorEnd),
+                        KeyCode::Char(ch) => Some(AppEvent::OnboardingInputChar(ch)),
+                        _ => None,
+                    }
+                }
+                OnboardingStep::DependencyCheck => {
+                    match key_event.code {
+                        KeyCode::Enter => {
+                            // If deps not checked yet, check them; otherwise advance
+                            if onboarding_state.dependency_status.is_none() {
+                                Some(AppEvent::OnboardingCheckDeps)
+                            } else {
+                                Some(AppEvent::OnboardingNext)
+                            }
+                        }
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Char('r') => Some(AppEvent::OnboardingCheckDeps), // Re-check
+                        _ => None,
+                    }
+                }
+                OnboardingStep::Authentication => {
+                    match key_event.code {
+                        KeyCode::Enter => Some(AppEvent::OnboardingNext),
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Char('s') | KeyCode::Char('S') => Some(AppEvent::OnboardingSkipAuth),
+                        _ => None,
+                    }
+                }
+                OnboardingStep::Summary => {
+                    match key_event.code {
+                        KeyCode::Enter => Some(AppEvent::OnboardingFinish),
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        _ => None,
+                    }
+                }
+                _ => {
+                    // Welcome and other steps - basic navigation
+                    match key_event.code {
+                        KeyCode::Enter | KeyCode::Right => Some(AppEvent::OnboardingNext),
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        _ => None,
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn handle_setup_menu_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        // Handle confirmation dialog keys
+        if state.setup_menu_state.showing_confirmation {
+            match key_event.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                    Some(AppEvent::SetupMenuSelect)  // Confirm
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    Some(AppEvent::SetupMenuBack)  // Cancel
+                }
+                _ => None,
+            }
+        } else {
+            // Normal menu navigation
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::SetupMenuBack),
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::SetupMenuUp),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::SetupMenuDown),
+                KeyCode::Enter => Some(AppEvent::SetupMenuSelect),
+                _ => None,
+            }
         }
     }
 
@@ -2007,6 +2132,9 @@ impl EventHandler {
                     SidebarItem::Stats => {
                         state.add_info_notification("Usage & Analytics coming soon!".to_string());
                     }
+                    SidebarItem::Setup => {
+                        state.current_view = View::SetupMenu;
+                    }
                     SidebarItem::Help => {
                         state.help_visible = true;
                     }
@@ -2435,6 +2563,180 @@ impl EventHandler {
                     tracing::warn!("Failed to copy to clipboard: {}", e);
                 } else {
                     tracing::info!("Copied selection to clipboard");
+                }
+            }
+            // Onboarding wizard events
+            AppEvent::OnboardingNext => {
+                tracing::debug!("Onboarding next step");
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    if onboarding_state.is_final_step() {
+                        // On final step, finish onboarding
+                        if let Err(e) = state.complete_onboarding() {
+                            tracing::error!("Failed to complete onboarding: {}", e);
+                        }
+                    } else if !onboarding_state.advance() {
+                        tracing::debug!("Cannot advance: requirements not met");
+                    }
+                }
+            }
+            AppEvent::OnboardingBack => {
+                tracing::debug!("Onboarding back step");
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.go_back();
+                }
+            }
+            AppEvent::OnboardingCancel => {
+                tracing::debug!("Onboarding cancelled");
+                state.cancel_onboarding();
+            }
+            AppEvent::OnboardingInputChar(ch) => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.input_char(ch);
+                }
+            }
+            AppEvent::OnboardingBackspace => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.backspace();
+                }
+            }
+            AppEvent::OnboardingDelete => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.delete();
+                }
+            }
+            AppEvent::OnboardingCursorLeft => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.cursor_left();
+                }
+            }
+            AppEvent::OnboardingCursorRight => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.cursor_right();
+                }
+            }
+            AppEvent::OnboardingCursorHome => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.cursor_home();
+                }
+            }
+            AppEvent::OnboardingCursorEnd => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.cursor_end();
+                }
+            }
+            AppEvent::OnboardingCheckDeps => {
+                tracing::debug!("Running dependency check");
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    use crate::components::onboarding::DependencyChecker;
+                    onboarding_state.dependency_check_running = true;
+                    let status = DependencyChecker::check_all();
+                    onboarding_state.dependency_status = Some(status);
+                    onboarding_state.dependency_check_running = false;
+                }
+            }
+            AppEvent::OnboardingSkipAuth => {
+                tracing::debug!("Skipping authentication");
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    onboarding_state.auth_completed = true;
+                    onboarding_state.auth_method = Some("skipped".to_string());
+                    onboarding_state.advance();
+                }
+            }
+            AppEvent::OnboardingFinish => {
+                tracing::debug!("Finishing onboarding");
+                if let Err(e) = state.complete_onboarding() {
+                    tracing::error!("Failed to complete onboarding: {}", e);
+                }
+            }
+            // Setup menu events
+            AppEvent::SetupMenuBack => {
+                tracing::debug!("Setup menu back");
+                if state.setup_menu_state.showing_confirmation {
+                    state.setup_menu_state.cancel_action();
+                } else {
+                    state.current_view = View::HomeScreen;
+                }
+            }
+            AppEvent::SetupMenuSelect => {
+                tracing::debug!("Setup menu select");
+                use crate::components::setup_menu::SetupMenuItem;
+
+                // Check if showing confirmation dialog
+                if state.setup_menu_state.showing_confirmation {
+                    // Confirmed action
+                    if let Some(item) = state.setup_menu_state.confirm_action() {
+                        match item {
+                            SetupMenuItem::FactoryReset => {
+                                use crate::config::OnboardingConfig;
+                                if let Err(e) = OnboardingConfig::factory_reset() {
+                                    tracing::error!("Factory reset failed: {}", e);
+                                } else {
+                                    tracing::info!("Factory reset completed");
+                                    state.start_onboarding(true);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    // Request action (may show confirmation for dangerous actions)
+                    if let Some(item) = state.setup_menu_state.request_action() {
+                        match item {
+                            SetupMenuItem::RerunWizard => {
+                                state.start_onboarding(true);
+                            }
+                            SetupMenuItem::CheckDependencies => {
+                                // Start onboarding at dependency check step
+                                state.start_onboarding(true);
+                                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::DependencyCheck;
+                                }
+                            }
+                            SetupMenuItem::ConfigureGitPaths => {
+                                // Start onboarding at git directories step
+                                state.start_onboarding(true);
+                                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::GitDirectories;
+                                }
+                            }
+                            SetupMenuItem::AuthenticationSettings => {
+                                // Start onboarding at auth step
+                                state.start_onboarding(true);
+                                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                                    onboarding_state.current_step = crate::components::onboarding::OnboardingStep::Authentication;
+                                }
+                            }
+                            SetupMenuItem::FactoryReset => {
+                                // This shouldn't happen as it's handled by confirmation
+                            }
+                        }
+                    }
+                }
+            }
+            AppEvent::SetupMenuUp => {
+                tracing::debug!("Setup menu up");
+                if !state.setup_menu_state.showing_confirmation {
+                    state.setup_menu_state.move_up();
+                }
+            }
+            AppEvent::SetupMenuDown => {
+                tracing::debug!("Setup menu down");
+                if !state.setup_menu_state.showing_confirmation {
+                    state.setup_menu_state.move_down();
+                }
+            }
+            AppEvent::StartOnboarding => {
+                tracing::debug!("Starting onboarding from setup menu");
+                state.start_onboarding(true); // Mark as factory reset
+            }
+            AppEvent::FactoryReset => {
+                tracing::debug!("Factory reset requested");
+                use crate::config::OnboardingConfig;
+                if let Err(e) = OnboardingConfig::factory_reset() {
+                    tracing::error!("Factory reset failed: {}", e);
+                } else {
+                    tracing::info!("Factory reset completed");
+                    state.start_onboarding(true);
                 }
             }
             // Mouse events are handled directly in the main event loop

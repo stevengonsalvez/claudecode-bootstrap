@@ -81,6 +81,23 @@ async fn main() -> Result<()> {
             app.init().await;
             let mut layout = LayoutComponent::new();
 
+            // Check if first-time setup is needed
+            if app::state::AppState::needs_onboarding() {
+                tracing::info!("First-time setup detected - starting onboarding wizard");
+                app.state.start_onboarding(false);
+
+                // CRITICAL: Clear any pending async actions set during init()
+                // The check_current_directory_status() in init() may have set StartWorkspaceSearch,
+                // which would override the onboarding view on first tick
+                app.state.pending_async_action = None;
+            }
+
+            // Flush any pending terminal events to prevent stray keypresses
+            // from interfering with onboarding or initial view
+            while crossterm::event::poll(std::time::Duration::from_millis(10)).unwrap_or(false) {
+                let _ = crossterm::event::read();
+            }
+
             run_tui(&mut app, &mut layout).await
         }
     };

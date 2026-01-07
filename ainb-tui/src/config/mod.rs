@@ -13,11 +13,13 @@ use std::path::{Path, PathBuf};
 pub mod container;
 pub mod mcp;
 pub mod mcp_init;
+pub mod onboarding;
 pub mod presets;
 
 pub use container::{ContainerTemplate, ContainerTemplateConfig};
 pub use mcp::{McpInitStrategy, McpServerConfig};
 pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
+pub use onboarding::OnboardingConfig;
 pub use presets::{PermissionSet, PresetManager, RepositoryPreset, create_default_presets};
 
 /// Authentication provider for Claude API
