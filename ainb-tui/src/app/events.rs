@@ -958,9 +958,11 @@ impl EventHandler {
             match onboarding_state.current_step {
                 OnboardingStep::GitDirectories => {
                     // Text input mode for git directories
+                    // Note: Left/Backspace used for text editing, use Up arrow to go back
                     match key_event.code {
                         KeyCode::Enter => Some(AppEvent::OnboardingNext),
                         KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Up => Some(AppEvent::OnboardingBack), // Go back (since Left is cursor)
                         KeyCode::Backspace => Some(AppEvent::OnboardingBackspace),
                         KeyCode::Delete => Some(AppEvent::OnboardingDelete),
                         KeyCode::Left => Some(AppEvent::OnboardingCursorLeft),
@@ -982,7 +984,9 @@ impl EventHandler {
                             }
                         }
                         KeyCode::Esc => Some(AppEvent::OnboardingCancel),
-                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Left | KeyCode::Backspace | KeyCode::Up => {
+                            Some(AppEvent::OnboardingBack)
+                        }
                         KeyCode::Char('r') => Some(AppEvent::OnboardingCheckDeps), // Re-check
                         _ => None,
                     }
@@ -991,7 +995,9 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Enter => Some(AppEvent::OnboardingNext),
                         KeyCode::Esc => Some(AppEvent::OnboardingCancel),
-                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Left | KeyCode::Backspace | KeyCode::Up => {
+                            Some(AppEvent::OnboardingBack)
+                        }
                         KeyCode::Char('s') | KeyCode::Char('S') => Some(AppEvent::OnboardingSkipAuth),
                         _ => None,
                     }
@@ -1000,7 +1006,9 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Enter => Some(AppEvent::OnboardingFinish),
                         KeyCode::Esc => Some(AppEvent::OnboardingCancel),
-                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Left | KeyCode::Backspace | KeyCode::Up => {
+                            Some(AppEvent::OnboardingBack)
+                        }
                         _ => None,
                     }
                 }
@@ -1009,7 +1017,9 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Enter | KeyCode::Right => Some(AppEvent::OnboardingNext),
                         KeyCode::Esc => Some(AppEvent::OnboardingCancel),
-                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Left | KeyCode::Backspace | KeyCode::Up => {
+                            Some(AppEvent::OnboardingBack)
+                        }
                         _ => None,
                     }
                 }
@@ -2568,15 +2578,29 @@ impl EventHandler {
             // Onboarding wizard events
             AppEvent::OnboardingNext => {
                 tracing::debug!("Onboarding next step");
+                let mut trigger_dep_check = false;
                 if let Some(ref mut onboarding_state) = state.onboarding_state {
                     if onboarding_state.is_final_step() {
                         // On final step, finish onboarding
                         if let Err(e) = state.complete_onboarding() {
                             tracing::error!("Failed to complete onboarding: {}", e);
                         }
-                    } else if !onboarding_state.advance() {
-                        tracing::debug!("Cannot advance: requirements not met");
+                    } else {
+                        let (advanced, needs_dep_check) = onboarding_state.advance();
+                        if !advanced {
+                            tracing::debug!("Cannot advance: requirements not met");
+                        }
+                        trigger_dep_check = needs_dep_check;
                     }
+                }
+                // Auto-trigger dependency check if entering DependencyCheck step
+                // Queue as async action so UI shows loading state immediately
+                if trigger_dep_check {
+                    tracing::debug!("Queuing dependency check as async action");
+                    if let Some(ref mut onboarding_state) = state.onboarding_state {
+                        onboarding_state.dependency_check_running = true;
+                    }
+                    state.pending_async_action = Some(AsyncAction::OnboardingCheckDeps);
                 }
             }
             AppEvent::OnboardingBack => {

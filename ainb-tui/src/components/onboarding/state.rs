@@ -305,16 +305,22 @@ impl OnboardingState {
     }
 
     /// Move to next step if possible
-    pub fn advance(&mut self) -> bool {
+    /// Returns (advanced: bool, trigger_dep_check: bool)
+    pub fn advance(&mut self) -> (bool, bool) {
         if self.current_step.can_advance(self) {
             if let Some(next) = self.current_step.next() {
                 self.current_step = next;
                 self.focus = OnboardingFocus::Content;
                 self.error_message = None;
-                return true;
+
+                // Auto-trigger dependency check when entering DependencyCheck step
+                let trigger_dep_check = next == OnboardingStep::DependencyCheck
+                    && self.dependency_status.is_none();
+
+                return (true, trigger_dep_check);
             }
         }
-        false
+        (false, false)
     }
 
     /// Move to previous step

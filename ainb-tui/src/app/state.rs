@@ -1862,6 +1862,8 @@ pub enum AsyncAction {
         target_dir: Option<std::path::PathBuf>,      // Optional: cd to this directory (worktree)
     },
     KillWorkspaceShell(usize), // Kill workspace shell by workspace index
+    // Onboarding actions
+    OnboardingCheckDeps, // Run dependency check during onboarding
 }
 
 impl Default for AppState {
@@ -5147,6 +5149,17 @@ impl AppState {
                 AsyncAction::KillWorkspaceShell(_) => {
                     warn!("KillWorkspaceShell action should be handled in main loop, not here");
                     self.ui_needs_refresh = true;
+                }
+                AsyncAction::OnboardingCheckDeps => {
+                    info!("Running onboarding dependency check");
+                    if let Some(ref mut onboarding_state) = self.onboarding_state {
+                        use crate::components::onboarding::DependencyChecker;
+                        // dependency_check_running should already be true from when we queued this action
+                        let status = DependencyChecker::check_all();
+                        onboarding_state.dependency_status = Some(status);
+                        onboarding_state.dependency_check_running = false;
+                        self.ui_needs_refresh = true;
+                    }
                 }
             }
         }

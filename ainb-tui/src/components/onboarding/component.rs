@@ -607,10 +607,10 @@ impl OnboardingComponent {
 
         let mut spans = vec![Span::styled("  ", Style::default())];
 
-        // Back button
+        // Back button (↑ works in all steps, ← works in most but not text input)
         if state.can_go_back() {
             spans.push(Span::styled("[", Style::default().fg(SUBDUED_BORDER)));
-            spans.push(Span::styled("←", Style::default().fg(GOLD)));
+            spans.push(Span::styled("↑/←", Style::default().fg(GOLD)));
             spans.push(Span::styled("]", Style::default().fg(SUBDUED_BORDER)));
             spans.push(Span::styled(" Back", Style::default().fg(MUTED_GRAY)));
             spans.push(Span::styled("  |  ", Style::default().fg(SUBDUED_BORDER)));
