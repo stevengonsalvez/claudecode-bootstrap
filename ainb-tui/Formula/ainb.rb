@@ -30,6 +30,6 @@ class Ainb < Formula
   end
 
   test do
-    assert_match "agents-box", shell_output("#{bin}/ainb --version")
+    assert_match "Terminal-based development environment", shell_output("#{bin}/ainb --help")
   end
 end
