@@ -138,6 +138,14 @@ impl WelcomePanelState {
         self.content = content;
         self.scroll_offset = 0;
     }
+
+    /// Copy the welcome panel content to the system clipboard
+    pub fn copy_content_to_clipboard(&self) -> Result<(), String> {
+        use arboard::Clipboard;
+        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard.set_text(&self.content).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 impl Default for WelcomePanelState {

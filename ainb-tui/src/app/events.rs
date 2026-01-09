@@ -184,6 +184,7 @@ pub enum AppEvent {
     WelcomePanelScrollDown,      // Scroll welcome panel down
     WelcomePanelPageUp,          // Page up in welcome panel
     WelcomePanelPageDown,        // Page down in welcome panel
+    WelcomePanelCopyContent,     // Copy welcome panel content to clipboard (y)
     GoToAgentSelection,          // Navigate to agent selection view
     GoToCatalog,                 // Navigate to catalog view (coming soon)
     GoToConfig,                  // Navigate to config view
@@ -1304,6 +1305,7 @@ impl EventHandler {
                     KeyCode::Down => Some(AppEvent::WelcomePanelScrollDown),
                     KeyCode::PageUp => Some(AppEvent::WelcomePanelPageUp),
                     KeyCode::PageDown => Some(AppEvent::WelcomePanelPageDown),
+                    KeyCode::Char('y') => Some(AppEvent::WelcomePanelCopyContent),
                     _ => None,
                 }
             }
@@ -2262,6 +2264,17 @@ impl EventHandler {
             AppEvent::WelcomePanelPageDown => {
                 tracing::debug!("Welcome panel page down");
                 state.home_screen_v2_state.welcome.page_down();
+            }
+            AppEvent::WelcomePanelCopyContent => {
+                tracing::debug!("Welcome panel copy content");
+                match state.home_screen_v2_state.welcome.copy_content_to_clipboard() {
+                    Ok(()) => {
+                        state.add_success_notification("Content copied to clipboard".to_string());
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to copy: {}", e));
+                    }
+                }
             }
             AppEvent::GoToAgentSelection => {
                 tracing::info!("Navigating to AgentSelection");

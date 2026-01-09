@@ -391,6 +391,7 @@ impl HomeScreenV2Component {
                 ("Tab", "sidebar"),
                 ("↑↓", "scroll"),
                 ("PgUp/Dn", "page"),
+                ("y", "copy"),
                 ("?", "help"),
                 ("q", "quit"),
             ],
