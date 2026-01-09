@@ -42,6 +42,7 @@ mod tests {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            ..Default::default()
         });
 
         // Now simulate pressing Enter in InputBranch step
@@ -87,6 +88,7 @@ mod tests {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            ..Default::default()
         });
 
         // In current directory mode, pressing Enter should skip mode selection
@@ -125,6 +127,7 @@ mod tests {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            ..Default::default()
         });
 
         // Test toggling mode
@@ -173,6 +176,7 @@ mod tests {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            ..Default::default()
         });
 
         state.new_session_proceed_from_mode();
@@ -202,6 +206,7 @@ mod tests {
             selected_agent: SessionAgentType::default(),
             agent_options: SessionAgentOption::all(),
             selected_agent_index: 0,
+            ..Default::default()
         });
 
         state.new_session_proceed_from_mode();
@@ -311,5 +316,106 @@ mod tests {
 
         // Should not crash and should not add any notifications since git_view_state is None
         assert_eq!(state.notifications.len(), 0);
+    }
+
+    /// Regression test: Stale async_operation_cancelled flag should not block subsequent sessions
+    /// Bug: After cancelling a session, the flag stays true and blocks the next Local source selection
+    #[test]
+    fn test_stale_cancellation_flag_does_not_block_new_session() {
+        use crate::app::state::RepoSourceChoice;
+
+        let mut state = AppState::new();
+
+        // Step 1: Simulate creating a new session
+        state.new_session_state = Some(NewSessionState {
+            step: NewSessionStep::SelectSource,
+            source_choice: RepoSourceChoice::Local,
+            ..Default::default()
+        });
+
+        // Step 2: Cancel the session (this sets async_operation_cancelled = true)
+        state.cancel_new_session();
+
+        // Verify the flag is set to true after cancellation
+        assert!(
+            state.async_operation_cancelled,
+            "Flag should be true after cancel_new_session()"
+        );
+        assert!(
+            state.new_session_state.is_none(),
+            "Session state should be cleared after cancel"
+        );
+
+        // Step 3: Start a NEW session (user presses 'n' again)
+        state.new_session_state = Some(NewSessionState {
+            step: NewSessionStep::SelectSource,
+            source_choice: RepoSourceChoice::Local,
+            ..Default::default()
+        });
+
+        // Step 4: Proceed from source selection (user selects Local)
+        // This MUST reset the cancellation flag
+        state.new_session_proceed_from_source();
+
+        // Verify the fix: flag should be reset to false
+        assert!(
+            !state.async_operation_cancelled,
+            "Flag MUST be reset to false when starting new Local source search - stale flag would block workspace search"
+        );
+
+        // Verify the async action is queued
+        assert_eq!(
+            state.pending_async_action,
+            Some(crate::app::state::AsyncAction::StartWorkspaceSearch),
+            "StartWorkspaceSearch should be queued for Local source"
+        );
+
+        // Verify step advanced correctly
+        if let Some(ref session_state) = state.new_session_state {
+            assert_eq!(
+                session_state.step,
+                NewSessionStep::SelectRepo,
+                "Step should advance to SelectRepo for local source"
+            );
+        } else {
+            panic!("Session state should exist after proceeding from source");
+        }
+    }
+
+    /// Test that Remote source selection does not affect cancellation flag
+    #[test]
+    fn test_remote_source_does_not_need_cancellation_flag_reset() {
+        use crate::app::state::RepoSourceChoice;
+
+        let mut state = AppState::new();
+
+        // Set up stale flag
+        state.async_operation_cancelled = true;
+
+        // Start new session with Remote source
+        state.new_session_state = Some(NewSessionState {
+            step: NewSessionStep::SelectSource,
+            source_choice: RepoSourceChoice::Remote,
+            ..Default::default()
+        });
+
+        // Proceed with Remote source
+        state.new_session_proceed_from_source();
+
+        // Remote does not use async workspace search, so flag state doesn't matter
+        // But verify the step advances correctly
+        if let Some(ref session_state) = state.new_session_state {
+            assert_eq!(
+                session_state.step,
+                NewSessionStep::InputRepoSource,
+                "Remote source should advance to InputRepoSource"
+            );
+        }
+
+        // No async action should be queued for Remote
+        assert!(
+            state.pending_async_action.is_none(),
+            "Remote source should not queue StartWorkspaceSearch"
+        );
     }
 }
