@@ -4,7 +4,7 @@ use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Paragraph},
+    widgets::{Block, Borders, BorderType, Clear, Paragraph},
 };
 
 // Premium color palette (TUI Style Guide)
@@ -467,41 +467,40 @@ impl LayoutComponent {
     }
 
     fn render_quick_commit_dialog(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        // Create a centered dialog area
-        let dialog_area = centered_rect(60, 20, area);
+        // Clear the ENTIRE area first (proper modal behavior)
+        frame.render_widget(Clear, area);
 
-        // Clear the background with premium dark bg
-        let clear = Block::default().style(Style::default().bg(DARK_BG));
-        frame.render_widget(clear, dialog_area);
+        // Create a centered dialog area (60% width, 25% height for better visibility)
+        let dialog_area = centered_rect(60, 25, area);
 
-        // Create the dialog layout
-        let dialog_layout = Layout::default()
+        // Render outer container with proper TUI styling
+        let outer_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .style(Style::default().bg(PANEL_BG))
+            .title(Line::from(vec![
+                Span::styled(" 📋 ", Style::default().fg(GOLD)),
+                Span::styled("Git Commit ", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            ]));
+        frame.render_widget(outer_block, dialog_area);
+
+        // Calculate inner area (inside the border)
+        let inner_area = Rect {
+            x: dialog_area.x + 1,
+            y: dialog_area.y + 1,
+            width: dialog_area.width.saturating_sub(2),
+            height: dialog_area.height.saturating_sub(2),
+        };
+
+        // Create the inner layout
+        let inner_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Title
                 Constraint::Length(3), // Input field
                 Constraint::Length(2), // Instructions
             ])
-            .split(dialog_area);
-
-        // Render title
-        let title = Paragraph::new(Line::from(vec![
-            Span::styled("🚀 ", Style::default().fg(GOLD)),
-            Span::styled("Quick Commit", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-        ]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(CORNFLOWER_BLUE))
-                .style(Style::default().bg(DARK_BG))
-                .title(Line::from(vec![
-                    Span::styled(" 📋 ", Style::default().fg(GOLD)),
-                    Span::styled("Git Commit", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                ])),
-        )
-        .alignment(Alignment::Center);
-        frame.render_widget(title, dialog_layout[0]);
+            .split(inner_area);
 
         // Render input field with block cursor
         let empty_string = String::new();
@@ -524,24 +523,25 @@ impl LayoutComponent {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(SELECTION_GREEN))
-                    .style(Style::default().bg(Color::Rgb(35, 35, 45)))
+                    .style(Style::default().bg(DARK_BG))
                     .title(Line::from(vec![
                         Span::styled(" ✏️ ", Style::default().fg(GOLD)),
-                        Span::styled("Commit Message", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled("Commit Message ", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
                     ])),
             );
-        frame.render_widget(input_paragraph, dialog_layout[1]);
+        frame.render_widget(input_paragraph, inner_layout[0]);
 
-        // Render instructions
-        let instructions = Paragraph::new(Line::from(vec![
-            Span::styled("Enter", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+        // Render help bar (gold keys + muted descriptions)
+        let help_bar = Paragraph::new(Line::from(vec![
+            Span::styled(" Enter", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
             Span::styled(" Commit & Push ", Style::default().fg(MUTED_GRAY)),
             Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
             Span::styled(" Esc", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
-            Span::styled(" Cancel", Style::default().fg(MUTED_GRAY)),
+            Span::styled(" Cancel ", Style::default().fg(MUTED_GRAY)),
         ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(instructions, dialog_layout[2]);
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(PANEL_BG));
+        frame.render_widget(help_bar, inner_layout[1]);
     }
 }
 

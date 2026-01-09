@@ -6328,6 +6328,10 @@ impl AppState {
         let worktree_path = if let Some(session) = self.get_selected_session() {
             std::path::PathBuf::from(&session.workspace_path)
         } else {
+            tracing::warn!("Quick commit failed: no session selected");
+            self.add_error_notification("❌ No session selected for commit".to_string());
+            self.quick_commit_message = None;
+            self.quick_commit_cursor = 0;
             return;
         };
 
