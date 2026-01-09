@@ -877,6 +877,25 @@ impl GitViewState {
             GitFileStatus::Untracked => {
                 // For untracked files, show the entire file content as additions
                 let file_path = self.worktree_path.join(&selected_file.path);
+
+                // Check if this is a directory
+                if file_path.is_dir() {
+                    diff_content.push(format!("📁 Directory: {}", selected_file.path));
+                    diff_content.push(String::new());
+                    diff_content.push("Contents:".to_string());
+
+                    // List directory contents
+                    if let Ok(entries) = std::fs::read_dir(&file_path) {
+                        for entry in entries.flatten() {
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            let prefix = if entry.path().is_dir() { "📁" } else { "📄" };
+                            diff_content.push(format!("  {} {}", prefix, name));
+                        }
+                    }
+                    self.diff_content = diff_content;
+                    return Ok(());
+                }
+
                 match std::fs::read_to_string(&file_path) {
                     Ok(content) => {
                         diff_content.push(format!("--- /dev/null"));
