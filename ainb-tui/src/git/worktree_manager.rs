@@ -74,6 +74,11 @@ impl WorktreeManager {
         })
     }
 
+    /// Get the base worktree directory path
+    pub fn base_dir(&self) -> &Path {
+        &self.base_worktree_dir
+    }
+
     pub fn create_worktree(
         &self,
         session_id: Uuid,

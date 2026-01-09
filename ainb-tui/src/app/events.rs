@@ -59,6 +59,21 @@ pub enum AppEvent {
     NewSessionInputChar(char),
     NewSessionBackspace,
     NewSessionBackspaceWord,  // Delete word backward (Shift+Backspace)
+    // Source selection events (Local vs Remote)
+    SourceSelectionToggle,       // Toggle between Local and Remote
+    SourceSelectionConfirm,      // Proceed with selected source
+    SourceQuickSelectLocal,      // Quick select Local and proceed
+    SourceQuickSelectRemote,     // Quick select Remote and proceed
+    // Repo input events (URL or path)
+    RepoInputChar(char),
+    RepoInputBackspace,
+    RepoInputBackspaceWord,
+    RepoInputSubmit,
+    // Branch selection events
+    BranchSelectNext,
+    BranchSelectPrev,
+    BranchSelectConfirm,
+    BranchSelectBack,
     NewSessionProceedToModeSelection,
     NewSessionToggleMode,
     NewSessionProceedFromMode,
@@ -169,6 +184,7 @@ pub enum AppEvent {
     WelcomePanelScrollDown,      // Scroll welcome panel down
     WelcomePanelPageUp,          // Page up in welcome panel
     WelcomePanelPageDown,        // Page down in welcome panel
+    WelcomePanelCopyContent,     // Copy welcome panel content to clipboard (y)
     GoToAgentSelection,          // Navigate to agent selection view
     GoToCatalog,                 // Navigate to catalog view (coming soon)
     GoToConfig,                  // Navigate to config view
@@ -459,7 +475,7 @@ impl EventHandler {
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
-            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            // 's' key removed - use 'n' to access local repo search via source selection
             KeyCode::Char('a') => {
                 tracing::info!("[ACTION] 'a' key pressed - AttachTmuxSession requested");
                 Some(AppEvent::AttachTmuxSession)
@@ -570,6 +586,55 @@ impl EventHandler {
 
         if let Some(ref session_state) = state.new_session_state {
             match session_state.step {
+                NewSessionStep::SelectSource => {
+                    // Source selection: Local or Remote
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::SourceSelectionConfirm),
+                        KeyCode::Down | KeyCode::Up | KeyCode::Char('j') | KeyCode::Char('k') => {
+                            Some(AppEvent::SourceSelectionToggle)
+                        }
+                        KeyCode::Char('l') | KeyCode::Char('L') => {
+                            // Quick select Local - set to Local and proceed
+                            Some(AppEvent::SourceQuickSelectLocal)
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            // Quick select Remote - set to Remote and proceed
+                            Some(AppEvent::SourceQuickSelectRemote)
+                        }
+                        _ => None,
+                    }
+                }
+                NewSessionStep::InputRepoSource => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::RepoInputSubmit),
+                        KeyCode::Backspace
+                            if key_event.modifiers.contains(KeyModifiers::SHIFT) =>
+                        {
+                            Some(AppEvent::RepoInputBackspaceWord)
+                        }
+                        KeyCode::Backspace => Some(AppEvent::RepoInputBackspace),
+                        KeyCode::Char(ch) => Some(AppEvent::RepoInputChar(ch)),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::ValidatingRepo => {
+                    // Only allow cancel during validation
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::SelectBranch => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::BranchSelectBack),
+                        KeyCode::Enter => Some(AppEvent::BranchSelectConfirm),
+                        KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::BranchSelectNext),
+                        KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::BranchSelectPrev),
+                        _ => None,
+                    }
+                }
                 NewSessionStep::SelectRepo => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
@@ -880,7 +945,7 @@ impl EventHandler {
     ) -> Option<AppEvent> {
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::GoToHomeScreen),
-            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            // 's' key removed - use 'n' to access local repo search via source selection
             _ => None,
         }
     }
@@ -1240,6 +1305,7 @@ impl EventHandler {
                     KeyCode::Down => Some(AppEvent::WelcomePanelScrollDown),
                     KeyCode::PageUp => Some(AppEvent::WelcomePanelPageUp),
                     KeyCode::PageDown => Some(AppEvent::WelcomePanelPageDown),
+                    KeyCode::Char('y') => Some(AppEvent::WelcomePanelCopyContent),
                     _ => None,
                 }
             }
@@ -1388,8 +1454,8 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
-                // Mark for async processing - create normal new session with mode selection
-                state.pending_async_action = Some(AsyncAction::NewSessionNormal);
+                // Mark for async processing - start new session with repo URL/path input
+                state.pending_async_action = Some(AsyncAction::NewSessionWithRepoInput);
             }
             AppEvent::SearchWorkspace => {
                 // Don't overwrite pending DeleteSession actions
@@ -1404,6 +1470,47 @@ impl EventHandler {
             }
             AppEvent::NewSessionCancel => {
                 state.cancel_new_session();
+            }
+            // Source selection events (Local vs Remote)
+            AppEvent::SourceSelectionToggle => {
+                state.new_session_toggle_source();
+            }
+            AppEvent::SourceSelectionConfirm => {
+                state.new_session_proceed_from_source();
+            }
+            AppEvent::SourceQuickSelectLocal => {
+                state.new_session_quick_select_local();
+            }
+            AppEvent::SourceQuickSelectRemote => {
+                state.new_session_quick_select_remote();
+            }
+            // Repo input events
+            AppEvent::RepoInputChar(ch) => {
+                state.repo_input_update(ch);
+            }
+            AppEvent::RepoInputBackspace => {
+                state.repo_input_backspace();
+            }
+            AppEvent::RepoInputBackspaceWord => {
+                state.repo_input_backspace_word();
+            }
+            AppEvent::RepoInputSubmit => {
+                tracing::info!("Event: RepoInputSubmit - validating repo source");
+                state.pending_async_action = Some(AsyncAction::ValidateRepoSource);
+            }
+            // Branch selection events
+            AppEvent::BranchSelectNext => {
+                state.branch_select_next();
+            }
+            AppEvent::BranchSelectPrev => {
+                state.branch_select_prev();
+            }
+            AppEvent::BranchSelectConfirm => {
+                tracing::info!("Event: BranchSelectConfirm - cloning repo");
+                state.pending_async_action = Some(AsyncAction::CloneRemoteRepo);
+            }
+            AppEvent::BranchSelectBack => {
+                state.branch_select_back();
             }
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
@@ -1499,26 +1606,14 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSessionOpenShell => {
-                tracing::info!("Event: NewSessionOpenShell - opening shell from branch input");
-                // Open shell directly from branch input screen when Shell agent is selected
+                tracing::info!("Event: NewSessionOpenShell - opening shell at repo path");
+                // Open shell directly at the repo path (no worktree, no workspace required)
                 if let Some(ref session_state) = state.new_session_state {
                     if let Some(repo_path) = session_state.get_selected_repo_path() {
-                        tracing::info!("Opening shell in workspace: {:?}", repo_path);
-
-                        // Find the workspace index for this repo
-                        let workspace_idx = state.workspaces.iter()
-                            .position(|w| w.path == repo_path);
-
-                        if let Some(idx) = workspace_idx {
-                            state.pending_async_action = Some(
-                                AsyncAction::OpenWorkspaceShell {
-                                    workspace_index: idx,
-                                    target_dir: None, // Open in workspace root
-                                }
-                            );
-                        } else {
-                            state.add_warning_notification("Workspace not found".to_string());
-                        }
+                        tracing::info!("Opening shell directly at: {:?}", repo_path);
+                        state.pending_async_action = Some(AsyncAction::OpenShellAtPath(repo_path));
+                    } else {
+                        state.add_warning_notification("No repository selected".to_string());
                     }
                 }
                 state.new_session_state = None;
@@ -1656,10 +1751,23 @@ impl EventHandler {
                 }
             }
             AppEvent::DeleteSession => {
+                tracing::info!("[ACTION] Processing DeleteSession event");
+                tracing::debug!(
+                    "[ACTION] Delete state: workspace_idx={:?}, session_idx={:?}, shell_selected={}, is_other_tmux={}, other_tmux_idx={:?}",
+                    state.selected_workspace_index,
+                    state.selected_session_index,
+                    state.shell_selected,
+                    state.is_other_tmux_selected(),
+                    state.selected_other_tmux_index
+                );
+
                 // Check if we're in the "Other tmux" section
                 if state.is_other_tmux_selected() {
                     if let Some(other_session) = state.selected_other_tmux_session() {
+                        tracing::info!("[ACTION] Showing kill confirmation for other tmux session: {}", other_session.name);
                         state.show_kill_other_tmux_confirmation(other_session.name.clone());
+                    } else {
+                        tracing::warn!("[ACTION] Other tmux selected but no session found at index {:?}", state.selected_other_tmux_index);
                     }
                 } else if state.shell_selected {
                     // Shell session selected - show kill shell confirmation
@@ -1671,6 +1779,15 @@ impl EventHandler {
                 } else if let Some(session) = state.selected_session() {
                     // Show confirmation dialog for regular session
                     state.show_delete_confirmation(session.id);
+                } else {
+                    tracing::warn!(
+                        "[ACTION] DeleteSession: No item to delete (workspace_idx={:?}, session_idx={:?}, shell={}, other_tmux_idx={:?})",
+                        state.selected_workspace_index,
+                        state.selected_session_index,
+                        state.shell_selected,
+                        state.selected_other_tmux_index
+                    );
+                    state.add_warning_notification("No session selected to delete".to_string());
                 }
             }
             AppEvent::CleanupOrphaned => {
@@ -2169,6 +2286,17 @@ impl EventHandler {
             AppEvent::WelcomePanelPageDown => {
                 tracing::debug!("Welcome panel page down");
                 state.home_screen_v2_state.welcome.page_down();
+            }
+            AppEvent::WelcomePanelCopyContent => {
+                tracing::debug!("Welcome panel copy content");
+                match state.home_screen_v2_state.welcome.copy_content_to_clipboard() {
+                    Ok(()) => {
+                        state.add_success_notification("Content copied to clipboard".to_string());
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to copy: {}", e));
+                    }
+                }
             }
             AppEvent::GoToAgentSelection => {
                 tracing::info!("Navigating to AgentSelection");
