@@ -2090,7 +2090,8 @@ impl EventHandler {
                 state.git_commit_and_push();
             }
             AppEvent::GitViewBack => {
-                state.current_view = crate::app::state::View::HomeScreen;
+                // Return to the previous view (where user was before opening Git view)
+                state.current_view = state.previous_view.take().unwrap_or(crate::app::state::View::SessionList);
                 state.git_view_state = None;
             }
             // Commit message input events

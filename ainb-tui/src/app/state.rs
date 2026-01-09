@@ -1603,6 +1603,8 @@ pub struct AppState {
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
     // Git view state
     pub git_view_state: Option<crate::components::GitViewState>,
+    // Previous view for navigation (e.g., to return from GitView)
+    pub previous_view: Option<View>,
     // Notification system
     pub notifications: Vec<Notification>,
     // Pending event to be processed in next loop iteration
@@ -1952,6 +1954,7 @@ impl Default for AppState {
             log_streaming_coordinator: None,
             log_sender: None,
             git_view_state: None,
+            previous_view: None,
             notifications: Vec::new(),
             pending_event: None,
 
@@ -6213,6 +6216,8 @@ impl AppState {
             }
 
             self.git_view_state = Some(git_state);
+            // Store current view so we can return to it
+            self.previous_view = Some(self.current_view.clone());
             self.current_view = View::GitView;
         } else {
             tracing::warn!("No session selected for git view");
