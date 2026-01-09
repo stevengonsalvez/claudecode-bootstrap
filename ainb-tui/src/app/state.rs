@@ -5474,13 +5474,15 @@ impl AppState {
         let session_mode = self.find_session(session_id)
             .map(|s| s.mode.clone());
 
-        if let Some(mode) = session_mode {
+        // Track deletion result but don't early-return on error
+        // We want to always refresh the workspace list regardless of deletion outcome
+        let deletion_result: anyhow::Result<()> = if let Some(mode) = session_mode {
             match mode {
                 crate::models::SessionMode::Interactive => {
-                    self.delete_interactive_session(session_id).await?;
+                    self.delete_interactive_session(session_id).await
                 }
                 crate::models::SessionMode::Boss => {
-                    self.delete_boss_session(session_id).await?;
+                    self.delete_boss_session(session_id).await
                 }
             }
         } else {
@@ -5498,15 +5500,23 @@ impl AppState {
                     debug!("Boss cleanup failed (expected if Interactive mode): {}", e);
                 }
             }
-        }
+            Ok(())
+        };
 
-        // Reload workspaces to ensure UI reflects the actual state
+        // ALWAYS reload workspaces to ensure UI reflects the actual state
+        // This is critical - even if deletion failed, we need to refresh to show current state
         self.load_real_workspaces().await;
         // Force UI refresh to show updated session list immediately
         self.ui_needs_refresh = true;
 
-        info!("Successfully deleted session: {}", session_id);
-        Ok(())
+        // Now check if deletion had an error and report it
+        if let Err(e) = &deletion_result {
+            error!("Session deletion encountered error (but UI was refreshed): {}", e);
+        } else {
+            info!("Successfully deleted session: {}", session_id);
+        }
+
+        deletion_result
     }
 
     /// Delete an Interactive mode session

@@ -826,6 +826,8 @@ async fn run_tui_loop(
                             );
                         }
 
+                        // Refresh workspace list to ensure UI reflects the actual state
+                        app.state.load_real_workspaces().await;
                         app.state.ui_needs_refresh = true;
                     }
 
