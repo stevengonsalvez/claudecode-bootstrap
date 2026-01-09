@@ -1751,10 +1751,23 @@ impl EventHandler {
                 }
             }
             AppEvent::DeleteSession => {
+                tracing::info!("[ACTION] Processing DeleteSession event");
+                tracing::debug!(
+                    "[ACTION] Delete state: workspace_idx={:?}, session_idx={:?}, shell_selected={}, is_other_tmux={}, other_tmux_idx={:?}",
+                    state.selected_workspace_index,
+                    state.selected_session_index,
+                    state.shell_selected,
+                    state.is_other_tmux_selected(),
+                    state.selected_other_tmux_index
+                );
+
                 // Check if we're in the "Other tmux" section
                 if state.is_other_tmux_selected() {
                     if let Some(other_session) = state.selected_other_tmux_session() {
+                        tracing::info!("[ACTION] Showing kill confirmation for other tmux session: {}", other_session.name);
                         state.show_kill_other_tmux_confirmation(other_session.name.clone());
+                    } else {
+                        tracing::warn!("[ACTION] Other tmux selected but no session found at index {:?}", state.selected_other_tmux_index);
                     }
                 } else if state.shell_selected {
                     // Shell session selected - show kill shell confirmation
@@ -1766,6 +1779,15 @@ impl EventHandler {
                 } else if let Some(session) = state.selected_session() {
                     // Show confirmation dialog for regular session
                     state.show_delete_confirmation(session.id);
+                } else {
+                    tracing::warn!(
+                        "[ACTION] DeleteSession: No item to delete (workspace_idx={:?}, session_idx={:?}, shell={}, other_tmux_idx={:?})",
+                        state.selected_workspace_index,
+                        state.selected_session_index,
+                        state.shell_selected,
+                        state.selected_other_tmux_index
+                    );
+                    state.add_warning_notification("No session selected to delete".to_string());
                 }
             }
             AppEvent::CleanupOrphaned => {
