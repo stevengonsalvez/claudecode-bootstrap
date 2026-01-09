@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::{
     AppState,
-    state::{NewSessionState, NewSessionStep},
+    state::{NewSessionState, NewSessionStep, RepoSourceChoice},
 };
 
 pub struct NewSessionComponent {
@@ -31,6 +31,18 @@ impl NewSessionComponent {
             frame.render_widget(Clear, popup_area);
 
             match session_state.step {
+                NewSessionStep::SelectSource => {
+                    self.render_source_selection(frame, popup_area, session_state)
+                }
+                NewSessionStep::InputRepoSource => {
+                    self.render_repo_source_input(frame, popup_area, session_state)
+                }
+                NewSessionStep::ValidatingRepo => {
+                    self.render_validating_repo(frame, popup_area, session_state)
+                }
+                NewSessionStep::SelectBranch => {
+                    self.render_branch_selection(frame, popup_area, session_state)
+                }
                 NewSessionStep::SelectRepo => {
                     if state.current_view == crate::app::state::View::SearchWorkspace {
                         self.render_search_workspace(frame, popup_area, session_state)
@@ -56,6 +68,621 @@ impl NewSessionComponent {
                 NewSessionStep::Creating => self.render_creating(frame, popup_area),
             }
         }
+    }
+
+    /// Render the source selection screen (Local vs Remote)
+    fn render_source_selection(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+    ) {
+        // Draw outer border with modern styling
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 📂 Choose Repository Source ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
+
+        // Inner area for content
+        let inner = block.inner(area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(6), // Local option card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(6), // Remote option card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
+            ])
+            .split(inner);
+
+        let is_local = session_state.source_choice == RepoSourceChoice::Local;
+        let is_remote = session_state.source_choice == RepoSourceChoice::Remote;
+
+        // Local option card
+        let local_border_color = if is_local {
+            Color::Rgb(100, 200, 100) // Green when selected
+        } else {
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let local_bg = if is_local {
+            Color::Rgb(35, 45, 35) // Slightly green tint
+        } else {
+            Color::Rgb(30, 30, 40)
+        };
+
+        let local_text = vec![
+            Line::from(vec![
+                Span::styled(
+                    if is_local { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(100, 200, 100)),
+                ),
+                Span::styled("📁 ", Style::default()),
+                Span::styled(
+                    "[L] Local Repository",
+                    Style::default()
+                        .fg(if is_local { Color::Rgb(100, 200, 100) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_local {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(100, 200, 100)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("Browse and select from local repositories", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+        ];
+
+        let local_para = Paragraph::new(local_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(local_border_color))
+                    .style(Style::default().bg(local_bg)),
+            );
+        frame.render_widget(local_para, chunks[0]);
+
+        // Remote option card
+        let remote_border_color = if is_remote {
+            Color::Rgb(100, 149, 237) // Blue when selected
+        } else {
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let remote_bg = if is_remote {
+            Color::Rgb(30, 35, 45) // Slightly blue tint
+        } else {
+            Color::Rgb(30, 30, 40)
+        };
+
+        let remote_text = vec![
+            Line::from(vec![
+                Span::styled(
+                    if is_remote { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(100, 149, 237)),
+                ),
+                Span::styled("🌐 ", Style::default()),
+                Span::styled(
+                    "[R] Remote URL",
+                    Style::default()
+                        .fg(if is_remote { Color::Rgb(100, 149, 237) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_remote {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(100, 149, 237)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("Clone from GitHub, GitLab, or any Git URL", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+        ];
+
+        let remote_para = Paragraph::new(remote_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(remote_border_color))
+                    .style(Style::default().bg(remote_bg)),
+            );
+        frame.render_widget(remote_para, chunks[2]);
+
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ↑↓/L/R ", Style::default().fg(Color::Rgb(255, 215, 0))),
+            Span::styled("Switch  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Select  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
+    }
+
+    /// Render the repo source input screen (URL or local path)
+    fn render_repo_source_input(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+    ) {
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(60, 60, 80);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 🌐 ", Style::default().fg(gold)),
+            Span::styled("New Session", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
+
+        // Inner area for content
+        let inner = block.inner(area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(vec![
+                Constraint::Length(2), // Subtitle
+                Constraint::Length(1), // Spacer
+                Constraint::Length(3), // Input field
+                Constraint::Length(1), // Spacer
+                Constraint::Length(6), // Examples/hints
+                Constraint::Length(1), // Spacer
+                Constraint::Min(0),    // Recent repos (if any)
+                Constraint::Length(2), // Footer
+            ])
+            .split(inner);
+
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Enter a repository URL, GitHub shorthand, or local path", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
+
+        // Input field with cursor
+        let input_text = if session_state.repo_input.is_empty() {
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    "github.com/owner/repo or /path/to/repo...",
+                    Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    &session_state.repo_input,
+                    Style::default().fg(soft_white).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("█", Style::default().fg(selection_green)),
+            ])
+        };
+
+        // Show error if present
+        let input_border_color = if session_state.repo_validation_error.is_some() {
+            Color::Rgb(255, 100, 100) // Red for error
+        } else {
+            selection_green
+        };
+
+        let input = Paragraph::new(input_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(input_border_color))
+                    .title(Span::styled(" Repository ", Style::default().fg(input_border_color)))
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45))),
+            );
+        frame.render_widget(input, chunks[2]);
+
+        // Examples/hints box
+        let example_lines = if let Some(ref error) = session_state.repo_validation_error {
+            vec![
+                Line::from(vec![
+                    Span::styled("  ❌ ", Style::default().fg(Color::Rgb(255, 100, 100))),
+                    Span::styled("Error", Style::default().fg(Color::Rgb(255, 100, 100)).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("     ", Style::default()),
+                    Span::styled(error, Style::default().fg(Color::Rgb(255, 150, 150))),
+                ]),
+            ]
+        } else {
+            vec![
+                Line::from(vec![
+                    Span::styled("  💡 ", Style::default().fg(cornflower_blue)),
+                    Span::styled("Supported formats:", Style::default().fg(cornflower_blue)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("owner/repo", Style::default().fg(gold)),
+                    Span::styled(" → GitHub shorthand", Style::default().fg(muted_gray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("https://github.com/owner/repo", Style::default().fg(gold)),
+                    Span::styled(" → HTTPS URL", Style::default().fg(muted_gray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("git@github.com:owner/repo.git", Style::default().fg(gold)),
+                    Span::styled(" → SSH URL", Style::default().fg(muted_gray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("/path/to/local/repo", Style::default().fg(gold)),
+                    Span::styled(" → Local path", Style::default().fg(muted_gray)),
+                ]),
+            ]
+        };
+
+        let examples = Paragraph::new(example_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(subdued_border))
+                    .style(Style::default().bg(dark_bg)),
+            );
+        frame.render_widget(examples, chunks[4]);
+
+        // Recent repos section (if any)
+        if !session_state.recent_repos.is_empty() {
+            let recent_items: Vec<Line> = session_state
+                .recent_repos
+                .iter()
+                .take(5)
+                .enumerate()
+                .map(|(idx, repo)| {
+                    Line::from(vec![
+                        Span::styled(format!("  {} ", idx + 1), Style::default().fg(muted_gray)),
+                        Span::styled(&repo.owner, Style::default().fg(soft_white)),
+                        Span::styled("/", Style::default().fg(muted_gray)),
+                        Span::styled(&repo.repo_name, Style::default().fg(cornflower_blue)),
+                    ])
+                })
+                .collect();
+
+            let recent_para = Paragraph::new(recent_items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(subdued_border))
+                        .title(Span::styled(" 📜 Recent Repos ", Style::default().fg(muted_gray)))
+                        .style(Style::default().bg(dark_bg)),
+                );
+            frame.render_widget(recent_para, chunks[6]);
+        }
+
+        // Footer
+        let footer_spans = vec![
+            Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Input", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Submit", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Esc", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ];
+
+        let footer = Paragraph::new(Line::from(footer_spans))
+            .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[7]);
+    }
+
+    /// Render the validating/cloning progress screen
+    fn render_validating_repo(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+    ) {
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let progress_cyan = Color::Rgb(100, 200, 230);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" ⏳ ", Style::default().fg(progress_cyan)),
+            Span::styled("Validating Repository", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
+
+        // Inner area for content
+        let inner = block.inner(area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(2), // Subtitle
+                Constraint::Min(0),    // Progress content
+                Constraint::Length(2), // Footer
+            ])
+            .split(inner);
+
+        // Subtitle - show what we're checking
+        let repo_display = session_state.repo_source
+            .as_ref()
+            .map(|s| s.display_name())
+            .unwrap_or_else(|| session_state.repo_input.clone());
+
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Checking ", Style::default().fg(muted_gray)),
+            Span::styled(&repo_display, Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
+
+        // Progress content
+        let progress_lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🔄 ", Style::default().fg(progress_cyan)),
+                Span::styled("Connecting to repository...", Style::default().fg(soft_white)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  📡 ", Style::default().fg(cornflower_blue)),
+                Span::styled("Fetching branch information...", Style::default().fg(soft_white)),
+            ]),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("       This may take a moment...", Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+
+        let progress = Paragraph::new(progress_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .style(Style::default().bg(dark_bg)),
+            );
+        frame.render_widget(progress, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("⏳ ", Style::default().fg(progress_cyan)),
+            Span::styled("Please wait", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[2]);
+    }
+
+    /// Render the branch selection screen
+    fn render_branch_selection(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        session_state: &NewSessionState,
+    ) {
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let subdued_border = Color::Rgb(60, 60, 80);
+        let list_highlight_bg = Color::Rgb(40, 40, 60);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let repo_display = session_state.repo_source
+            .as_ref()
+            .map(|s| s.display_name())
+            .unwrap_or_default();
+
+        let title_line = Line::from(vec![
+            Span::styled(" 🌿 ", Style::default().fg(gold)),
+            Span::styled("Select Branch", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
+
+        // Inner area for content
+        let inner = block.inner(area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(vec![
+                Constraint::Length(2), // Repo info
+                Constraint::Length(1), // Spacer
+                Constraint::Min(0),    // Branch list
+                Constraint::Length(2), // Footer
+            ])
+            .split(inner);
+
+        // Repo info
+        let repo_info = Paragraph::new(Line::from(vec![
+            Span::styled("📁 ", Style::default()),
+            Span::styled(&repo_display, Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
+            Span::styled(" → ", Style::default().fg(muted_gray)),
+            Span::styled("Choose a base branch to create worktree from", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(repo_info, chunks[0]);
+
+        // Branch list
+        let branch_items: Vec<ListItem> = session_state
+            .remote_branches
+            .iter()
+            .enumerate()
+            .map(|(idx, branch)| {
+                let is_selected = idx == session_state.selected_branch_index;
+
+                let mut spans = vec![];
+
+                // Selection indicator
+                if is_selected {
+                    spans.push(Span::styled("  ▶ ", Style::default().fg(selection_green)));
+                } else {
+                    spans.push(Span::raw("    "));
+                }
+
+                // Branch icon
+                let branch_icon = if branch.is_default { "★" } else { "○" };
+                spans.push(Span::styled(
+                    format!("{} ", branch_icon),
+                    Style::default().fg(if branch.is_default { gold } else { muted_gray }),
+                ));
+
+                // Branch name
+                let name_style = if is_selected {
+                    Style::default().fg(selection_green).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(soft_white)
+                };
+                spans.push(Span::styled(&branch.name, name_style));
+
+                // Default badge
+                if branch.is_default {
+                    spans.push(Span::styled(
+                        " [default]",
+                        Style::default().fg(gold).add_modifier(Modifier::ITALIC),
+                    ));
+                }
+
+                // Commit hash (truncated)
+                spans.push(Span::styled(
+                    format!("  {}", &branch.commit_hash[..7.min(branch.commit_hash.len())]),
+                    Style::default().fg(muted_gray),
+                ));
+
+                let base_style = if is_selected {
+                    Style::default().bg(list_highlight_bg)
+                } else {
+                    Style::default()
+                };
+
+                ListItem::new(Line::from(spans)).style(base_style)
+            })
+            .collect();
+
+        let branch_count = session_state.remote_branches.len();
+        let list_title = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(format!("Branches ({})", branch_count), Style::default().fg(cornflower_blue)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let branch_list = List::new(branch_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(subdued_border))
+                    .title(list_title)
+                    .style(Style::default().bg(dark_bg)),
+            )
+            .highlight_style(Style::default().bg(list_highlight_bg));
+
+        frame.render_widget(branch_list, chunks[2]);
+
+        // Footer
+        let footer_spans = vec![
+            Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Navigate", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Select", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Esc", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled(" Back", Style::default().fg(muted_gray)),
+        ];
+
+        let footer = Paragraph::new(Line::from(footer_spans))
+            .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[3]);
     }
 
     fn render_repo_selection(
@@ -851,6 +1478,7 @@ impl NewSessionComponent {
             ("None selected".to_string(), "".to_string())
         };
 
+        // Build repo info lines with optional current branch
         let repo_lines = vec![
             Line::from(vec![
                 Span::styled("  📁 ", Style::default()),
@@ -864,6 +1492,17 @@ impl NewSessionComponent {
                         .fg(Color::Rgb(100, 200, 255)) // Light blue
                         .add_modifier(Modifier::BOLD),
                 ),
+                // Show current branch next to repo name
+                if let Some(ref branch) = session_state.current_repo_branch {
+                    Span::styled(
+                        format!("  ({})", branch),
+                        Style::default()
+                            .fg(Color::Rgb(100, 200, 100)) // Green for branch
+                            .add_modifier(Modifier::ITALIC),
+                    )
+                } else {
+                    Span::raw("")
+                },
             ]),
             Line::from(""),
             Line::from(vec![

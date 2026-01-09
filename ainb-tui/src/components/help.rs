@@ -30,8 +30,7 @@ impl HelpComponent {
             ListItem::new(""),
             ListItem::new("Session Actions:")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            ListItem::new("  n          New session (current directory)"),
-            ListItem::new("  s          Search & select workspace"),
+            ListItem::new("  n          New session (local or remote)"),
             ListItem::new("  a          Attach to session"),
             ListItem::new("  e          Restart stopped session"),
             ListItem::new("  r          Re-authenticate credentials"),

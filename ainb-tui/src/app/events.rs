@@ -59,6 +59,21 @@ pub enum AppEvent {
     NewSessionInputChar(char),
     NewSessionBackspace,
     NewSessionBackspaceWord,  // Delete word backward (Shift+Backspace)
+    // Source selection events (Local vs Remote)
+    SourceSelectionToggle,       // Toggle between Local and Remote
+    SourceSelectionConfirm,      // Proceed with selected source
+    SourceQuickSelectLocal,      // Quick select Local and proceed
+    SourceQuickSelectRemote,     // Quick select Remote and proceed
+    // Repo input events (URL or path)
+    RepoInputChar(char),
+    RepoInputBackspace,
+    RepoInputBackspaceWord,
+    RepoInputSubmit,
+    // Branch selection events
+    BranchSelectNext,
+    BranchSelectPrev,
+    BranchSelectConfirm,
+    BranchSelectBack,
     NewSessionProceedToModeSelection,
     NewSessionToggleMode,
     NewSessionProceedFromMode,
@@ -459,7 +474,7 @@ impl EventHandler {
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
-            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            // 's' key removed - use 'n' to access local repo search via source selection
             KeyCode::Char('a') => {
                 tracing::info!("[ACTION] 'a' key pressed - AttachTmuxSession requested");
                 Some(AppEvent::AttachTmuxSession)
@@ -570,6 +585,55 @@ impl EventHandler {
 
         if let Some(ref session_state) = state.new_session_state {
             match session_state.step {
+                NewSessionStep::SelectSource => {
+                    // Source selection: Local or Remote
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::SourceSelectionConfirm),
+                        KeyCode::Down | KeyCode::Up | KeyCode::Char('j') | KeyCode::Char('k') => {
+                            Some(AppEvent::SourceSelectionToggle)
+                        }
+                        KeyCode::Char('l') | KeyCode::Char('L') => {
+                            // Quick select Local - set to Local and proceed
+                            Some(AppEvent::SourceQuickSelectLocal)
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            // Quick select Remote - set to Remote and proceed
+                            Some(AppEvent::SourceQuickSelectRemote)
+                        }
+                        _ => None,
+                    }
+                }
+                NewSessionStep::InputRepoSource => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::RepoInputSubmit),
+                        KeyCode::Backspace
+                            if key_event.modifiers.contains(KeyModifiers::SHIFT) =>
+                        {
+                            Some(AppEvent::RepoInputBackspaceWord)
+                        }
+                        KeyCode::Backspace => Some(AppEvent::RepoInputBackspace),
+                        KeyCode::Char(ch) => Some(AppEvent::RepoInputChar(ch)),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::ValidatingRepo => {
+                    // Only allow cancel during validation
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::SelectBranch => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::BranchSelectBack),
+                        KeyCode::Enter => Some(AppEvent::BranchSelectConfirm),
+                        KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::BranchSelectNext),
+                        KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::BranchSelectPrev),
+                        _ => None,
+                    }
+                }
                 NewSessionStep::SelectRepo => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
@@ -880,7 +944,7 @@ impl EventHandler {
     ) -> Option<AppEvent> {
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::GoToHomeScreen),
-            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            // 's' key removed - use 'n' to access local repo search via source selection
             _ => None,
         }
     }
@@ -1388,8 +1452,8 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
-                // Mark for async processing - create normal new session with mode selection
-                state.pending_async_action = Some(AsyncAction::NewSessionNormal);
+                // Mark for async processing - start new session with repo URL/path input
+                state.pending_async_action = Some(AsyncAction::NewSessionWithRepoInput);
             }
             AppEvent::SearchWorkspace => {
                 // Don't overwrite pending DeleteSession actions
@@ -1404,6 +1468,47 @@ impl EventHandler {
             }
             AppEvent::NewSessionCancel => {
                 state.cancel_new_session();
+            }
+            // Source selection events (Local vs Remote)
+            AppEvent::SourceSelectionToggle => {
+                state.new_session_toggle_source();
+            }
+            AppEvent::SourceSelectionConfirm => {
+                state.new_session_proceed_from_source();
+            }
+            AppEvent::SourceQuickSelectLocal => {
+                state.new_session_quick_select_local();
+            }
+            AppEvent::SourceQuickSelectRemote => {
+                state.new_session_quick_select_remote();
+            }
+            // Repo input events
+            AppEvent::RepoInputChar(ch) => {
+                state.repo_input_update(ch);
+            }
+            AppEvent::RepoInputBackspace => {
+                state.repo_input_backspace();
+            }
+            AppEvent::RepoInputBackspaceWord => {
+                state.repo_input_backspace_word();
+            }
+            AppEvent::RepoInputSubmit => {
+                tracing::info!("Event: RepoInputSubmit - validating repo source");
+                state.pending_async_action = Some(AsyncAction::ValidateRepoSource);
+            }
+            // Branch selection events
+            AppEvent::BranchSelectNext => {
+                state.branch_select_next();
+            }
+            AppEvent::BranchSelectPrev => {
+                state.branch_select_prev();
+            }
+            AppEvent::BranchSelectConfirm => {
+                tracing::info!("Event: BranchSelectConfirm - cloning repo");
+                state.pending_async_action = Some(AsyncAction::CloneRemoteRepo);
+            }
+            AppEvent::BranchSelectBack => {
+                state.branch_select_back();
             }
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
@@ -1499,26 +1604,14 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSessionOpenShell => {
-                tracing::info!("Event: NewSessionOpenShell - opening shell from branch input");
-                // Open shell directly from branch input screen when Shell agent is selected
+                tracing::info!("Event: NewSessionOpenShell - opening shell at repo path");
+                // Open shell directly at the repo path (no worktree, no workspace required)
                 if let Some(ref session_state) = state.new_session_state {
                     if let Some(repo_path) = session_state.get_selected_repo_path() {
-                        tracing::info!("Opening shell in workspace: {:?}", repo_path);
-
-                        // Find the workspace index for this repo
-                        let workspace_idx = state.workspaces.iter()
-                            .position(|w| w.path == repo_path);
-
-                        if let Some(idx) = workspace_idx {
-                            state.pending_async_action = Some(
-                                AsyncAction::OpenWorkspaceShell {
-                                    workspace_index: idx,
-                                    target_dir: None, // Open in workspace root
-                                }
-                            );
-                        } else {
-                            state.add_warning_notification("Workspace not found".to_string());
-                        }
+                        tracing::info!("Opening shell directly at: {:?}", repo_path);
+                        state.pending_async_action = Some(AsyncAction::OpenShellAtPath(repo_path));
+                    } else {
+                        state.add_warning_notification("No repository selected".to_string());
                     }
                 }
                 state.new_session_state = None;

@@ -85,12 +85,10 @@ async fn main() -> Result<()> {
             if app::state::AppState::needs_onboarding() {
                 tracing::info!("First-time setup detected - starting onboarding wizard");
                 app.state.start_onboarding(false, None);
-
-                // CRITICAL: Clear any pending async actions set during init()
-                // The check_current_directory_status() in init() may have set StartWorkspaceSearch,
-                // which would override the onboarding view on first tick
-                app.state.pending_async_action = None;
             }
+
+            // Always clear pending async actions after init to ensure clean startup
+            app.state.pending_async_action = None;
 
             // Flush any pending terminal events to prevent stray keypresses
             // from interfering with onboarding or initial view
@@ -261,6 +259,11 @@ async fn run_tui_loop(
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
 
+    // Startup guard: Ignore key events for the first 100ms to prevent stray keypresses
+    // from triggering actions (e.g., buffered 'n' key opening New Session dialog)
+    let startup_time = Instant::now();
+    const STARTUP_GUARD_MS: u64 = 100;
+
     loop {
         terminal.draw(|frame| {
             layout.render(frame, &mut app.state);
@@ -273,6 +276,15 @@ async fn run_tui_loop(
         if crossterm::event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key_event) => {
+                    // Startup guard: Ignore key events during startup period
+                    if startup_time.elapsed() < Duration::from_millis(STARTUP_GUARD_MS) {
+                        tracing::debug!(
+                            "Ignoring key event {:?} during startup guard period",
+                            key_event.code
+                        );
+                        continue;
+                    }
+
                     // Intercept keys when tmux preview is in scroll mode
                     use crossterm::event::KeyCode;
                     let preview = layout.tmux_preview_mut();
@@ -696,6 +708,86 @@ async fn run_tui_loop(
                         match attach_handler.attach_to_session(&tmux_name).await {
                             Ok(()) => {
                                 info!("[ACTION] Successfully attached to workspace shell");
+                            }
+                            Err(e) => {
+                                error!("[ACTION] Failed to attach to shell: {}", e);
+                                app.state.add_error_notification(format!("Failed to attach: {}", e));
+                            }
+                        }
+
+                        app.state.ui_needs_refresh = true;
+                    }
+
+                    AsyncAction::OpenShellAtPath(repo_path) => {
+                        use crate::app::AttachHandler;
+                        use tokio::process::Command;
+
+                        info!("[ACTION] Opening shell at path: {:?}", repo_path);
+
+                        // Generate a simple tmux session name based on repo directory
+                        // Sanitize repo name: periods are tmux session.window delimiters
+                        let repo_name = repo_path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("shell")
+                            .replace('.', "-")    // Periods break tmux (session.window delimiter)
+                            .replace(':', "-")    // Colons are special in tmux
+                            .replace('/', "-");   // Slashes for safety
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        let tmux_name = format!("shell-{}-{}", repo_name, timestamp % 10000);
+
+                        let repo_path_str = repo_path.to_str().unwrap_or(".");
+
+                        // Check if session already exists
+                        let has_session = Command::new("tmux")
+                            .args(["has-session", "-t", &tmux_name])
+                            .output()
+                            .await
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+
+                        if !has_session {
+                            // Create new tmux session (detached so we can attach via AttachHandler)
+                            let create_result = Command::new("tmux")
+                                .args([
+                                    "new-session",
+                                    "-d",           // Start detached
+                                    "-s", &tmux_name,
+                                    "-c", repo_path_str,  // Set working directory
+                                ])
+                                .output()
+                                .await;
+
+                            match create_result {
+                                Ok(output) if output.status.success() => {
+                                    info!("[ACTION] Created tmux session: {}", tmux_name);
+                                }
+                                Ok(output) => {
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    error!("[ACTION] tmux session creation failed: {}", stderr);
+                                    app.state.add_error_notification(format!("Shell creation failed: {}", stderr));
+                                    app.state.ui_needs_refresh = true;
+                                    continue;
+                                }
+                                Err(e) => {
+                                    error!("[ACTION] tmux command error: {}", e);
+                                    app.state.add_error_notification(format!("Shell error: {}", e));
+                                    app.state.ui_needs_refresh = true;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            info!("[ACTION] Reusing existing tmux session: {}", tmux_name);
+                        }
+
+                        // Attach to the shell
+                        let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                        match attach_handler.attach_to_session(&tmux_name).await {
+                            Ok(()) => {
+                                info!("[ACTION] Successfully attached to shell at {:?}", repo_path);
+                                app.state.add_success_notification(format!("Shell opened at: {}", repo_name));
                             }
                             Err(e) => {
                                 error!("[ACTION] Failed to attach to shell: {}", e);
