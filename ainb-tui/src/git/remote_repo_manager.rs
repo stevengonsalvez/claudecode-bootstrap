@@ -267,24 +267,42 @@ impl RemoteRepoManager {
             .unwrap_or(false);
 
         if !branch_exists {
-            // Create local branch tracking origin
-            let remote_ref = format!("origin/{}", base_branch);
+            // In a bare clone, refs are stored directly in refs/heads/{branch}
+            // NOT in refs/remotes/origin/{branch} like a regular clone
+            // So we use the branch name directly, not origin/{branch}
+            let base_ref = base_branch;
 
-            // First verify the remote ref exists
+            // First verify the base branch ref exists in the bare repo
             let ref_check = Command::new("git")
-                .args(["rev-parse", "--verify", &remote_ref])
+                .args(["rev-parse", "--verify", &format!("refs/heads/{}", base_ref)])
                 .current_dir(cache_path)
                 .output()?;
 
             if !ref_check.status.success() {
+                // Get list of available branches for better error message
+                let branches_output = Command::new("git")
+                    .args(["branch", "--list"])
+                    .current_dir(cache_path)
+                    .output()
+                    .ok();
+                let available = branches_output
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                    .unwrap_or_default();
+                let branch_list: Vec<&str> = available.lines()
+                    .map(|s| s.trim().trim_start_matches("* "))
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
                 return Err(RemoteRepoError::InvalidRepo(format!(
-                    "Base branch '{}' not found. Available branches can be listed with 'git branch -r'",
-                    base_branch
+                    "Base branch '{}' not found. Available branches: {}",
+                    base_branch,
+                    if branch_list.is_empty() { "(none)".to_string() } else { branch_list.join(", ") }
                 )));
             }
 
+            // Create new branch from the base branch
             let output = Command::new("git")
-                .args(["branch", branch_name, &remote_ref])
+                .args(["branch", branch_name, base_ref])
                 .current_dir(cache_path)
                 .output()?;
 
