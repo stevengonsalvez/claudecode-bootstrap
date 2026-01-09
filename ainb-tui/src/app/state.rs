@@ -4644,6 +4644,7 @@ impl AppState {
             restart_session_id,
             agent_type,
             session_model,
+            existing_worktree,
         ) = {
             if let Some(ref mut state) = self.new_session_state {
                 tracing::info!("new_session_create called with step: {:?}", state.step);
@@ -4663,7 +4664,9 @@ impl AppState {
 
                 if can_create {
                     // Check if this is a remote repo flow (cached_repo_path is set)
-                    let repo_path = if let Some(ref cached_path) = state.cached_repo_path {
+                    // For remote repos, we create worktree here and pass it to session creation
+                    // For local repos, session creation will create the worktree
+                    let (repo_path, existing_worktree) = if let Some(ref cached_path) = state.cached_repo_path {
                         // Remote repo flow - create worktree from bare cache
                         use crate::git::RemoteRepoManager;
 
@@ -4712,11 +4715,12 @@ impl AppState {
                         }
 
                         tracing::info!("Created worktree at: {}", worktree_path.display());
-                        worktree_path
+                        // Return worktree path and the existing worktree info (worktree_path, source_repo)
+                        (worktree_path.clone(), Some((worktree_path, cached_path.clone())))
                     } else if let Some(repo_index) = state.selected_repo_index {
-                        // Local repo flow
+                        // Local repo flow - no existing worktree, session creation will create it
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
-                            repo_path.clone()
+                            (repo_path.clone(), None)
                         } else {
                             tracing::error!(
                                 "Failed to get repository path from filtered_repos at index: {}",
@@ -4730,9 +4734,10 @@ impl AppState {
                     };
 
                     tracing::info!(
-                        "Creating session for repository: {:?}, branch: {}",
+                        "Creating session for repository: {:?}, branch: {}, existing_worktree: {}",
                         repo_path,
-                        state.branch_name
+                        state.branch_name,
+                        existing_worktree.is_some()
                     );
                     state.step = NewSessionStep::Creating;
 
@@ -4754,6 +4759,7 @@ impl AppState {
                         state.restart_session_id, // Pass restart session ID
                         state.selected_agent,     // Agent type for session
                         state.get_session_model(), // Model (only for Claude agent)
+                        existing_worktree,        // Existing worktree for remote repos
                     )
                 } else {
                     tracing::warn!(
@@ -4805,6 +4811,7 @@ impl AppState {
                 boss_prompt,
                 agent_type,
                 session_model,
+                existing_worktree,
             )
             .await
         };
@@ -5039,6 +5046,7 @@ impl AppState {
         boss_prompt: Option<String>,
         agent_type: crate::models::SessionAgentType,
         model: Option<crate::models::ClaudeModel>,
+        existing_worktree: Option<(std::path::PathBuf, std::path::PathBuf)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Branch based on session mode
         match mode {
@@ -5050,6 +5058,7 @@ impl AppState {
                     skip_permissions,
                     agent_type,
                     model,
+                    existing_worktree,
                 )
                 .await
             }
@@ -5067,6 +5076,15 @@ impl AppState {
     }
 
     /// Create an Interactive mode session (host-based, no Docker)
+    ///
+    /// # Arguments
+    /// * `repo_path` - Path to the repository (or existing worktree for remote repos)
+    /// * `branch_name` - Branch name for the session
+    /// * `session_id` - Unique session identifier
+    /// * `skip_permissions` - Whether to skip permission prompts
+    /// * `agent_type` - Type of agent (Claude, Shell, etc.)
+    /// * `model` - Claude model to use
+    /// * `existing_worktree` - For remote repos: (worktree_path, source_repo_path)
     async fn create_interactive_session(
         &mut self,
         repo_path: &std::path::Path,
@@ -5075,12 +5093,13 @@ impl AppState {
         skip_permissions: bool,
         agent_type: crate::models::SessionAgentType,
         model: Option<crate::models::ClaudeModel>,
+        existing_worktree: Option<(std::path::PathBuf, std::path::PathBuf)>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::interactive::InteractiveSessionManager;
 
         info!(
-            "Creating Interactive mode session {} for branch '{}' (skip_permissions={})",
-            session_id, branch_name, skip_permissions
+            "Creating Interactive mode session {} for branch '{}' (skip_permissions={}, existing_worktree={})",
+            session_id, branch_name, skip_permissions, existing_worktree.is_some()
         );
 
         // Create a channel for logs
@@ -5110,25 +5129,41 @@ impl AppState {
             .unwrap_or("unknown")
             .to_string();
 
-        // Send log updates
-        let _ = log_sender.send("Creating git worktree...".to_string());
-
         // Create Interactive session manager (NO Docker dependency)
         let mut manager = InteractiveSessionManager::new()?;
 
-        // Create the session
-        let result = manager
-            .create_session(
-                session_id,
-                workspace_name.clone(),
-                repo_path.to_path_buf(),
-                branch_name.to_string(),
-                None, // base_branch
-                skip_permissions,
-                agent_type,
-                model,
-            )
-            .await;
+        // Create the session - use existing worktree for remote repos, create new for local
+        let result = if let Some((worktree_path, source_repo_path)) = existing_worktree {
+            // Remote repo flow - worktree already created from bare cache
+            let _ = log_sender.send("Using existing worktree...".to_string());
+            manager
+                .create_session_with_worktree(
+                    session_id,
+                    workspace_name.clone(),
+                    worktree_path,
+                    source_repo_path,
+                    branch_name.to_string(),
+                    skip_permissions,
+                    agent_type,
+                    model,
+                )
+                .await
+        } else {
+            // Local repo flow - create new worktree
+            let _ = log_sender.send("Creating git worktree...".to_string());
+            manager
+                .create_session(
+                    session_id,
+                    workspace_name.clone(),
+                    repo_path.to_path_buf(),
+                    branch_name.to_string(),
+                    None, // base_branch
+                    skip_permissions,
+                    agent_type,
+                    model,
+                )
+                .await
+        };
 
         // Wait for logs to be collected
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

@@ -157,6 +157,97 @@ impl InteractiveSessionManager {
         Ok(session)
     }
 
+    /// Create an Interactive session using an existing worktree
+    ///
+    /// This is used for remote repository flows where the worktree has already been
+    /// created from the bare cache. Unlike `create_session()`, this skips worktree creation.
+    ///
+    /// # Arguments
+    /// * `session_id` - Unique identifier for the session
+    /// * `workspace_name` - Name of the workspace (for display)
+    /// * `existing_worktree_path` - Path to the already-created worktree
+    /// * `source_repo_path` - Path to the source repository (bare cache for remote repos)
+    /// * `branch_name` - Branch name for the session
+    /// * `skip_permissions` - Whether to skip permission prompts in claude CLI
+    /// * `agent_type` - Type of agent (Claude, Shell, etc.)
+    /// * `model` - Claude model to use (only for Claude agent)
+    ///
+    /// # Returns
+    /// * `Result<InteractiveSession>` - The created session or an error
+    pub async fn create_session_with_worktree(
+        &mut self,
+        session_id: Uuid,
+        workspace_name: String,
+        existing_worktree_path: PathBuf,
+        source_repo_path: PathBuf,
+        branch_name: String,
+        skip_permissions: bool,
+        agent_type: SessionAgentType,
+        model: Option<ClaudeModel>,
+    ) -> Result<InteractiveSession, InteractiveSessionError> {
+        info!(
+            "Creating Interactive session {} with existing worktree at '{}' (agent={:?}, model={:?})",
+            session_id, existing_worktree_path.display(), agent_type, model
+        );
+
+        // Check if session already exists
+        if self.active_sessions.contains_key(&session_id) {
+            return Err(InteractiveSessionError::SessionAlreadyExists(session_id));
+        }
+
+        // Verify the worktree exists
+        if !existing_worktree_path.exists() {
+            return Err(InteractiveSessionError::Worktree(
+                crate::git::WorktreeError::NotFound(existing_worktree_path.display().to_string())
+            ));
+        }
+
+        info!("Using existing worktree at: {}", existing_worktree_path.display());
+
+        // Create session-based symlink for easy lookup
+        let session_path = self.worktree_manager.base_dir().join("by-session").join(session_id.to_string());
+        if !session_path.exists() {
+            if let Some(parent) = session_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&existing_worktree_path, &session_path).ok();
+        }
+
+        // Step 1: Create tmux session name
+        let tmux_session_name = Self::generate_tmux_name(&branch_name);
+
+        // Step 2: Start tmux session
+        info!("Starting tmux session: {}", tmux_session_name);
+        self.start_tmux_session(&tmux_session_name, &existing_worktree_path).await?;
+
+        // Step 3: Start claude CLI in tmux session (only for Claude agent)
+        if agent_type == SessionAgentType::Claude {
+            info!("Starting claude CLI in tmux session (model={:?}, skip_permissions={})", model, skip_permissions);
+            self.start_claude_in_tmux(&tmux_session_name, skip_permissions, model).await?;
+        } else {
+            info!("Skipping claude CLI for agent type: {:?}", agent_type);
+        }
+
+        // Step 4: Create session record
+        let session = InteractiveSession {
+            session_id,
+            worktree_path: existing_worktree_path,
+            source_repository: source_repo_path,
+            tmux_session_name: tmux_session_name.clone(),
+            branch_name: branch_name.clone(),
+            workspace_name: workspace_name.clone(),
+            created_at: Utc::now(),
+            agent_type,
+            model,
+        };
+
+        self.active_sessions.insert(session_id, session.clone());
+
+        info!("Successfully created Interactive session {} with existing worktree", session_id);
+        Ok(session)
+    }
+
     /// Discover and list all active Interactive sessions by scanning tmux
     ///
     /// This enables stateless recovery - we can discover sessions created in
