@@ -5745,28 +5745,27 @@ impl AppState {
                         ));
                     }
                 }
-                AsyncAction::AttachToOtherTmux(_session_name) => {
-                    // NOTE: This action must be handled in main.rs where terminal access is available
-                    warn!("AttachToOtherTmux action should be handled in main loop, not here");
-                    self.ui_needs_refresh = true;
+                // Terminal actions - must be handled in main.rs where terminal access is available
+                // PUT THE ACTION BACK so main loop can handle it
+                action @ AsyncAction::AttachToOtherTmux(_) => {
+                    debug!("AttachToOtherTmux action deferred to main loop");
+                    self.pending_async_action = Some(action);
                 }
-                AsyncAction::KillOtherTmux(_session_name) => {
-                    // NOTE: This action must be handled in main.rs where terminal access is available
-                    warn!("KillOtherTmux action should be handled in main loop, not here");
-                    self.ui_needs_refresh = true;
+                action @ AsyncAction::KillOtherTmux(_) => {
+                    debug!("KillOtherTmux action deferred to main loop");
+                    self.pending_async_action = Some(action);
                 }
-                // Workspace shell actions - handled in main.rs where terminal access is available
-                AsyncAction::OpenWorkspaceShell { .. } => {
-                    warn!("OpenWorkspaceShell action should be handled in main loop, not here");
-                    self.ui_needs_refresh = true;
+                action @ AsyncAction::OpenWorkspaceShell { .. } => {
+                    debug!("OpenWorkspaceShell action deferred to main loop");
+                    self.pending_async_action = Some(action);
                 }
-                AsyncAction::OpenShellAtPath(_) => {
-                    warn!("OpenShellAtPath action should be handled in main loop, not here");
-                    self.ui_needs_refresh = true;
+                action @ AsyncAction::OpenShellAtPath(_) => {
+                    debug!("OpenShellAtPath action deferred to main loop");
+                    self.pending_async_action = Some(action);
                 }
-                AsyncAction::KillWorkspaceShell(_) => {
-                    warn!("KillWorkspaceShell action should be handled in main loop, not here");
-                    self.ui_needs_refresh = true;
+                action @ AsyncAction::KillWorkspaceShell(_) => {
+                    debug!("KillWorkspaceShell action deferred to main loop");
+                    self.pending_async_action = Some(action);
                 }
                 AsyncAction::OnboardingCheckDeps => {
                     info!("Running onboarding dependency check");
