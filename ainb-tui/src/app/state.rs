@@ -3732,7 +3732,7 @@ impl AppState {
 
         info!("Cloning repo: {}/{}", parsed.owner, parsed.repo_name);
 
-        match manager.clone_bare(&source, &parsed) {
+        match manager.clone_repo(&source, &parsed) {
             Ok(cache_path) => {
                 info!("Cloned to: {}", cache_path.display());
                 if let Some(ref mut state) = self.new_session_state {

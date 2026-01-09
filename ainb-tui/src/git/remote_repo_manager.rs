@@ -65,18 +65,18 @@ impl RemoteRepoManager {
         &self.cache_dir
     }
 
-    /// Get the cache path for a parsed repo
+    /// Get the cache path for a parsed repo (standard clone, not bare)
     pub fn get_cache_path(&self, parsed: &ParsedRepo) -> PathBuf {
         self.cache_dir
             .join(&parsed.host)
             .join(&parsed.owner)
-            .join(format!("{}.git", &parsed.repo_name))
+            .join(&parsed.repo_name)
     }
 
-    /// Check if a repo is already cached
+    /// Check if a repo is already cached (standard clone with .git subdirectory)
     pub fn is_cached(&self, parsed: &ParsedRepo) -> bool {
         let cache_path = self.get_cache_path(parsed);
-        cache_path.exists() && cache_path.join("HEAD").exists()
+        cache_path.exists() && cache_path.join(".git").exists()
     }
 
     /// List remote branches without cloning (uses git ls-remote)
@@ -178,8 +178,11 @@ impl RemoteRepoManager {
         None
     }
 
-    /// Clone a remote repository as a bare clone
-    pub fn clone_bare(
+    /// Clone a remote repository as a standard clone (not bare)
+    ///
+    /// Standard clone has .git subdirectory and working copy, making it
+    /// compatible with the same worktree handling as local repositories.
+    pub fn clone_repo(
         &self,
         source: &RepoSource,
         parsed: &ParsedRepo,
@@ -204,8 +207,9 @@ impl RemoteRepoManager {
             std::fs::create_dir_all(parent)?;
         }
 
+        // Standard clone (not --bare) for compatibility with worktree discovery
         let output = Command::new("git")
-            .args(["clone", "--bare", &url])
+            .args(["clone", &url])
             .arg(&cache_path)
             .output()
             .map_err(|e| RemoteRepoError::CloneFailed(e.to_string()))?;
@@ -219,7 +223,7 @@ impl RemoteRepoManager {
         Ok(cache_path)
     }
 
-    /// Fetch updates for a cached bare repo
+    /// Fetch updates for a cached repo
     pub fn fetch_updates(&self, cache_path: &Path) -> Result<(), RemoteRepoError> {
         info!("Fetching updates for: {}", cache_path.display());
 
@@ -238,7 +242,10 @@ impl RemoteRepoManager {
         Ok(())
     }
 
-    /// Create a worktree from a bare cached repo
+    /// Create a worktree from a cached standard clone
+    ///
+    /// For standard clones, refs are in refs/remotes/origin/{branch},
+    /// so we use origin/{base_branch} to create the new branch.
     pub fn create_worktree_from_cache(
         &self,
         cache_path: &Path,
@@ -258,7 +265,7 @@ impl RemoteRepoManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Check if the new branch already exists
+        // Check if the new branch already exists locally
         let branch_exists = Command::new("git")
             .args(["rev-parse", "--verify", branch_name])
             .current_dir(cache_path)
@@ -267,21 +274,20 @@ impl RemoteRepoManager {
             .unwrap_or(false);
 
         if !branch_exists {
-            // In a bare clone, refs are stored directly in refs/heads/{branch}
-            // NOT in refs/remotes/origin/{branch} like a regular clone
-            // So we use the branch name directly, not origin/{branch}
-            let base_ref = base_branch;
+            // Standard clone has refs in refs/remotes/origin/{branch}
+            // Use origin/{base_branch} shorthand
+            let base_ref = format!("origin/{}", base_branch);
 
-            // First verify the base branch ref exists in the bare repo
+            // Verify the remote branch exists
             let ref_check = Command::new("git")
-                .args(["rev-parse", "--verify", &format!("refs/heads/{}", base_ref)])
+                .args(["rev-parse", "--verify", &base_ref])
                 .current_dir(cache_path)
                 .output()?;
 
             if !ref_check.status.success() {
-                // Get list of available branches for better error message
+                // Get list of available remote branches for better error message
                 let branches_output = Command::new("git")
-                    .args(["branch", "--list"])
+                    .args(["branch", "-r"])
                     .current_dir(cache_path)
                     .output()
                     .ok();
@@ -289,20 +295,20 @@ impl RemoteRepoManager {
                     .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                     .unwrap_or_default();
                 let branch_list: Vec<&str> = available.lines()
-                    .map(|s| s.trim().trim_start_matches("* "))
-                    .filter(|s| !s.is_empty())
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty() && !s.contains("->"))
                     .collect();
 
                 return Err(RemoteRepoError::InvalidRepo(format!(
-                    "Base branch '{}' not found. Available branches: {}",
+                    "Base branch 'origin/{}' not found. Available branches: {}",
                     base_branch,
                     if branch_list.is_empty() { "(none)".to_string() } else { branch_list.join(", ") }
                 )));
             }
 
-            // Create new branch from the base branch
+            // Create new local branch from the remote tracking branch
             let output = Command::new("git")
-                .args(["branch", branch_name, base_ref])
+                .args(["branch", branch_name, &base_ref])
                 .current_dir(cache_path)
                 .output()?;
 
@@ -352,7 +358,8 @@ impl RemoteRepoManager {
             return Ok(repos);
         }
 
-        // Walk the cache directory structure: host/owner/repo.git
+        // Walk the cache directory structure: host/owner/repo
+        // Standard clones have .git subdirectory
         if let Ok(hosts) = std::fs::read_dir(&self.cache_dir) {
             for host_entry in hosts.flatten() {
                 if !host_entry.path().is_dir() {
@@ -369,23 +376,19 @@ impl RemoteRepoManager {
 
                         if let Ok(repo_dirs) = std::fs::read_dir(owner_entry.path()) {
                             for repo_entry in repo_dirs.flatten() {
-                                let filename = repo_entry.file_name();
-                                let filename_str = filename.to_string_lossy();
+                                let repo_path = repo_entry.path();
 
-                                // Only include .git directories (bare clones)
-                                if !filename_str.ends_with(".git") {
-                                    continue;
+                                // Check for standard clone (.git subdirectory)
+                                if repo_path.join(".git").exists() {
+                                    let repo_name = repo_entry.file_name().to_string_lossy().to_string();
+                                    let url = format!("https://{}/{}/{}", host, owner, repo_name);
+                                    repos.push(ParsedRepo {
+                                        source: RepoSource::HttpsUrl(url),
+                                        host: host.clone(),
+                                        owner: owner.clone(),
+                                        repo_name,
+                                    });
                                 }
-
-                                let repo_name = filename_str.trim_end_matches(".git").to_string();
-
-                                let url = format!("https://{}/{}/{}", host, owner, repo_name);
-                                repos.push(ParsedRepo {
-                                    source: RepoSource::HttpsUrl(url),
-                                    host: host.clone(),
-                                    owner: owner.clone(),
-                                    repo_name,
-                                });
                             }
                         }
                     }
@@ -466,7 +469,8 @@ mod tests {
         let cache_path = manager.get_cache_path(&parsed);
         assert!(cache_path.to_string_lossy().contains("github.com"));
         assert!(cache_path.to_string_lossy().contains("user"));
-        assert!(cache_path.to_string_lossy().ends_with("repo.git"));
+        // Standard clone (not bare), so path ends with repo name, not repo.git
+        assert!(cache_path.to_string_lossy().ends_with("repo"));
     }
 
     #[test]
