@@ -2558,16 +2558,27 @@ impl AppState {
         // Also try to auto-detect workspace shells from tmux
         self.auto_detect_workspace_shells().await;
 
+        // Reset selection state before setting new selection
+        // This is critical to avoid stale indices after refresh that break navigation
+        self.selected_workspace_index = None;
+        self.selected_session_index = None;
+        self.shell_selected = false;
+        self.selected_other_tmux_index = None;
+
         // Set initial selection
         if !self.workspaces.is_empty() {
             self.selected_workspace_index = Some(0);
             if !self.workspaces[0].sessions.is_empty() {
                 self.selected_session_index = Some(0);
+            } else if self.workspaces[0].shell_session.is_some() {
+                // First workspace has no sessions but has a shell - select it
+                self.shell_selected = true;
             }
+            // If workspace has neither sessions nor shell, selection indices stay None
+            // which is the correct state for an empty workspace
         } else {
             info!("No active sessions found. Use 'n' to create a new session.");
-            self.selected_workspace_index = None;
-            self.selected_session_index = None;
+            // Selection indices already reset above
         }
 
         // Queue logs fetch for the currently selected session if any
@@ -2888,10 +2899,18 @@ impl AppState {
         self.workspaces.push(workspace1);
         self.workspaces.push(workspace2);
 
+        // Reset selection state before setting new selection
+        self.selected_workspace_index = None;
+        self.selected_session_index = None;
+        self.shell_selected = false;
+        self.selected_other_tmux_index = None;
+
         if !self.workspaces.is_empty() {
             self.selected_workspace_index = Some(0);
             if !self.workspaces[0].sessions.is_empty() {
                 self.selected_session_index = Some(0);
+            } else if self.workspaces[0].shell_session.is_some() {
+                self.shell_selected = true;
             }
         }
     }
