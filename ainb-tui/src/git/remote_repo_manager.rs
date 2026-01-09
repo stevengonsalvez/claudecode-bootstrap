@@ -329,7 +329,7 @@ impl RemoteRepoManager {
             .args([
                 "worktree",
                 "add",
-                worktree_path.to_str().unwrap(),
+                worktree_path.to_string_lossy().as_ref(),
                 branch_name,
             ])
             .current_dir(cache_path)

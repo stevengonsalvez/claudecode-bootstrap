@@ -4693,10 +4693,15 @@ impl AppState {
                         let branch_name = &state.branch_name;
 
                         // Determine worktree location in ~/.agents-in-a-box/worktrees/
-                        let worktree_base = dirs::home_dir()
-                            .expect("Home directory not found")
-                            .join(".agents-in-a-box")
-                            .join("worktrees");
+                        let worktree_base = match dirs::home_dir() {
+                            Some(dir) => dir.join(".agents-in-a-box").join("worktrees"),
+                            None => {
+                                tracing::error!("Home directory not found, cannot create worktree");
+                                state.repo_validation_error = Some("Home directory not found".to_string());
+                                state.step = NewSessionStep::InputRepoSource;
+                                return;
+                            }
+                        };
 
                         // Create unique worktree path using repo name and branch
                         let repo_name = state.repo_source
