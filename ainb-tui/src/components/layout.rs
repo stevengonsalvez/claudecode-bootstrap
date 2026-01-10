@@ -90,7 +90,7 @@ impl LayoutComponent {
         if state.current_view == View::SetupMenu {
             tracing::debug!("Rendering SetupMenu view");
             // First render the home screen as background
-            self.home_screen_v2.render(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces);
+            self.home_screen_v2.render_with_loading(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces, state.is_loading_workspaces);
             // Then render setup menu as overlay
             self.setup_menu.render(frame, frame.size(), &state.setup_menu_state);
             return;
@@ -120,7 +120,7 @@ impl LayoutComponent {
         // AINB 2.0: Home screen (full screen) - Now using V2 with sidebar and mascot
         if state.current_view == View::HomeScreen {
             tracing::debug!("Rendering HomeScreen V2 view");
-            self.home_screen_v2.render(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces);
+            self.home_screen_v2.render_with_loading(frame, frame.size(), &mut state.home_screen_v2_state, &state.workspaces, state.is_loading_workspaces);
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on HomeScreen");
