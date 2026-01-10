@@ -413,6 +413,7 @@ pub enum View {
     GitView,    // Git status and diff view
     Onboarding, // First-time setup wizard
     SetupMenu,  // Setup menu with factory reset option
+    Changelog,  // Version history viewer
 }
 
 #[derive(Debug, Clone)]
@@ -1721,6 +1722,97 @@ pub struct AppState {
 
     // Log history viewer state
     pub log_history_state: crate::components::LogHistoryViewerState,
+
+    // Changelog viewer state
+    pub changelog_state: crate::components::ChangelogState,
+
+    // Background workspace loading state
+    pub is_loading_workspaces: bool,
+    pub workspace_load_error: Option<String>,
+    pub workspace_load_started: Option<Instant>,
+    /// Channel receiver for background workspace loading results
+    pub workspace_load_receiver: Option<mpsc::UnboundedReceiver<WorkspaceLoadResult>>,
+}
+
+/// Result of background workspace loading
+#[derive(Debug)]
+pub enum WorkspaceLoadResult {
+    /// Successfully loaded workspaces
+    Success(Vec<Workspace>),
+    /// Loading failed with error
+    Error(String),
+    /// Loading timed out
+    Timeout,
+}
+
+/// Load workspaces asynchronously (standalone function for use in spawned tasks)
+/// This is called from background task to avoid blocking the main thread
+async fn load_workspaces_async() -> anyhow::Result<Vec<Workspace>> {
+    use crate::interactive::InteractiveSessionManager;
+
+    info!("load_workspaces_async: Starting");
+    let mut workspaces = Vec::new();
+
+    // Load Boss mode sessions (Docker-based) if Docker is available
+    if AppState::is_docker_available_sync() {
+        info!("load_workspaces_async: Docker available, loading Boss mode sessions");
+        match SessionLoader::new().await {
+            Ok(loader) => {
+                match loader.load_active_sessions().await {
+                    Ok(mut docker_workspaces) => {
+                        info!("load_workspaces_async: Loaded {} Boss mode workspaces", docker_workspaces.len());
+                        workspaces.append(&mut docker_workspaces);
+                    }
+                    Err(e) => {
+                        warn!("load_workspaces_async: Failed to load Boss mode sessions: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("load_workspaces_async: Failed to create session loader: {}", e);
+            }
+        }
+    } else {
+        info!("load_workspaces_async: Docker not available, skipping Boss mode");
+    }
+
+    // Load Interactive mode sessions (always attempt, no Docker needed)
+    info!("load_workspaces_async: Loading Interactive mode sessions");
+    match InteractiveSessionManager::new() {
+        Ok(mut manager) => {
+            match manager.list_sessions().await {
+                Ok(interactive_sessions) => {
+                    info!("load_workspaces_async: Found {} Interactive sessions", interactive_sessions.len());
+                    // Group sessions by workspace
+                    for interactive_session in interactive_sessions {
+                        let session = interactive_session.to_session_model();
+                        let workspace_path = interactive_session.source_repository.clone();
+                        let workspace_name = interactive_session.workspace_name.clone();
+
+                        // Find or create workspace
+                        if let Some(workspace) = workspaces.iter_mut().find(|w| w.path == workspace_path) {
+                            workspace.add_session(session);
+                        } else {
+                            let mut workspace = Workspace::new(workspace_name, workspace_path);
+                            workspace.add_session(session);
+                            workspaces.push(workspace);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("load_workspaces_async: Failed to list Interactive sessions: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            warn!("load_workspaces_async: Failed to create Interactive session manager: {}", e);
+        }
+    }
+
+    // Load other tmux sessions (not managed by agents-in-a-box)
+    // This is quick and doesn't involve Docker, so we include it
+    info!("load_workspaces_async: Complete with {} workspaces", workspaces.len());
+    Ok(workspaces)
 }
 
 /// Focus state for the combined Agent + Model selection panel
@@ -2072,6 +2164,15 @@ impl Default for AppState {
 
             // Log history viewer state
             log_history_state: crate::components::LogHistoryViewerState::new(),
+
+            // Changelog viewer state
+            changelog_state: crate::components::ChangelogState::new(),
+
+            // Background workspace loading state
+            is_loading_workspaces: false,
+            workspace_load_error: None,
+            workspace_load_started: None,
+            workspace_load_receiver: None,
         }
     }
 }
@@ -2679,6 +2780,93 @@ impl AppState {
 
         // Queue logs fetch for the currently selected session if any
         self.queue_logs_fetch();
+    }
+
+    /// Timeout for Docker operations in seconds
+    const DOCKER_TIMEOUT_SECS: u64 = 10;
+
+    /// Start loading workspaces in the background (non-blocking)
+    /// Returns a channel receiver that will receive the result
+    pub fn start_background_workspace_loading(&mut self) -> mpsc::UnboundedSender<WorkspaceLoadResult> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.workspace_load_receiver = Some(rx);
+        self.is_loading_workspaces = true;
+        self.workspace_load_started = Some(Instant::now());
+        self.workspace_load_error = None;
+        tx
+    }
+
+    /// Check for completed background workspace loading and apply results
+    /// Returns true if workspaces were updated
+    pub fn check_workspace_loading_complete(&mut self) -> bool {
+        if let Some(ref mut receiver) = self.workspace_load_receiver {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    self.is_loading_workspaces = false;
+                    self.workspace_load_receiver = None;
+
+                    match result {
+                        WorkspaceLoadResult::Success(workspaces) => {
+                            info!("Background workspace loading completed: {} workspaces", workspaces.len());
+                            self.workspaces = workspaces;
+                            self.workspace_load_error = None;
+
+                            // Set initial selection
+                            self.selected_workspace_index = None;
+                            self.selected_session_index = None;
+                            self.shell_selected = false;
+                            self.selected_other_tmux_index = None;
+
+                            if !self.workspaces.is_empty() {
+                                self.selected_workspace_index = Some(0);
+                                if !self.workspaces[0].sessions.is_empty() {
+                                    self.selected_session_index = Some(0);
+                                } else if self.workspaces[0].shell_session.is_some() {
+                                    self.shell_selected = true;
+                                }
+                            }
+
+                            self.add_success_notification("Workspaces loaded".to_string());
+                            return true;
+                        }
+                        WorkspaceLoadResult::Error(err) => {
+                            warn!("Background workspace loading failed: {}", err);
+                            self.workspace_load_error = Some(err.clone());
+                            self.add_warning_notification(format!("Failed to load sessions: {}", err));
+                            return true;
+                        }
+                        WorkspaceLoadResult::Timeout => {
+                            warn!("Background workspace loading timed out");
+                            self.workspace_load_error = Some("Docker operation timed out".to_string());
+                            self.add_warning_notification("Docker is slow - sessions may be incomplete".to_string());
+                            return true;
+                        }
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    // Still loading, check for timeout
+                    if let Some(started) = self.workspace_load_started {
+                        if started.elapsed().as_secs() > Self::DOCKER_TIMEOUT_SECS * 3 {
+                            // Hard timeout - stop waiting
+                            warn!("Workspace loading hard timeout reached");
+                            self.is_loading_workspaces = false;
+                            self.workspace_load_receiver = None;
+                            self.workspace_load_error = Some("Loading timed out".to_string());
+                            self.add_warning_notification("Session loading timed out - using cached data".to_string());
+                            return true;
+                        }
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    // Channel closed without result - error
+                    self.is_loading_workspaces = false;
+                    self.workspace_load_receiver = None;
+                    self.workspace_load_error = Some("Loading task failed".to_string());
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Load Boss mode sessions from Docker containers
@@ -6757,15 +6945,43 @@ impl App {
         }
 
         self.state.check_current_directory_status();
-        self.state.load_real_workspaces().await;
 
-        // Start log streaming for any running sessions
-        if let Err(e) = self.init_log_streaming_for_sessions().await {
-            warn!(
-                "Failed to initialize log streaming for existing sessions: {}",
-                e
-            );
-        }
+        // Start loading workspaces in the background (non-blocking)
+        // This prevents the app from hanging if Docker is slow
+        info!("Starting background workspace loading");
+        let result_sender = self.state.start_background_workspace_loading();
+
+        // Spawn the background loading task with timeout
+        tokio::spawn(async move {
+            let timeout_duration = Duration::from_secs(AppState::DOCKER_TIMEOUT_SECS);
+
+            // Load workspaces with timeout
+            let load_result = tokio::time::timeout(
+                timeout_duration,
+                load_workspaces_async()
+            ).await;
+
+            let result = match load_result {
+                Ok(Ok(workspaces)) => {
+                    info!("Background workspace loading succeeded: {} workspaces", workspaces.len());
+                    WorkspaceLoadResult::Success(workspaces)
+                }
+                Ok(Err(e)) => {
+                    warn!("Background workspace loading failed: {}", e);
+                    WorkspaceLoadResult::Error(e.to_string())
+                }
+                Err(_) => {
+                    warn!("Background workspace loading timed out after {}s", AppState::DOCKER_TIMEOUT_SECS);
+                    WorkspaceLoadResult::Timeout
+                }
+            };
+
+            // Send result (ignore error if receiver dropped)
+            let _ = result_sender.send(result);
+        });
+
+        // Note: Log streaming will be initialized after workspaces are loaded
+        // This happens in tick() when check_workspace_loading_complete() returns true
     }
 
     /// Initialize log streaming for all running sessions
@@ -6819,6 +7035,18 @@ impl App {
     pub async fn tick(&mut self) -> anyhow::Result<()> {
         // Clean up expired notifications
         self.state.cleanup_expired_notifications();
+
+        // Check for completed background workspace loading
+        if self.state.check_workspace_loading_complete() {
+            info!("Background workspace loading completed, initializing log streaming");
+            // Now that workspaces are loaded, initialize log streaming
+            if let Err(e) = self.init_log_streaming_for_sessions().await {
+                warn!("Failed to initialize log streaming: {}", e);
+            }
+            // Also load other tmux sessions (quick operation)
+            self.state.load_other_tmux_sessions().await;
+            self.state.ui_needs_refresh = true;
+        }
 
         // Periodic OAuth token refresh check (every 5 minutes)
         let now = Instant::now();

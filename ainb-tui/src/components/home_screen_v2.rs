@@ -130,6 +130,11 @@ impl HomeScreenV2Component {
 
     /// Main render function
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace]) {
+        self.render_with_loading(frame, area, state, workspaces, false)
+    }
+
+    /// Main render function with loading indicator support
+    pub fn render_with_loading(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace], is_loading: bool) {
         let layout_mode = LayoutMode::detect(area);
 
         // Main container with dark background
@@ -138,7 +143,7 @@ impl HomeScreenV2Component {
 
         match layout_mode {
             LayoutMode::Full | LayoutMode::Standard => {
-                self.render_full_layout(frame, area, state, workspaces);
+                self.render_full_layout_with_loading(frame, area, state, workspaces, is_loading);
             }
             LayoutMode::Compact => {
                 self.render_compact_layout(frame, area, state, workspaces);
@@ -151,6 +156,11 @@ impl HomeScreenV2Component {
 
     /// Full layout with sidebar, mascot header, and welcome panel
     fn render_full_layout(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace]) {
+        self.render_full_layout_with_loading(frame, area, state, workspaces, false)
+    }
+
+    /// Full layout with loading indicator support
+    fn render_full_layout_with_loading(&self, frame: &mut Frame, area: Rect, state: &mut HomeScreenV2State, workspaces: &[Workspace], is_loading: bool) {
         // Vertical layout: header, main content, recent activity, help bar
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -180,11 +190,41 @@ impl HomeScreenV2Component {
         // Render welcome panel (needs mutable state for scroll tracking)
         self.welcome_panel.render(frame, content_layout[1], &mut state.welcome);
 
-        // Render recent activity
-        self.render_recent_activity(frame, main_layout[2], workspaces);
+        // Render recent activity (or loading indicator)
+        if is_loading {
+            self.render_loading_indicator(frame, main_layout[2]);
+        } else {
+            self.render_recent_activity(frame, main_layout[2], workspaces);
+        }
 
         // Render help bar
         self.render_help_bar(frame, main_layout[3], state);
+    }
+
+    /// Render a loading indicator
+    fn render_loading_indicator(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::Paragraph;
+
+        // Animated loading spinner using frame count
+        let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let frame_idx = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() / 100)
+            .unwrap_or(0) % spinner_frames.len() as u128) as usize;
+        let spinner = spinner_frames[frame_idx];
+
+        let loading_text = format!("{} Loading sessions...", spinner);
+        let loading = Paragraph::new(loading_text)
+            .style(Style::default().fg(GOLD))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(CORNFLOWER_BLUE))
+                    .style(Style::default().bg(PANEL_BG))
+            );
+
+        frame.render_widget(loading, area);
     }
 
     /// Compact layout for smaller terminals

@@ -33,6 +33,7 @@ pub enum SidebarItem {
     Sessions,  // Session manager
     Logs,      // Log history viewer
     Stats,     // Analytics & usage
+    Changelog, // Version history
     Setup,     // Setup wizard & factory reset
     Help,      // Docs & guides
 }
@@ -47,6 +48,7 @@ impl SidebarItem {
             Self::Sessions => "🚀",
             Self::Logs => "📋",
             Self::Stats => "📊",
+            Self::Changelog => "📝",
             Self::Setup => "🛠️",
             Self::Help => "❓",
         }
@@ -61,6 +63,7 @@ impl SidebarItem {
             Self::Sessions => "Sessions",
             Self::Logs => "Logs",
             Self::Stats => "Stats",
+            Self::Changelog => "Changelog",
             Self::Setup => "Setup",
             Self::Help => "Help",
         }
@@ -75,6 +78,7 @@ impl SidebarItem {
             Self::Sessions => "Manage Active",
             Self::Logs => "View Log History",
             Self::Stats => "Usage & Analytics",
+            Self::Changelog => "Version History",
             Self::Setup => "Setup & Reset",
             Self::Help => "Docs & Guides",
         }
@@ -89,6 +93,7 @@ impl SidebarItem {
             Self::Sessions => "s",
             Self::Logs => "l",
             Self::Stats => "i",
+            Self::Changelog => "v",
             Self::Setup => "S",
             Self::Help => "?",
         }
@@ -103,6 +108,7 @@ impl SidebarItem {
             Self::Sessions,
             Self::Logs,
             Self::Stats,
+            Self::Changelog,
             Self::Setup,
             Self::Help,
         ]

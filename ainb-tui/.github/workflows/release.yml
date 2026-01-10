@@ -119,26 +119,12 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
 
-          # Create CHANGELOG.md if it doesn't exist
-          if [ ! -f CHANGELOG.md ]; then
-            cat > CHANGELOG.md << 'INIT'
-          # Changelog
-
-          All notable changes to this project will be documented in this file.
-
-          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-          ## [Unreleased]
-          INIT
-            echo "Created new CHANGELOG.md"
-          fi
-
           # Create new changelog entry
-          cat > /tmp/new_entry.md << ENTRY
-
-          ## [${VERSION}] - ${DATE}
+          cat > /tmp/new_entry.md << 'ENTRY'
+          ## [VERSION] - DATE
           ENTRY
+          sed -i "s/VERSION/${VERSION}/" /tmp/new_entry.md
+          sed -i "s/DATE/${DATE}/" /tmp/new_entry.md
 
           # Append the generated changelog content (without the header)
           tail -n +3 /tmp/release_notes.md >> /tmp/new_entry.md
@@ -147,14 +133,14 @@ jobs:
           if grep -q "## \[Unreleased\]" CHANGELOG.md; then
             sed -i "/## \[Unreleased\]/r /tmp/new_entry.md" CHANGELOG.md
           else
-            # If no Unreleased section, add it and the new entry
-            echo "" >> CHANGELOG.md
-            echo "## [Unreleased]" >> CHANGELOG.md
-            cat /tmp/new_entry.md >> CHANGELOG.md
+            # If no Unreleased section, insert after header
+            sed -i "/# Changelog/a\\
+          \\
+          ## [Unreleased]" CHANGELOG.md
+            sed -i "/## \[Unreleased\]/r /tmp/new_entry.md" CHANGELOG.md
           fi
 
           echo "Updated CHANGELOG.md"
-          cat CHANGELOG.md
 
       - name: Commit version changes
         working-directory: ${{ env.WORKING_DIR }}
@@ -305,24 +291,11 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
 
-          # Debug: show artifacts structure
-          echo "Artifacts structure:"
-          ls -la ../artifacts/ || true
-          ls -la ../artifacts/*/ || true
-
-          # Calculate SHA256 for macOS ARM binary (artifacts are in parent directory)
-          MAC_SHA=$(cat ../artifacts/aarch64-apple-darwin/*.sha256 | awk '{print $1}')
-          echo "MAC_SHA: $MAC_SHA"
+          # Calculate SHA256 for macOS ARM binary
+          MAC_SHA=$(cat artifacts/aarch64-apple-darwin/*.sha256 | awk '{print $1}')
 
           # Calculate SHA256 for Linux binary
-          LINUX_SHA=$(cat ../artifacts/x86_64-unknown-linux-gnu/*.sha256 | awk '{print $1}')
-          echo "LINUX_SHA: $LINUX_SHA"
-
-          # Validate SHA values are not empty
-          if [ -z "$MAC_SHA" ] || [ -z "$LINUX_SHA" ]; then
-            echo "Error: Failed to extract SHA256 values"
-            exit 1
-          fi
+          LINUX_SHA=$(cat artifacts/x86_64-unknown-linux-gnu/*.sha256 | awk '{print $1}')
 
           # Update Formula/ainb.rb
           cat > Formula/ainb.rb << 'FORMULA'
