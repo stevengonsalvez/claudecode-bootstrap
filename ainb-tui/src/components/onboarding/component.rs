@@ -139,6 +139,7 @@ impl OnboardingComponent {
             OnboardingStep::DependencyCheck => self.render_dependencies(frame, area, state),
             OnboardingStep::GitDirectories => self.render_git_directories(frame, area, state),
             OnboardingStep::Authentication => self.render_authentication(frame, area, state),
+            OnboardingStep::EditorSelection => self.render_editor_selection(frame, area, state),
             OnboardingStep::Summary => self.render_summary(frame, area, state),
         }
     }
@@ -509,6 +510,122 @@ impl OnboardingComponent {
         frame.render_widget(text, inner);
     }
 
+    /// Render editor selection step
+    fn render_editor_selection(&self, frame: &mut Frame, area: Rect, state: &OnboardingState) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .style(Style::default().bg(PANEL_BG))
+            .title(" Editor Selection ")
+            .title_style(Style::default().fg(GOLD).add_modifier(Modifier::BOLD));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let content_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(2)
+            .constraints([
+                Constraint::Length(3),  // Description
+                Constraint::Min(10),    // Editor list
+                Constraint::Length(2),  // Instructions
+            ])
+            .split(inner);
+
+        // Description
+        let desc = Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Choose your preferred editor for opening sessions",
+                Style::default().fg(SOFT_WHITE),
+            )),
+            Line::from(Span::styled(
+                "Use ↑/↓ to select, Enter to continue",
+                Style::default().fg(MUTED_GRAY),
+            )),
+        ])
+        .alignment(Alignment::Center);
+        frame.render_widget(desc, content_layout[0]);
+
+        // Editor list
+        if state.available_editors.is_empty() {
+            let msg = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled("No editors detected", Style::default().fg(MUTED_GRAY))),
+                Line::from(Span::styled(
+                    "Will fall back to $EDITOR or 'code' if available",
+                    Style::default().fg(MUTED_GRAY),
+                )),
+            ])
+            .alignment(Alignment::Center);
+            frame.render_widget(msg, content_layout[1]);
+        } else {
+            let mut items: Vec<ListItem> = Vec::new();
+
+            for (idx, editor) in state.available_editors.iter().enumerate() {
+                let is_selected = idx == state.selected_editor_index;
+
+                let (icon, icon_color) = if !editor.available {
+                    ("○", MUTED_GRAY)
+                } else if is_selected {
+                    ("▶", SELECTION_GREEN)
+                } else {
+                    ("●", SOFT_WHITE)
+                };
+
+                let availability = if editor.available {
+                    Span::styled(" ✓ installed", Style::default().fg(SELECTION_GREEN))
+                } else {
+                    Span::styled(" ✗ not found", Style::default().fg(MUTED_GRAY))
+                };
+
+                let name_style = if is_selected && editor.available {
+                    Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+                } else if editor.available {
+                    Style::default().fg(SOFT_WHITE)
+                } else {
+                    Style::default().fg(MUTED_GRAY)
+                };
+
+                let bg_style = if is_selected {
+                    Style::default().bg(Color::Rgb(40, 40, 60))
+                } else {
+                    Style::default()
+                };
+
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(icon, Style::default().fg(icon_color)),
+                    Span::styled(" ", Style::default()),
+                    Span::styled(&editor.name, name_style),
+                    Span::styled(
+                        format!(" ({})", editor.command),
+                        Style::default().fg(MUTED_GRAY),
+                    ),
+                    availability,
+                ])).style(bg_style));
+            }
+
+            let list = List::new(items).style(Style::default().bg(PANEL_BG));
+            frame.render_widget(list, content_layout[1]);
+        }
+
+        // Instructions
+        let selected_editor = state.get_selected_editor();
+        let instructions = if selected_editor.is_some() {
+            format!("Selected: {} • Press Enter to continue, or skip to use defaults",
+                    state.available_editors.get(state.selected_editor_index)
+                        .map(|e| e.name.as_str())
+                        .unwrap_or("None"))
+        } else {
+            "No available editor selected • Press Enter to use fallback (code → $EDITOR)".to_string()
+        };
+
+        let instr_widget = Paragraph::new(Span::styled(instructions, Style::default().fg(MUTED_GRAY)))
+            .alignment(Alignment::Center);
+        frame.render_widget(instr_widget, content_layout[2]);
+    }
+
     /// Render summary step
     fn render_summary(&self, frame: &mut Frame, area: Rect, state: &OnboardingState) {
         let block = Block::default()
@@ -579,6 +696,24 @@ impl OnboardingComponent {
             ),
             Span::styled("Authentication: ", Style::default().fg(SOFT_WHITE)),
             Span::styled(auth_status, Style::default().fg(MUTED_GRAY)),
+        ]));
+
+        // Editor
+        let editor_status = state.get_selected_editor()
+            .map(|cmd| {
+                state.available_editors.iter()
+                    .find(|e| e.command == cmd)
+                    .map(|e| format!("{} ({})", e.name, e.command))
+                    .unwrap_or(cmd)
+            })
+            .unwrap_or_else(|| "fallback (code → $EDITOR)".to_string());
+        summary_items.push(Line::from(vec![
+            Span::styled(
+                if state.get_selected_editor().is_some() { "  ✓ " } else { "  ○ " },
+                Style::default().fg(if state.get_selected_editor().is_some() { SELECTION_GREEN } else { WARNING_YELLOW }),
+            ),
+            Span::styled("Editor: ", Style::default().fg(SOFT_WHITE)),
+            Span::styled(editor_status, Style::default().fg(MUTED_GRAY)),
         ]));
 
         let summary_widget = Paragraph::new(summary_items);

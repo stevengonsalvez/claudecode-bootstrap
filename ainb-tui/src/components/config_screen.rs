@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::state::AppState;
+use crate::app::state::{AppState, ConfigPane};
 
 // Color palette from TUI style guide
 const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
@@ -98,15 +98,21 @@ impl ConfigScreenComponent {
 
     fn render_categories(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let config_state = &state.config_screen_state;
+        let is_focused = config_state.focused_pane == ConfigPane::Categories;
+
+        // Use GOLD border when focused, CORNFLOWER_BLUE when not
+        let border_color = if is_focused { GOLD } else { CORNFLOWER_BLUE };
+        let title_style = if is_focused {
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED_GRAY)
+        };
 
         let block = Block::default()
-            .title(Span::styled(
-                " Categories ",
-                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-            ))
+            .title(Span::styled(" Categories ", title_style))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .border_style(Style::default().fg(border_color))
             .style(Style::default().bg(PANEL_BG));
 
         let items: Vec<ListItem> = config_state
@@ -148,15 +154,24 @@ impl ConfigScreenComponent {
     fn render_settings(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let config_state = &state.config_screen_state;
         let current_category = &config_state.categories[config_state.selected_category];
+        let is_focused = config_state.focused_pane == ConfigPane::Settings;
+
+        // Use GOLD border when focused, CORNFLOWER_BLUE when not
+        let border_color = if is_focused { GOLD } else { CORNFLOWER_BLUE };
+        let title_style = if is_focused {
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED_GRAY)
+        };
 
         let block = Block::default()
             .title(Span::styled(
                 format!(" {} Settings ", current_category.label()),
-                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+                title_style,
             ))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .border_style(Style::default().fg(border_color))
             .style(Style::default().bg(PANEL_BG));
 
         let inner = block.inner(area);
@@ -270,9 +285,9 @@ impl ConfigScreenComponent {
             ]
         } else {
             vec![
+                ("↑↓", "navigate"),
+                ("←→/Tab", "switch pane"),
                 ("Enter", "edit"),
-                ("Tab", "switch pane"),
-                ("", "navigate"),
                 ("S", "save all"),
                 ("Esc", "back"),
             ]

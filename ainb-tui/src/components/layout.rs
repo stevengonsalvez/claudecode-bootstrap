@@ -20,7 +20,7 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
-    ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
+    ConfigPopupComponent, ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
     HomeScreenV2Component, LogHistoryViewerComponent,
     LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, OnboardingComponent, SessionListComponent,
     SetupMenuComponent, TmuxPreviewPane,
@@ -44,6 +44,7 @@ pub struct LayoutComponent {
     agent_selection: AgentSelectionComponent,
     config_screen: ConfigScreenComponent,
     auth_provider_popup: AuthProviderPopupComponent,
+    config_popup: ConfigPopupComponent,
     log_history_viewer: LogHistoryViewerComponent,
     onboarding: OnboardingComponent,
     setup_menu: SetupMenuComponent,
@@ -68,6 +69,7 @@ impl LayoutComponent {
             agent_selection: AgentSelectionComponent::new(),
             config_screen: ConfigScreenComponent::new(),
             auth_provider_popup: AuthProviderPopupComponent::new(),
+            config_popup: ConfigPopupComponent::new(),
             log_history_viewer: LogHistoryViewerComponent::new(),
             onboarding: OnboardingComponent::new(),
             setup_menu: SetupMenuComponent::new(),
@@ -150,6 +152,12 @@ impl LayoutComponent {
                 self.auth_provider_popup.render(frame, frame.size(), state);
             }
 
+            // Render config popup on top if visible (for choice/text input)
+            if state.config_popup_state.show_popup {
+                tracing::debug!("Rendering config popup");
+                self.config_popup.render(frame, frame.size(), &state.config_popup_state);
+            }
+
             // Render help overlay on top if visible
             if state.help_visible {
                 tracing::debug!("Rendering help overlay on Config");
@@ -176,7 +184,7 @@ impl LayoutComponent {
                 Constraint::Length(3), // Top status bar
                 Constraint::Min(0),    // Main content area
                 Constraint::Length(3), // Session info (single line + borders)
-                Constraint::Length(3), // Bottom menu bar
+                Constraint::Length(4), // Bottom menu bar (2 lines + borders)
             ])
             .split(frame.size());
 
@@ -258,19 +266,18 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        // Premium styled command bar with separators
-        let menu_spans = vec![
+        // Premium styled command bar with separators - 2 lines for better readability
+        // Line 1: Navigation, Session Actions
+        let line1_spans = vec![
             // Navigation group
             Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("ew ", Style::default().fg(MUTED_GRAY)),
-            Span::styled("s", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            Span::styled("earch ", Style::default().fg(MUTED_GRAY)),
             Span::styled("E", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("xpand ", Style::default().fg(MUTED_GRAY)),
             Span::styled("Tab", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled(" focus", Style::default().fg(MUTED_GRAY)),
             Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
-            // Actions group
+            // Session actions group
             Span::styled("a", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
             Span::styled("ttach ", Style::default().fg(MUTED_GRAY)),
             Span::styled("e", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
@@ -278,8 +285,13 @@ impl LayoutComponent {
             Span::styled("d", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
             Span::styled("elete ", Style::default().fg(MUTED_GRAY)),
             Span::styled("$", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            Span::styled(" shell", Style::default().fg(MUTED_GRAY)),
-            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
+            Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("o", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" editor", Style::default().fg(MUTED_GRAY)),
+        ];
+
+        // Line 2: Git, Tools, System
+        let line2_spans = vec![
             // Git group
             Span::styled("g", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
             Span::styled("it ", Style::default().fg(MUTED_GRAY)),
@@ -303,9 +315,12 @@ impl LayoutComponent {
             Span::styled(" home", Style::default().fg(MUTED_GRAY)),
         ];
 
-        let menu_line = Line::from(menu_spans);
+        let menu_lines = vec![
+            Line::from(line1_spans),
+            Line::from(line2_spans),
+        ];
 
-        let menu = Paragraph::new(menu_line)
+        let menu = Paragraph::new(menu_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)

@@ -4,7 +4,7 @@
 
 use crate::app::{
     AppState,
-    state::{AsyncAction, AuthMethod, View},
+    state::{AsyncAction, AuthMethod, ConfigPane, View},
 };
 use crate::credentials;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -32,6 +32,7 @@ pub enum AppEvent {
     ReauthenticateCredentials,
     RestartSession,
     DeleteSession,
+    OpenInEditor,    // Open selected session's workspace in preferred editor
     OpenQuickShell,  // Open shell in selected workspace/session directory
     CleanupOrphaned, // Clean up orphaned containers
     SwitchToLogs,
@@ -204,7 +205,11 @@ pub enum AppEvent {
     ConfigPrevCategory,          // Navigate to previous category
     ConfigNextSetting,           // Navigate to next setting
     ConfigPrevSetting,           // Navigate to previous setting
-    ConfigSwitchPane,            // Switch between category and settings pane (Tab)
+    ConfigSwitchPane,            // Toggle focus between category and settings pane (Tab)
+    ConfigNavigateUp,            // Navigate up within current focused pane
+    ConfigNavigateDown,          // Navigate down within current focused pane
+    ConfigFocusCategories,       // Switch focus to categories pane (Left)
+    ConfigFocusSettings,         // Switch focus to settings pane (Right)
     ConfigEditSetting,           // Start editing current setting (Enter)
     ConfigSaveEdit,              // Save current edit (Enter while editing)
     ConfigCancelEdit,            // Cancel current edit (Esc while editing)
@@ -224,6 +229,13 @@ pub enum AppEvent {
     AuthProviderPopupInputChar(char), // Input character for API key
     AuthProviderPopupBackspace,  // Backspace in API key input
     AuthProviderPopupDeleteKey,  // Delete stored API key (D)
+    // Config popup events (for choice/text input popups)
+    ConfigPopupNavigateUp,       // Navigate up in choice list
+    ConfigPopupNavigateDown,     // Navigate down in choice list
+    ConfigPopupConfirm,          // Confirm selection/save text (Enter)
+    ConfigPopupCancel,           // Cancel popup (Esc)
+    ConfigPopupInputChar(char),  // Input character in text/number input
+    ConfigPopupBackspace,        // Backspace in text/number input
     // Log history viewer events
     LogHistoryBack,              // Return to home screen (Esc)
     LogHistoryNextSession,       // Navigate to next session
@@ -250,6 +262,8 @@ pub enum AppEvent {
     OnboardingCursorEnd,         // Move cursor to end of input
     OnboardingCheckDeps,         // Run dependency check
     OnboardingSkipAuth,          // Skip authentication step
+    OnboardingEditorUp,          // Move editor selection up
+    OnboardingEditorDown,        // Move editor selection down
     OnboardingFinish,            // Complete onboarding
     // Setup menu events
     SetupMenuBack,               // Return to home screen (Esc)
@@ -486,6 +500,7 @@ impl EventHandler {
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
+            KeyCode::Char('o') => Some(AppEvent::OpenInEditor), // Open in editor
             KeyCode::Char('E') => Some(AppEvent::ToggleExpandAll), // Toggle expand/collapse all workspaces
             KeyCode::Char('$') => Some(AppEvent::OpenQuickShell), // Quick shell in current workspace/session
 
@@ -1067,6 +1082,18 @@ impl EventHandler {
                         _ => None,
                     }
                 }
+                OnboardingStep::EditorSelection => {
+                    match key_event.code {
+                        KeyCode::Enter => Some(AppEvent::OnboardingNext),
+                        KeyCode::Esc => Some(AppEvent::OnboardingCancel),
+                        KeyCode::Left | KeyCode::Backspace => Some(AppEvent::OnboardingBack),
+                        KeyCode::Up => Some(AppEvent::OnboardingEditorUp),
+                        KeyCode::Down => Some(AppEvent::OnboardingEditorDown),
+                        KeyCode::Char('k') => Some(AppEvent::OnboardingEditorUp),
+                        KeyCode::Char('j') => Some(AppEvent::OnboardingEditorDown),
+                        _ => None,
+                    }
+                }
                 OnboardingStep::Summary => {
                     match key_event.code {
                         KeyCode::Enter => Some(AppEvent::OnboardingFinish),
@@ -1343,6 +1370,11 @@ impl EventHandler {
     }
 
     fn handle_config_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        // Check if config popup is showing first
+        if state.config_popup_state.show_popup {
+            return Self::handle_config_popup_keys(key_event, state);
+        }
+
         let config_state = &state.config_screen_state;
         tracing::debug!(
             "Config screen key handler: {:?}, editing: {}, api_key_mode: {}",
@@ -1377,10 +1409,12 @@ impl EventHandler {
             match key_event.code {
                 KeyCode::Esc => Some(AppEvent::ConfigBack),
                 KeyCode::Tab => Some(AppEvent::ConfigSwitchPane),
-                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ConfigPrevSetting),
-                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigNextSetting),
-                KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::ConfigPrevCategory),
-                KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::ConfigNextCategory),
+                // Up/Down navigate within the current focused pane
+                KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ConfigNavigateUp),
+                KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigNavigateDown),
+                // Left/Right switch focus between panes
+                KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::ConfigFocusCategories),
+                KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::ConfigFocusSettings),
                 KeyCode::Enter => {
                     if on_claude_auth {
                         // Open the auth provider popup
@@ -1417,6 +1451,36 @@ impl EventHandler {
                 KeyCode::Enter => Some(AppEvent::AuthProviderPopupSelect),
                 KeyCode::Char('d' | 'D') => Some(AppEvent::AuthProviderPopupDeleteKey),
                 _ => None,
+            }
+        }
+    }
+
+    // AINB 2.0: Config popup key handling (for choice/text input popups)
+    fn handle_config_popup_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        use crate::components::config_popup::ConfigPopupType;
+
+        let popup_state = &state.config_popup_state;
+
+        match &popup_state.popup_type {
+            ConfigPopupType::Choice { .. } | ConfigPopupType::Boolean { .. } => {
+                // Choice/Boolean navigation mode
+                match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::ConfigPopupCancel),
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ConfigPopupNavigateUp),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigPopupNavigateDown),
+                    KeyCode::Enter => Some(AppEvent::ConfigPopupConfirm),
+                    _ => None,
+                }
+            }
+            ConfigPopupType::TextInput { .. } | ConfigPopupType::NumberInput { .. } => {
+                // Text/Number input mode
+                match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::ConfigPopupCancel),
+                    KeyCode::Enter => Some(AppEvent::ConfigPopupConfirm),
+                    KeyCode::Backspace => Some(AppEvent::ConfigPopupBackspace),
+                    KeyCode::Char(c) => Some(AppEvent::ConfigPopupInputChar(c)),
+                    _ => None,
+                }
             }
         }
     }
@@ -1788,6 +1852,15 @@ impl EventHandler {
                         state.selected_other_tmux_index
                     );
                     state.add_warning_notification("No session selected to delete".to_string());
+                }
+            }
+            AppEvent::OpenInEditor => {
+                // Open session's workspace in preferred editor
+                if let Some(session) = state.selected_session() {
+                    let workspace_path = std::path::PathBuf::from(&session.workspace_path);
+                    state.pending_async_action = Some(AsyncAction::OpenInEditor(workspace_path));
+                } else {
+                    state.add_warning_notification("⚠️ No session selected".to_string());
                 }
             }
             AppEvent::CleanupOrphaned => {
@@ -2394,16 +2467,127 @@ impl EventHandler {
                 }
             }
             AppEvent::ConfigSwitchPane => {
-                // Toggle focus between categories and settings - for now just toggle category/setting focus
-                tracing::debug!("Config switch pane - toggling focus");
+                // Toggle focus between categories and settings panes
+                state.config_screen_state.focused_pane = match state.config_screen_state.focused_pane {
+                    ConfigPane::Categories => ConfigPane::Settings,
+                    ConfigPane::Settings => ConfigPane::Categories,
+                };
+                tracing::debug!("Config switch pane - focus is now on {:?}", state.config_screen_state.focused_pane);
+            }
+            AppEvent::ConfigNavigateUp => {
+                // Navigate up within the currently focused pane
+                match state.config_screen_state.focused_pane {
+                    ConfigPane::Categories => {
+                        // Navigate to previous category
+                        let num_categories = state.config_screen_state.categories.len();
+                        if num_categories > 0 {
+                            state.config_screen_state.selected_category =
+                                state.config_screen_state.selected_category
+                                    .checked_sub(1)
+                                    .unwrap_or(num_categories - 1);
+                            state.config_screen_state.selected_setting = 0;
+                        }
+                    }
+                    ConfigPane::Settings => {
+                        // Navigate to previous setting
+                        let current_category = &state.config_screen_state.categories[state.config_screen_state.selected_category];
+                        if let Some(settings) = state.config_screen_state.settings.get(current_category) {
+                            if !settings.is_empty() {
+                                state.config_screen_state.selected_setting =
+                                    state.config_screen_state.selected_setting
+                                        .checked_sub(1)
+                                        .unwrap_or(settings.len() - 1);
+                            }
+                        }
+                    }
+                }
+            }
+            AppEvent::ConfigNavigateDown => {
+                // Navigate down within the currently focused pane
+                match state.config_screen_state.focused_pane {
+                    ConfigPane::Categories => {
+                        // Navigate to next category
+                        let num_categories = state.config_screen_state.categories.len();
+                        if num_categories > 0 {
+                            state.config_screen_state.selected_category =
+                                (state.config_screen_state.selected_category + 1) % num_categories;
+                            state.config_screen_state.selected_setting = 0;
+                        }
+                    }
+                    ConfigPane::Settings => {
+                        // Navigate to next setting
+                        let current_category = &state.config_screen_state.categories[state.config_screen_state.selected_category];
+                        if let Some(settings) = state.config_screen_state.settings.get(current_category) {
+                            if !settings.is_empty() {
+                                state.config_screen_state.selected_setting =
+                                    (state.config_screen_state.selected_setting + 1) % settings.len();
+                            }
+                        }
+                    }
+                }
+            }
+            AppEvent::ConfigFocusCategories => {
+                state.config_screen_state.focused_pane = ConfigPane::Categories;
+                tracing::debug!("Config focus switched to Categories pane");
+            }
+            AppEvent::ConfigFocusSettings => {
+                state.config_screen_state.focused_pane = ConfigPane::Settings;
+                tracing::debug!("Config focus switched to Settings pane");
             }
             AppEvent::ConfigEditSetting => {
                 let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
                 if let Some(settings) = state.config_screen_state.settings.get(&current_category) {
                     if let Some(setting) = settings.get(state.config_screen_state.selected_setting) {
-                        state.config_screen_state.editing = true;
-                        state.config_screen_state.edit_buffer = setting.value.display();
-                        tracing::info!("Started editing setting: {}", setting.label);
+                        // Open popup based on setting type
+                        let title = setting.label.clone();
+                        let description = setting.description.clone();
+                        let key = setting.key.clone();
+
+                        match &setting.value {
+                            crate::app::state::ConfigValue::Choice(options, selected_idx) => {
+                                state.config_popup_state.open_choice(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    options.clone(),
+                                    *selected_idx,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Text(text) => {
+                                state.config_popup_state.open_text(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    text,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Secret(_) => {
+                                // For secrets, show empty input (don't reveal existing value)
+                                state.config_popup_state.open_text(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    "",
+                                );
+                            }
+                            crate::app::state::ConfigValue::Bool(value) => {
+                                state.config_popup_state.open_boolean(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    *value,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Number(value) => {
+                                state.config_popup_state.open_number(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    *value,
+                                );
+                            }
+                        }
+                        tracing::info!("Opened popup for setting: {}", setting.label);
                     }
                 }
             }
@@ -2650,6 +2834,58 @@ impl EventHandler {
                     }
                 }
             }
+            // Config popup events (choice/text input popups)
+            AppEvent::ConfigPopupNavigateUp => {
+                state.config_popup_state.navigate_up();
+            }
+            AppEvent::ConfigPopupNavigateDown => {
+                state.config_popup_state.navigate_down();
+            }
+            AppEvent::ConfigPopupConfirm => {
+                use crate::components::config_popup::ConfigPopupValue;
+
+                if let Some(value) = state.config_popup_state.get_value() {
+                    let setting_key = state.config_popup_state.setting_key.clone();
+                    let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
+
+                    // Update the setting value
+                    if let Some(settings) = state.config_screen_state.settings.get_mut(&current_category) {
+                        if let Some(setting) = settings.iter_mut().find(|s| s.key == setting_key) {
+                            match value {
+                                ConfigPopupValue::Choice(text, idx) => {
+                                    if let crate::app::state::ConfigValue::Choice(opts, _) = &setting.value {
+                                        setting.value = crate::app::state::ConfigValue::Choice(opts.clone(), idx);
+                                    }
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, text);
+                                }
+                                ConfigPopupValue::Text(text) => {
+                                    setting.value = crate::app::state::ConfigValue::Text(text.clone());
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, text);
+                                }
+                                ConfigPopupValue::Boolean(b) => {
+                                    setting.value = crate::app::state::ConfigValue::Bool(b);
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, b);
+                                }
+                                ConfigPopupValue::Number(n) => {
+                                    setting.value = crate::app::state::ConfigValue::Number(n);
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, n);
+                                }
+                            }
+                        }
+                    }
+                }
+                state.config_popup_state.close();
+            }
+            AppEvent::ConfigPopupCancel => {
+                tracing::debug!("Config popup cancelled");
+                state.config_popup_state.close();
+            }
+            AppEvent::ConfigPopupInputChar(c) => {
+                state.config_popup_state.input_char(c);
+            }
+            AppEvent::ConfigPopupBackspace => {
+                state.config_popup_state.backspace();
+            }
             // Log history viewer events
             AppEvent::LogHistoryBack => {
                 tracing::debug!("Log history back");
@@ -2706,6 +2942,7 @@ impl EventHandler {
             }
             // Onboarding wizard events
             AppEvent::OnboardingNext => {
+                use crate::components::onboarding::OnboardingStep;
                 tracing::debug!("Onboarding next step");
                 let mut trigger_dep_check = false;
                 if let Some(ref mut onboarding_state) = state.onboarding_state {
@@ -2720,6 +2957,10 @@ impl EventHandler {
                             tracing::debug!("Cannot advance: requirements not met");
                         }
                         trigger_dep_check = needs_dep_check;
+                        // Initialize editors when entering EditorSelection step
+                        if onboarding_state.current_step == OnboardingStep::EditorSelection {
+                            onboarding_state.init_editors_if_needed();
+                        }
                     }
                 }
                 // Auto-trigger dependency check if entering DependencyCheck step
@@ -2792,6 +3033,21 @@ impl EventHandler {
                     onboarding_state.advance();
                 }
             }
+            AppEvent::OnboardingEditorUp => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    if onboarding_state.selected_editor_index > 0 {
+                        onboarding_state.selected_editor_index -= 1;
+                    }
+                }
+            }
+            AppEvent::OnboardingEditorDown => {
+                if let Some(ref mut onboarding_state) = state.onboarding_state {
+                    let max_idx = onboarding_state.available_editors.len().saturating_sub(1);
+                    if onboarding_state.selected_editor_index < max_idx {
+                        onboarding_state.selected_editor_index += 1;
+                    }
+                }
+            }
             AppEvent::OnboardingFinish => {
                 tracing::debug!("Finishing onboarding");
                 if let Err(e) = state.complete_onboarding() {
@@ -2844,6 +3100,9 @@ impl EventHandler {
                             }
                             SetupMenuItem::AuthenticationSettings => {
                                 state.start_onboarding(true, Some(OnboardingStep::Authentication));
+                            }
+                            SetupMenuItem::EditorPreference => {
+                                state.start_onboarding(true, Some(OnboardingStep::EditorSelection));
                             }
                             SetupMenuItem::FactoryReset => {
                                 // This shouldn't happen as it's handled by confirmation

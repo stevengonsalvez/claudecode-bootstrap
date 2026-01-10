@@ -8,6 +8,7 @@ pub mod claude;
 pub mod components;
 pub mod config;
 pub mod credentials;
+pub mod editors;
 pub mod docker;
 pub mod git;
 pub mod interactive;
