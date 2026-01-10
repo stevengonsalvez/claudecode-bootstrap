@@ -59,6 +59,8 @@ curl -fsSL https://raw.githubusercontent.com/stevengonsalvez/agents-in-a-box/v2/
 **Cargo (any platform)**
 ```bash
 cargo install --git https://github.com/stevengonsalvez/agents-in-a-box --branch v2 agents-box
+# The binary will be named 'agents-box'. You may want to alias it to 'ainb':
+# alias ainb="agents-box"  # Add to ~/.bashrc or ~/.zshrc
 ```
 
 #### Usage

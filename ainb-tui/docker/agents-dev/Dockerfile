@@ -97,7 +97,7 @@ RUN echo 'export HISTFILE=/home/claude-user/.bash_history' >> /home/claude-user/
 RUN ARCH=$(dpkg --print-architecture | sed 's/aarch64/arm64/') && \
     SUPABASE_VERSION=$(curl -s https://api.github.com/repos/supabase/cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/') && \
     curl -L https://github.com/supabase/cli/releases/download/${SUPABASE_VERSION}/supabase_linux_${ARCH}.tar.gz | sudo tar -xz -C /usr/local/bin && \
-    sudo chmod +x /usr/local/bin/supabase || true
+    sudo chmod +x /usr/local/bin/supabase
 
 # Create app directory and copy scripts
 COPY --chown=claude-user:claude-user scripts/ /app/scripts/
