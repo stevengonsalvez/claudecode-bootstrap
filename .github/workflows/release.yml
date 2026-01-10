@@ -305,11 +305,24 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
 
-          # Calculate SHA256 for macOS ARM binary
-          MAC_SHA=$(cat artifacts/aarch64-apple-darwin/*.sha256 | awk '{print $1}')
+          # Debug: show artifacts structure
+          echo "Artifacts structure:"
+          ls -la ../artifacts/ || true
+          ls -la ../artifacts/*/ || true
+
+          # Calculate SHA256 for macOS ARM binary (artifacts are in parent directory)
+          MAC_SHA=$(cat ../artifacts/aarch64-apple-darwin/*.sha256 | awk '{print $1}')
+          echo "MAC_SHA: $MAC_SHA"
 
           # Calculate SHA256 for Linux binary
-          LINUX_SHA=$(cat artifacts/x86_64-unknown-linux-gnu/*.sha256 | awk '{print $1}')
+          LINUX_SHA=$(cat ../artifacts/x86_64-unknown-linux-gnu/*.sha256 | awk '{print $1}')
+          echo "LINUX_SHA: $LINUX_SHA"
+
+          # Validate SHA values are not empty
+          if [ -z "$MAC_SHA" ] || [ -z "$LINUX_SHA" ]; then
+            echo "Error: Failed to extract SHA256 values"
+            exit 1
+          fi
 
           # Update Formula/ainb.rb
           cat > Formula/ainb.rb << 'FORMULA'
