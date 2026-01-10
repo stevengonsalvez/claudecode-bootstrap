@@ -184,7 +184,7 @@ impl LayoutComponent {
                 Constraint::Length(3), // Top status bar
                 Constraint::Min(0),    // Main content area
                 Constraint::Length(3), // Session info (single line + borders)
-                Constraint::Length(3), // Bottom menu bar
+                Constraint::Length(4), // Bottom menu bar (2 lines + borders)
             ])
             .split(frame.size());
 
@@ -266,8 +266,9 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        // Premium styled command bar with separators
-        let menu_spans = vec![
+        // Premium styled command bar with separators - 2 lines for better readability
+        // Line 1: Navigation, Session Actions
+        let line1_spans = vec![
             // Navigation group
             Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("ew ", Style::default().fg(MUTED_GRAY)),
@@ -278,7 +279,7 @@ impl LayoutComponent {
             Span::styled("Tab", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled(" focus", Style::default().fg(MUTED_GRAY)),
             Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
-            // Actions group
+            // Session actions group
             Span::styled("a", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
             Span::styled("ttach ", Style::default().fg(MUTED_GRAY)),
             Span::styled("e", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
@@ -288,8 +289,11 @@ impl LayoutComponent {
             Span::styled("$", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
             Span::styled("o", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("pen", Style::default().fg(MUTED_GRAY)),
-            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
+            Span::styled(" editor", Style::default().fg(MUTED_GRAY)),
+        ];
+
+        // Line 2: Git, Tools, System
+        let line2_spans = vec![
             // Git group
             Span::styled("g", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
             Span::styled("it ", Style::default().fg(MUTED_GRAY)),
@@ -313,9 +317,12 @@ impl LayoutComponent {
             Span::styled(" home", Style::default().fg(MUTED_GRAY)),
         ];
 
-        let menu_line = Line::from(menu_spans);
+        let menu_lines = vec![
+            Line::from(line1_spans),
+            Line::from(line2_spans),
+        ];
 
-        let menu = Paragraph::new(menu_line)
+        let menu = Paragraph::new(menu_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
