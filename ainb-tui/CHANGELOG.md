@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-10
+### Added
+- **changelog**: add in-app changelog viewer and manual release pipeline
+- **startup**: async workspace loading with timeout
+
+### Fixed
+- **release**: correct SHA256 extraction path and add formula values
+
+### Other
+- **homebrew**: update formula to v0.2.1
+
+
 ### Added
 - **startup**: Async workspace loading with 10s timeout to prevent hanging on slow Docker
 - **changelog**: In-app changelog viewer (press `v` on home screen)
