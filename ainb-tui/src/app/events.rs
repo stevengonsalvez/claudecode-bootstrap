@@ -229,6 +229,13 @@ pub enum AppEvent {
     AuthProviderPopupInputChar(char), // Input character for API key
     AuthProviderPopupBackspace,  // Backspace in API key input
     AuthProviderPopupDeleteKey,  // Delete stored API key (D)
+    // Config popup events (for choice/text input popups)
+    ConfigPopupNavigateUp,       // Navigate up in choice list
+    ConfigPopupNavigateDown,     // Navigate down in choice list
+    ConfigPopupConfirm,          // Confirm selection/save text (Enter)
+    ConfigPopupCancel,           // Cancel popup (Esc)
+    ConfigPopupInputChar(char),  // Input character in text/number input
+    ConfigPopupBackspace,        // Backspace in text/number input
     // Log history viewer events
     LogHistoryBack,              // Return to home screen (Esc)
     LogHistoryNextSession,       // Navigate to next session
@@ -1363,6 +1370,11 @@ impl EventHandler {
     }
 
     fn handle_config_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        // Check if config popup is showing first
+        if state.config_popup_state.show_popup {
+            return Self::handle_config_popup_keys(key_event, state);
+        }
+
         let config_state = &state.config_screen_state;
         tracing::debug!(
             "Config screen key handler: {:?}, editing: {}, api_key_mode: {}",
@@ -1439,6 +1451,36 @@ impl EventHandler {
                 KeyCode::Enter => Some(AppEvent::AuthProviderPopupSelect),
                 KeyCode::Char('d' | 'D') => Some(AppEvent::AuthProviderPopupDeleteKey),
                 _ => None,
+            }
+        }
+    }
+
+    // AINB 2.0: Config popup key handling (for choice/text input popups)
+    fn handle_config_popup_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
+        use crate::components::config_popup::ConfigPopupType;
+
+        let popup_state = &state.config_popup_state;
+
+        match &popup_state.popup_type {
+            ConfigPopupType::Choice { .. } | ConfigPopupType::Boolean { .. } => {
+                // Choice/Boolean navigation mode
+                match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::ConfigPopupCancel),
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ConfigPopupNavigateUp),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ConfigPopupNavigateDown),
+                    KeyCode::Enter => Some(AppEvent::ConfigPopupConfirm),
+                    _ => None,
+                }
+            }
+            ConfigPopupType::TextInput { .. } | ConfigPopupType::NumberInput { .. } => {
+                // Text/Number input mode
+                match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::ConfigPopupCancel),
+                    KeyCode::Enter => Some(AppEvent::ConfigPopupConfirm),
+                    KeyCode::Backspace => Some(AppEvent::ConfigPopupBackspace),
+                    KeyCode::Char(c) => Some(AppEvent::ConfigPopupInputChar(c)),
+                    _ => None,
+                }
             }
         }
     }
@@ -2496,9 +2538,56 @@ impl EventHandler {
                 let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
                 if let Some(settings) = state.config_screen_state.settings.get(&current_category) {
                     if let Some(setting) = settings.get(state.config_screen_state.selected_setting) {
-                        state.config_screen_state.editing = true;
-                        state.config_screen_state.edit_buffer = setting.value.display();
-                        tracing::info!("Started editing setting: {}", setting.label);
+                        // Open popup based on setting type
+                        let title = setting.label.clone();
+                        let description = setting.description.clone();
+                        let key = setting.key.clone();
+
+                        match &setting.value {
+                            crate::app::state::ConfigValue::Choice(options, selected_idx) => {
+                                state.config_popup_state.open_choice(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    options.clone(),
+                                    *selected_idx,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Text(text) => {
+                                state.config_popup_state.open_text(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    text,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Secret(_) => {
+                                // For secrets, show empty input (don't reveal existing value)
+                                state.config_popup_state.open_text(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    "",
+                                );
+                            }
+                            crate::app::state::ConfigValue::Bool(value) => {
+                                state.config_popup_state.open_boolean(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    *value,
+                                );
+                            }
+                            crate::app::state::ConfigValue::Number(value) => {
+                                state.config_popup_state.open_number(
+                                    &title,
+                                    &description,
+                                    &key,
+                                    *value,
+                                );
+                            }
+                        }
+                        tracing::info!("Opened popup for setting: {}", setting.label);
                     }
                 }
             }
@@ -2744,6 +2833,58 @@ impl EventHandler {
                         state.add_error_notification(format!("Failed to delete: {}", e));
                     }
                 }
+            }
+            // Config popup events (choice/text input popups)
+            AppEvent::ConfigPopupNavigateUp => {
+                state.config_popup_state.navigate_up();
+            }
+            AppEvent::ConfigPopupNavigateDown => {
+                state.config_popup_state.navigate_down();
+            }
+            AppEvent::ConfigPopupConfirm => {
+                use crate::components::config_popup::ConfigPopupValue;
+
+                if let Some(value) = state.config_popup_state.get_value() {
+                    let setting_key = state.config_popup_state.setting_key.clone();
+                    let current_category = state.config_screen_state.categories[state.config_screen_state.selected_category];
+
+                    // Update the setting value
+                    if let Some(settings) = state.config_screen_state.settings.get_mut(&current_category) {
+                        if let Some(setting) = settings.iter_mut().find(|s| s.key == setting_key) {
+                            match value {
+                                ConfigPopupValue::Choice(text, idx) => {
+                                    if let crate::app::state::ConfigValue::Choice(opts, _) = &setting.value {
+                                        setting.value = crate::app::state::ConfigValue::Choice(opts.clone(), idx);
+                                    }
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, text);
+                                }
+                                ConfigPopupValue::Text(text) => {
+                                    setting.value = crate::app::state::ConfigValue::Text(text.clone());
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, text);
+                                }
+                                ConfigPopupValue::Boolean(b) => {
+                                    setting.value = crate::app::state::ConfigValue::Bool(b);
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, b);
+                                }
+                                ConfigPopupValue::Number(n) => {
+                                    setting.value = crate::app::state::ConfigValue::Number(n);
+                                    tracing::info!("Config setting {} changed to: {}", setting_key, n);
+                                }
+                            }
+                        }
+                    }
+                }
+                state.config_popup_state.close();
+            }
+            AppEvent::ConfigPopupCancel => {
+                tracing::debug!("Config popup cancelled");
+                state.config_popup_state.close();
+            }
+            AppEvent::ConfigPopupInputChar(c) => {
+                state.config_popup_state.input_char(c);
+            }
+            AppEvent::ConfigPopupBackspace => {
+                state.config_popup_state.backspace();
             }
             // Log history viewer events
             AppEvent::LogHistoryBack => {

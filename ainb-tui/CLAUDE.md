@@ -89,6 +89,28 @@ const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 - `▶` selection indicator with `SELECTION_GREEN`
 - Bottom help bar: gold keys + muted descriptions
 
+### UI Interaction Patterns
+
+**Popup-based Configuration:**
+All configuration settings MUST use popup-based interactions rather than inline editing:
+
+- **Choice settings** → Modal popup with selection list (up/down to navigate, Enter to confirm)
+- **Text settings** → Modal popup with text input field
+- **Boolean settings** → Modal popup with Enabled/Disabled toggle
+- **Number settings** → Modal popup with numeric input field
+
+This applies to:
+- Config screen settings
+- Any settings editor or preference dialog
+
+**Popup Design:**
+- Centered overlay with `Clear` widget to obscure background
+- Title in GOLD with description in MUTED_GRAY
+- Help bar showing available keybindings (Esc to cancel, Enter to confirm)
+- Follow same color palette as main UI
+
+**Reference implementation:** `src/components/config_popup.rs`
+
 ## Key Dependencies
 
 | Crate | Purpose |

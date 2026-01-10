@@ -20,7 +20,7 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
     AgentSelectionComponent, AttachedTerminalComponent, AuthProviderPopupComponent, AuthSetupComponent, ClaudeChatComponent,
-    ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
+    ConfigPopupComponent, ConfigScreenComponent, ConfirmationDialogComponent, HelpComponent, HomeScreenComponent,
     HomeScreenV2Component, LogHistoryViewerComponent,
     LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent, OnboardingComponent, SessionListComponent,
     SetupMenuComponent, TmuxPreviewPane,
@@ -44,6 +44,7 @@ pub struct LayoutComponent {
     agent_selection: AgentSelectionComponent,
     config_screen: ConfigScreenComponent,
     auth_provider_popup: AuthProviderPopupComponent,
+    config_popup: ConfigPopupComponent,
     log_history_viewer: LogHistoryViewerComponent,
     onboarding: OnboardingComponent,
     setup_menu: SetupMenuComponent,
@@ -68,6 +69,7 @@ impl LayoutComponent {
             agent_selection: AgentSelectionComponent::new(),
             config_screen: ConfigScreenComponent::new(),
             auth_provider_popup: AuthProviderPopupComponent::new(),
+            config_popup: ConfigPopupComponent::new(),
             log_history_viewer: LogHistoryViewerComponent::new(),
             onboarding: OnboardingComponent::new(),
             setup_menu: SetupMenuComponent::new(),
@@ -148,6 +150,12 @@ impl LayoutComponent {
             if state.auth_provider_popup_state.show_popup {
                 tracing::debug!("Rendering auth provider popup");
                 self.auth_provider_popup.render(frame, frame.size(), state);
+            }
+
+            // Render config popup on top if visible (for choice/text input)
+            if state.config_popup_state.show_popup {
+                tracing::debug!("Rendering config popup");
+                self.config_popup.render(frame, frame.size(), &state.config_popup_state);
             }
 
             // Render help overlay on top if visible

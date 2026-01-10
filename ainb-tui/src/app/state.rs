@@ -1744,6 +1744,8 @@ pub struct AppState {
     pub agent_selection_state: AgentSelectionState,
     pub config_screen_state: ConfigScreenState,
     pub auth_provider_popup_state: AuthProviderPopupState,
+    /// Config popup state for choice/text input popups in config screen
+    pub config_popup_state: crate::components::config_popup::ConfigPopupState,
 
     // Onboarding wizard state
     pub onboarding_state: Option<crate::components::onboarding::OnboardingState>,
@@ -2094,6 +2096,7 @@ impl Default for AppState {
             agent_selection_state: AgentSelectionState::default(),
             config_screen_state: ConfigScreenState::from_app_config(&app_config),
             auth_provider_popup_state: AuthProviderPopupState::from_app_config(&app_config),
+            config_popup_state: crate::components::config_popup::ConfigPopupState::default(),
 
             // Onboarding wizard state (initialized to None, set during app init)
             onboarding_state: None,
