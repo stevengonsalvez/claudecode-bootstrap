@@ -182,6 +182,11 @@ pub struct UiPreferences {
     /// Whether to show git status in UI
     #[serde(default = "default_true")]
     pub show_git_status: bool,
+
+    /// Preferred editor command (e.g., "code", "cursor", "nvim")
+    /// If None, falls back to: code -> $EDITOR -> error
+    #[serde(default)]
+    pub preferred_editor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -388,6 +393,9 @@ impl AppConfig {
         }
         self.ui_preferences.show_container_status = other.ui_preferences.show_container_status;
         self.ui_preferences.show_git_status = other.ui_preferences.show_git_status;
+        if other.ui_preferences.preferred_editor.is_some() {
+            self.ui_preferences.preferred_editor = other.ui_preferences.preferred_editor;
+        }
     }
 
     /// Load built-in container templates

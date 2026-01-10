@@ -11,7 +11,19 @@ pub enum OnboardingStep {
     DependencyCheck,
     GitDirectories,
     Authentication,
+    EditorSelection,
     Summary,
+}
+
+/// Available editor option for selection
+#[derive(Debug, Clone)]
+pub struct EditorOption {
+    /// Display name (e.g., "VS Code", "Cursor")
+    pub name: String,
+    /// CLI command (e.g., "code", "cursor")
+    pub command: String,
+    /// Whether this editor is installed/available
+    pub available: bool,
 }
 
 impl OnboardingStep {
@@ -22,6 +34,7 @@ impl OnboardingStep {
             Self::DependencyCheck,
             Self::GitDirectories,
             Self::Authentication,
+            Self::EditorSelection,
             Self::Summary,
         ]
     }
@@ -33,13 +46,14 @@ impl OnboardingStep {
             Self::DependencyCheck => 2,
             Self::GitDirectories => 3,
             Self::Authentication => 4,
-            Self::Summary => 5,
+            Self::EditorSelection => 5,
+            Self::Summary => 6,
         }
     }
 
     /// Get the total number of steps
     pub fn total() -> usize {
-        5
+        6
     }
 
     /// Get display title for this step
@@ -49,6 +63,7 @@ impl OnboardingStep {
             Self::DependencyCheck => "Dependencies",
             Self::GitDirectories => "Git Directories",
             Self::Authentication => "Authentication",
+            Self::EditorSelection => "Editor",
             Self::Summary => "Summary",
         }
     }
@@ -60,6 +75,7 @@ impl OnboardingStep {
             Self::DependencyCheck => "Checking required tools",
             Self::GitDirectories => "Where are your projects?",
             Self::Authentication => "Set up Claude authentication",
+            Self::EditorSelection => "Choose your preferred editor",
             Self::Summary => "You're all set!",
         }
     }
@@ -82,6 +98,10 @@ impl OnboardingStep {
                 // Auth can be skipped
                 true
             }
+            Self::EditorSelection => {
+                // Editor selection can be skipped (will use fallback)
+                true
+            }
             Self::Summary => {
                 // Can finish from summary
                 true
@@ -95,7 +115,8 @@ impl OnboardingStep {
             Self::Welcome => Some(Self::DependencyCheck),
             Self::DependencyCheck => Some(Self::GitDirectories),
             Self::GitDirectories => Some(Self::Authentication),
-            Self::Authentication => Some(Self::Summary),
+            Self::Authentication => Some(Self::EditorSelection),
+            Self::EditorSelection => Some(Self::Summary),
             Self::Summary => None,
         }
     }
@@ -107,7 +128,8 @@ impl OnboardingStep {
             Self::DependencyCheck => Some(Self::Welcome),
             Self::GitDirectories => Some(Self::DependencyCheck),
             Self::Authentication => Some(Self::GitDirectories),
-            Self::Summary => Some(Self::Authentication),
+            Self::EditorSelection => Some(Self::Authentication),
+            Self::Summary => Some(Self::EditorSelection),
         }
     }
 }
@@ -218,6 +240,10 @@ pub struct OnboardingState {
     pub selected_dep_index: usize,
     /// Dependencies user chose to skip
     pub skipped_dependencies: Vec<String>,
+    /// Available editor options (detected on EditorSelection step)
+    pub available_editors: Vec<EditorOption>,
+    /// Currently selected editor index
+    pub selected_editor_index: usize,
 }
 
 impl OnboardingState {
@@ -237,6 +263,59 @@ impl OnboardingState {
             error_message: None,
             selected_dep_index: 0,
             skipped_dependencies: Vec::new(),
+            available_editors: Vec::new(),
+            selected_editor_index: 0,
+        }
+    }
+
+    /// Detect available editors on the system
+    pub fn detect_available_editors() -> Vec<EditorOption> {
+        let editors = vec![
+            ("VS Code", "code"),
+            ("Cursor", "cursor"),
+            ("Zed", "zed"),
+            ("Neovim", "nvim"),
+            ("Vim", "vim"),
+            ("Emacs", "emacs"),
+            ("Sublime Text", "subl"),
+        ];
+
+        editors
+            .into_iter()
+            .map(|(name, cmd)| {
+                let available = std::process::Command::new("which")
+                    .arg(cmd)
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+
+                EditorOption {
+                    name: name.to_string(),
+                    command: cmd.to_string(),
+                    available,
+                }
+            })
+            .collect()
+    }
+
+    /// Get the currently selected editor command (if any available editor is selected)
+    pub fn get_selected_editor(&self) -> Option<String> {
+        self.available_editors
+            .get(self.selected_editor_index)
+            .filter(|e| e.available)
+            .map(|e| e.command.clone())
+    }
+
+    /// Initialize editors if not already done
+    pub fn init_editors_if_needed(&mut self) {
+        if self.available_editors.is_empty() {
+            self.available_editors = Self::detect_available_editors();
+            // Select first available editor by default
+            self.selected_editor_index = self
+                .available_editors
+                .iter()
+                .position(|e| e.available)
+                .unwrap_or(0);
         }
     }
 
@@ -420,14 +499,19 @@ mod tests {
 
         let step = OnboardingStep::Summary;
         assert_eq!(step.next(), None);
+        assert_eq!(step.previous(), Some(OnboardingStep::EditorSelection));
+
+        let step = OnboardingStep::EditorSelection;
+        assert_eq!(step.next(), Some(OnboardingStep::Summary));
         assert_eq!(step.previous(), Some(OnboardingStep::Authentication));
     }
 
     #[test]
     fn test_step_numbers() {
         assert_eq!(OnboardingStep::Welcome.number(), 1);
-        assert_eq!(OnboardingStep::Summary.number(), 5);
-        assert_eq!(OnboardingStep::total(), 5);
+        assert_eq!(OnboardingStep::EditorSelection.number(), 5);
+        assert_eq!(OnboardingStep::Summary.number(), 6);
+        assert_eq!(OnboardingStep::total(), 6);
     }
 
     #[test]

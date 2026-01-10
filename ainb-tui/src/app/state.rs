@@ -879,6 +879,54 @@ impl ConfigValue {
     }
 }
 
+/// Tracks which pane has focus in the config screen
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConfigPane {
+    #[default]
+    Categories,
+    Settings,
+}
+
+/// Detect available editors on the system for config screen.
+/// Returns a list of (display_name, is_available) tuples.
+fn detect_available_editors() -> Vec<(String, bool)> {
+    let editors = vec![
+        ("VS Code", "code"),
+        ("Cursor", "cursor"),
+        ("Zed", "zed"),
+        ("Neovim", "nvim"),
+        ("Vim", "vim"),
+        ("Emacs", "emacs"),
+        ("Sublime Text", "subl"),
+    ];
+
+    editors
+        .into_iter()
+        .map(|(name, cmd)| {
+            let available = std::process::Command::new("which")
+                .arg(cmd)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            (name.to_string(), available)
+        })
+        .collect()
+}
+
+/// Map editor display name to CLI command
+fn editor_name_to_command(name: &str) -> Option<&'static str> {
+    match name {
+        "VS Code" => Some("code"),
+        "Cursor" => Some("cursor"),
+        "Zed" => Some("zed"),
+        "Neovim" => Some("nvim"),
+        "Vim" => Some("vim"),
+        "Emacs" => Some("emacs"),
+        "Sublime Text" => Some("subl"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigScreenState {
     pub selected_category: usize,
@@ -889,6 +937,8 @@ pub struct ConfigScreenState {
     pub edit_buffer: String,
     /// True when entering API key (special handling - saves to keychain)
     pub api_key_input_mode: bool,
+    /// Which pane currently has focus (Categories or Settings)
+    pub focused_pane: ConfigPane,
 }
 
 impl Default for ConfigScreenState {
@@ -982,6 +1032,11 @@ impl Default for ConfigScreenState {
         ]);
 
         // Appearance
+        // Detect available editors for the editor preference setting
+        let available_editors = detect_available_editors();
+        let editor_names: Vec<String> = available_editors.iter().map(|(name, _)| name.clone()).collect();
+        let default_editor_index = available_editors.iter().position(|(_, avail)| *avail).unwrap_or(0);
+
         settings.insert(ConfigCategory::Appearance, vec![
             ConfigSetting {
                 key: "theme".to_string(),
@@ -991,6 +1046,12 @@ impl Default for ConfigScreenState {
                     0,
                 ),
                 description: "Color theme for the TUI".to_string(),
+            },
+            ConfigSetting {
+                key: "preferred_editor".to_string(),
+                label: "Preferred Editor".to_string(),
+                value: ConfigValue::Choice(editor_names, default_editor_index),
+                description: "Editor for opening sessions (o key)".to_string(),
             },
         ]);
 
@@ -1028,6 +1089,7 @@ impl Default for ConfigScreenState {
             editing: false,
             edit_buffer: String::new(),
             api_key_input_mode: false,
+            focused_pane: ConfigPane::Categories,
         }
     }
 }
@@ -1171,17 +1233,42 @@ impl ConfigScreenState {
         // Update Appearance from config
         if let Some(settings) = state.settings.get_mut(&ConfigCategory::Appearance) {
             for setting in settings.iter_mut() {
-                if setting.key == "theme" {
-                    let theme_idx = match config.ui_preferences.theme.as_str() {
-                        "dark" => 0,
-                        "light" => 1,
-                        "system" => 2,
-                        _ => 0,
-                    };
-                    setting.value = ConfigValue::Choice(
-                        vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
-                        theme_idx,
-                    );
+                match setting.key.as_str() {
+                    "theme" => {
+                        let theme_idx = match config.ui_preferences.theme.as_str() {
+                            "dark" => 0,
+                            "light" => 1,
+                            "system" => 2,
+                            _ => 0,
+                        };
+                        setting.value = ConfigValue::Choice(
+                            vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
+                            theme_idx,
+                        );
+                    }
+                    "preferred_editor" => {
+                        // Load current preferred editor from config
+                        if let Some(ref preferred) = config.ui_preferences.preferred_editor {
+                            // Find the index of the preferred editor in our list
+                            if let ConfigValue::Choice(ref options, ref mut idx) = setting.value {
+                                // Map command to display name
+                                let display_name = match preferred.as_str() {
+                                    "code" => "VS Code",
+                                    "cursor" => "Cursor",
+                                    "zed" => "Zed",
+                                    "nvim" => "Neovim",
+                                    "vim" => "Vim",
+                                    "emacs" => "Emacs",
+                                    "subl" => "Sublime Text",
+                                    _ => preferred.as_str(),
+                                };
+                                if let Some(pos) = options.iter().position(|n| n == display_name) {
+                                    *idx = pos;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1233,12 +1320,25 @@ impl ConfigScreenState {
         // Apply Appearance settings
         if let Some(settings) = self.settings.get(&ConfigCategory::Appearance) {
             for setting in settings {
-                if setting.key == "theme" {
-                    if let ConfigValue::Choice(options, idx) = &setting.value {
-                        if let Some(theme) = options.get(*idx) {
-                            config.ui_preferences.theme = theme.to_lowercase();
+                match setting.key.as_str() {
+                    "theme" => {
+                        if let ConfigValue::Choice(options, idx) = &setting.value {
+                            if let Some(theme) = options.get(*idx) {
+                                config.ui_preferences.theme = theme.to_lowercase();
+                            }
                         }
                     }
+                    "preferred_editor" => {
+                        if let ConfigValue::Choice(options, idx) = &setting.value {
+                            if let Some(editor_name) = options.get(*idx) {
+                                // Convert display name to command
+                                if let Some(cmd) = editor_name_to_command(editor_name) {
+                                    config.ui_preferences.preferred_editor = Some(cmd.to_string());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1912,6 +2012,8 @@ pub enum AsyncAction {
     },
     OpenShellAtPath(std::path::PathBuf), // Open shell directly at a path (no workspace required)
     KillWorkspaceShell(usize), // Kill workspace shell by workspace index
+    // Editor action
+    OpenInEditor(std::path::PathBuf), // Open workspace in preferred editor
     // Onboarding actions
     OnboardingCheckDeps, // Run dependency check during onboarding
 }
@@ -2318,7 +2420,7 @@ impl AppState {
         is_factory_reset: bool,
         start_step: Option<crate::components::onboarding::OnboardingStep>,
     ) {
-        use crate::components::onboarding::OnboardingState;
+        use crate::components::onboarding::{OnboardingState, OnboardingStep};
 
         let mut state = if is_factory_reset {
             OnboardingState::for_factory_reset()
@@ -2329,6 +2431,10 @@ impl AppState {
         // If a specific start step is provided, jump to it
         if let Some(step) = start_step {
             state.current_step = step;
+            // Initialize editors if starting directly at EditorSelection
+            if step == OnboardingStep::EditorSelection {
+                state.init_editors_if_needed();
+            }
         }
 
         self.onboarding_state = Some(state);
@@ -2349,6 +2455,12 @@ impl AppState {
 
             // Update app config with git directories
             self.app_config.workspace_defaults.workspace_scan_paths = state.get_valid_directories();
+
+            // Save selected editor preference
+            if let Some(editor) = state.get_selected_editor() {
+                self.app_config.ui_preferences.preferred_editor = Some(editor);
+            }
+
             if let Err(e) = self.app_config.save() {
                 warn!("Failed to save app config during onboarding completion: {}", e);
             }
@@ -5773,6 +5885,10 @@ impl AppState {
                 }
                 action @ AsyncAction::KillWorkspaceShell(_) => {
                     debug!("KillWorkspaceShell action deferred to main loop");
+                    self.pending_async_action = Some(action);
+                }
+                action @ AsyncAction::OpenInEditor(_) => {
+                    debug!("OpenInEditor action deferred to main loop");
                     self.pending_async_action = Some(action);
                 }
                 AsyncAction::OnboardingCheckDeps => {

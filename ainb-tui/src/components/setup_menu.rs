@@ -26,6 +26,7 @@ pub enum SetupMenuItem {
     CheckDependencies,
     ConfigureGitPaths,
     AuthenticationSettings,
+    EditorPreference,
     FactoryReset,
 }
 
@@ -37,6 +38,7 @@ impl SetupMenuItem {
             Self::CheckDependencies,
             Self::ConfigureGitPaths,
             Self::AuthenticationSettings,
+            Self::EditorPreference,
             Self::FactoryReset,
         ]
     }
@@ -48,6 +50,7 @@ impl SetupMenuItem {
             Self::CheckDependencies => "Check Dependencies",
             Self::ConfigureGitPaths => "Configure Git Paths",
             Self::AuthenticationSettings => "Authentication Settings",
+            Self::EditorPreference => "Editor Preference",
             Self::FactoryReset => "Factory Reset AINB",
         }
     }
@@ -59,6 +62,7 @@ impl SetupMenuItem {
             Self::CheckDependencies => "Verify all required tools are installed",
             Self::ConfigureGitPaths => "Update your project directories",
             Self::AuthenticationSettings => "Configure Claude authentication",
+            Self::EditorPreference => "Choose your preferred code editor",
             Self::FactoryReset => "Remove all configuration and start fresh",
         }
     }
@@ -70,6 +74,7 @@ impl SetupMenuItem {
             Self::CheckDependencies => "🔍",
             Self::ConfigureGitPaths => "📁",
             Self::AuthenticationSettings => "🔐",
+            Self::EditorPreference => "📝",
             Self::FactoryReset => "⚠️",
         }
     }
@@ -423,7 +428,7 @@ mod tests {
         let mut state = SetupMenuState::new();
 
         // Move to Factory Reset (last item)
-        for _ in 0..4 {
+        for _ in 0..5 {
             state.move_down();
         }
         assert_eq!(state.selected_item(), SetupMenuItem::FactoryReset);

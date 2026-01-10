@@ -578,6 +578,43 @@ async fn run_tui_loop(
                         app.state.ui_needs_refresh = true;
                     }
 
+                    AsyncAction::OpenInEditor(workspace_path) => {
+                        info!("[ACTION] Opening workspace in editor: {:?}", workspace_path);
+
+                        // Resolve editor using fallback chain
+                        let editor = resolve_editor(&app.state.app_config);
+
+                        match editor {
+                            Some(cmd) => {
+                                info!("Opening {} in {}", workspace_path.display(), cmd);
+
+                                let result = std::process::Command::new(&cmd)
+                                    .arg(&workspace_path)
+                                    .spawn();
+
+                                match result {
+                                    Ok(_) => {
+                                        app.state.add_success_notification(
+                                            format!("📝 Opened in {}", cmd)
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to open editor: {}", e);
+                                        app.state.add_error_notification(
+                                            format!("❌ Failed to open editor: {}", e)
+                                        );
+                                    }
+                                }
+                            }
+                            None => {
+                                warn!("No editor found in fallback chain");
+                                app.state.add_error_notification(
+                                    "❌ No editor found. Set preferred editor in settings or install VS Code.".to_string()
+                                );
+                            }
+                        }
+                    }
+
                     // Workspace shell handling (one shell per workspace, cd to switch directories)
                     AsyncAction::OpenWorkspaceShell { workspace_index, target_dir } => {
                         use crate::app::AttachHandler;
@@ -988,4 +1025,42 @@ fn setup_panic_handler() {
         eprintln!("Application panicked: {}", panic_info);
         eprintln!("Please check the logs for more details.");
     }));
+}
+
+/// Resolve which editor to use via fallback chain:
+/// 1. preferred_editor from config
+/// 2. 'code' (VS Code)
+/// 3. $EDITOR env var
+/// 4. None (error)
+fn resolve_editor(config: &crate::config::AppConfig) -> Option<String> {
+    // 1. Check preferred_editor from config
+    if let Some(ref editor) = config.ui_preferences.preferred_editor {
+        if command_exists(editor) {
+            return Some(editor.clone());
+        }
+    }
+
+    // 2. Fallback to 'code' (VS Code)
+    if command_exists("code") {
+        return Some("code".to_string());
+    }
+
+    // 3. Fallback to $EDITOR env var
+    if let Ok(editor) = std::env::var("EDITOR") {
+        if command_exists(&editor) {
+            return Some(editor);
+        }
+    }
+
+    // 4. No editor found
+    None
+}
+
+/// Check if a command exists on the system
+fn command_exists(cmd: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
