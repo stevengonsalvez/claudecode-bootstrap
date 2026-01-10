@@ -272,6 +272,15 @@ pub enum AppEvent {
     SetupMenuDown,               // Navigate down
     StartOnboarding,             // Start onboarding wizard (from setup menu)
     FactoryReset,                // Factory reset AINB
+    // Changelog viewer events
+    ShowChangelog,               // Navigate to changelog view (v key)
+    ChangelogBack,               // Return to home screen (Esc)
+    ChangelogScrollUp,           // Scroll up one line
+    ChangelogScrollDown,         // Scroll down one line
+    ChangelogPageUp,             // Page up
+    ChangelogPageDown,           // Page down
+    ChangelogToTop,              // Jump to top (g)
+    ChangelogToBottom,           // Jump to bottom (G)
 }
 
 pub struct EventHandler;
@@ -468,6 +477,12 @@ impl EventHandler {
         if state.current_view == View::LogHistory {
             tracing::debug!("In log history view, handling log history keys");
             return Self::handle_log_history_keys(key_event, state);
+        }
+
+        // Handle changelog view
+        if state.current_view == View::Changelog {
+            tracing::debug!("In changelog view, handling changelog keys");
+            return Self::handle_changelog_keys(key_event, state);
         }
 
         // Handle key events based on focused pane
@@ -1292,6 +1307,22 @@ impl EventHandler {
         }
     }
 
+    // Changelog viewer key handling
+    fn handle_changelog_keys(key_event: KeyEvent, _state: &AppState) -> Option<AppEvent> {
+        tracing::debug!("Changelog key handler: {:?}", key_event.code);
+
+        match key_event.code {
+            KeyCode::Esc => Some(AppEvent::ChangelogBack),
+            KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::ChangelogScrollUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::ChangelogScrollDown),
+            KeyCode::PageUp => Some(AppEvent::ChangelogPageUp),
+            KeyCode::PageDown => Some(AppEvent::ChangelogPageDown),
+            KeyCode::Char('g') => Some(AppEvent::ChangelogToTop),
+            KeyCode::Char('G') => Some(AppEvent::ChangelogToBottom),
+            _ => None,
+        }
+    }
+
     // AINB 2.0: Home screen key handling (V2 with sidebar and card grid)
     fn handle_home_screen_keys(key_event: KeyEvent, state: &AppState) -> Option<AppEvent> {
         use crate::components::home_screen_v2::HomeScreenFocus;
@@ -1305,6 +1336,7 @@ impl EventHandler {
             KeyCode::Char('C') => return Some(AppEvent::GoToConfig),
             KeyCode::Char('s') => return Some(AppEvent::GoToSessionList),
             KeyCode::Char('i') => return Some(AppEvent::GoToStats),
+            KeyCode::Char('v') => return Some(AppEvent::ShowChangelog),
             KeyCode::Char('?') => return Some(AppEvent::ToggleHelp),
             KeyCode::Char('q') => return Some(AppEvent::Quit),
             _ => {}
@@ -2333,6 +2365,9 @@ impl EventHandler {
                     SidebarItem::Stats => {
                         state.add_info_notification("Usage & Analytics coming soon!".to_string());
                     }
+                    SidebarItem::Changelog => {
+                        state.current_view = View::Changelog;
+                    }
                     SidebarItem::Setup => {
                         state.current_view = View::SetupMenu;
                     }
@@ -2939,6 +2974,40 @@ impl EventHandler {
                 } else {
                     tracing::info!("Copied selection to clipboard");
                 }
+            }
+            // Changelog viewer events
+            AppEvent::ShowChangelog => {
+                tracing::debug!("Show changelog");
+                state.current_view = View::Changelog;
+            }
+            AppEvent::ChangelogBack => {
+                tracing::debug!("Changelog back");
+                state.current_view = View::HomeScreen;
+            }
+            AppEvent::ChangelogScrollUp => {
+                tracing::debug!("Changelog scroll up");
+                state.changelog_state.scroll_up();
+            }
+            AppEvent::ChangelogScrollDown => {
+                tracing::debug!("Changelog scroll down");
+                // Use a reasonable visible height for scrolling
+                state.changelog_state.scroll_down(30);
+            }
+            AppEvent::ChangelogPageUp => {
+                tracing::debug!("Changelog page up");
+                state.changelog_state.page_up(30);
+            }
+            AppEvent::ChangelogPageDown => {
+                tracing::debug!("Changelog page down");
+                state.changelog_state.page_down(30);
+            }
+            AppEvent::ChangelogToTop => {
+                tracing::debug!("Changelog scroll to top");
+                state.changelog_state.scroll_to_top();
+            }
+            AppEvent::ChangelogToBottom => {
+                tracing::debug!("Changelog scroll to bottom");
+                state.changelog_state.scroll_to_bottom(30);
             }
             // Onboarding wizard events
             AppEvent::OnboardingNext => {

@@ -178,6 +178,18 @@ impl LayoutComponent {
             return;
         }
 
+        // Changelog viewer (full screen)
+        if state.current_view == View::Changelog {
+            tracing::debug!("Rendering Changelog view");
+            crate::components::ChangelogComponent::render(frame, frame.size(), &state.changelog_state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on Changelog");
+                self.help.render(frame, frame.size());
+            }
+            return;
+        }
+
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([

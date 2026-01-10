@@ -413,6 +413,7 @@ pub enum View {
     GitView,    // Git status and diff view
     Onboarding, // First-time setup wizard
     SetupMenu,  // Setup menu with factory reset option
+    Changelog,  // Version history viewer
 }
 
 #[derive(Debug, Clone)]
@@ -1721,6 +1722,9 @@ pub struct AppState {
 
     // Log history viewer state
     pub log_history_state: crate::components::LogHistoryViewerState,
+
+    // Changelog viewer state
+    pub changelog_state: crate::components::ChangelogState,
 }
 
 /// Focus state for the combined Agent + Model selection panel
@@ -2072,6 +2076,9 @@ impl Default for AppState {
 
             // Log history viewer state
             log_history_state: crate::components::LogHistoryViewerState::new(),
+
+            // Changelog viewer state
+            changelog_state: crate::components::ChangelogState::new(),
         }
     }
 }
