@@ -11,6 +11,7 @@ use crate::components::home_screen_v2::HomeScreenV2State;
 use crate::components::live_logs_stream::LogEntry;
 use crate::config::AppConfig;
 use crate::credentials;
+use crate::editors;
 use crate::docker::LogStreamingCoordinator;
 use crate::git::{ParsedRepo, RemoteBranch, RepoSource};
 use crate::models::{ClaudeModel, Session, SessionAgentType, Workspace};
@@ -892,45 +893,7 @@ pub enum ConfigPane {
     Settings,
 }
 
-/// Detect available editors on the system for config screen.
-/// Returns a list of (display_name, is_available) tuples.
-fn detect_available_editors() -> Vec<(String, bool)> {
-    let editors = vec![
-        ("VS Code", "code"),
-        ("Cursor", "cursor"),
-        ("Zed", "zed"),
-        ("Neovim", "nvim"),
-        ("Vim", "vim"),
-        ("Emacs", "emacs"),
-        ("Sublime Text", "subl"),
-    ];
-
-    editors
-        .into_iter()
-        .map(|(name, cmd)| {
-            let available = std::process::Command::new("which")
-                .arg(cmd)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-            (name.to_string(), available)
-        })
-        .collect()
-}
-
-/// Map editor display name to CLI command
-fn editor_name_to_command(name: &str) -> Option<&'static str> {
-    match name {
-        "VS Code" => Some("code"),
-        "Cursor" => Some("cursor"),
-        "Zed" => Some("zed"),
-        "Neovim" => Some("nvim"),
-        "Vim" => Some("vim"),
-        "Emacs" => Some("emacs"),
-        "Sublime Text" => Some("subl"),
-        _ => None,
-    }
-}
+// Editor detection and mapping now uses the centralized crate::editors module
 
 #[derive(Debug, Clone)]
 pub struct ConfigScreenState {
@@ -1038,7 +1001,7 @@ impl Default for ConfigScreenState {
 
         // Editor
         // Detect available editors for the editor preference setting
-        let available_editors = detect_available_editors();
+        let available_editors = editors::get_editor_options();
         let editor_names: Vec<String> = available_editors.iter().map(|(name, _)| name.clone()).collect();
         let default_editor_index = available_editors.iter().position(|(_, avail)| *avail).unwrap_or(0);
 
@@ -1336,7 +1299,7 @@ impl ConfigScreenState {
                     if let ConfigValue::Choice(options, idx) = &setting.value {
                         if let Some(editor_name) = options.get(*idx) {
                             // Convert display name to command
-                            if let Some(cmd) = editor_name_to_command(editor_name) {
+                            if let Some(cmd) = editors::editor_name_to_command(editor_name) {
                                 config.ui_preferences.preferred_editor = Some(cmd.to_string());
                             }
                         }

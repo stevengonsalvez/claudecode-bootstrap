@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use super::dependency_checker::DependencyStatus;
+use crate::editors;
 
 /// Steps in the onboarding wizard
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,30 +271,12 @@ impl OnboardingState {
 
     /// Detect available editors on the system
     pub fn detect_available_editors() -> Vec<EditorOption> {
-        let editors = vec![
-            ("VS Code", "code"),
-            ("Cursor", "cursor"),
-            ("Zed", "zed"),
-            ("Neovim", "nvim"),
-            ("Vim", "vim"),
-            ("Emacs", "emacs"),
-            ("Sublime Text", "subl"),
-        ];
-
-        editors
+        editors::detect_available_editors()
             .into_iter()
-            .map(|(name, cmd)| {
-                let available = std::process::Command::new("which")
-                    .arg(cmd)
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
-
-                EditorOption {
-                    name: name.to_string(),
-                    command: cmd.to_string(),
-                    available,
-                }
+            .map(|(name, command, available)| EditorOption {
+                name,
+                command,
+                available,
             })
             .collect()
     }

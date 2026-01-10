@@ -21,6 +21,7 @@ mod claude;
 mod components;
 mod config;
 mod credentials;
+mod editors;
 mod docker;
 mod git;
 mod interactive;
