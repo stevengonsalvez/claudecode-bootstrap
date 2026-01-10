@@ -272,8 +272,6 @@ impl LayoutComponent {
             // Navigation group
             Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("ew ", Style::default().fg(MUTED_GRAY)),
-            Span::styled("s", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            Span::styled("earch ", Style::default().fg(MUTED_GRAY)),
             Span::styled("E", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("xpand ", Style::default().fg(MUTED_GRAY)),
             Span::styled("Tab", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
