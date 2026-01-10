@@ -788,6 +788,7 @@ pub enum ConfigCategory {
     Authentication,
     Workspace,
     AgentDefaults,
+    Editor,
     Plugins,
     Permissions,
     Appearance,
@@ -800,6 +801,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication,
             ConfigCategory::Workspace,
             ConfigCategory::AgentDefaults,
+            ConfigCategory::Editor,
             ConfigCategory::Plugins,
             ConfigCategory::Permissions,
             ConfigCategory::Appearance,
@@ -812,6 +814,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "Authentication",
             ConfigCategory::Workspace => "Workspace",
             ConfigCategory::AgentDefaults => "Agent Defaults",
+            ConfigCategory::Editor => "Editor",
             ConfigCategory::Plugins => "Plugins",
             ConfigCategory::Permissions => "Permissions",
             ConfigCategory::Appearance => "Appearance",
@@ -824,6 +827,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "🔐",
             ConfigCategory::Workspace => "📁",
             ConfigCategory::AgentDefaults => "🤖",
+            ConfigCategory::Editor => "📝",
             ConfigCategory::Plugins => "🔌",
             ConfigCategory::Permissions => "🛡️",
             ConfigCategory::Appearance => "🎨",
@@ -836,6 +840,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "API keys, OAuth, GitHub credentials",
             ConfigCategory::Workspace => "Default paths, git settings",
             ConfigCategory::AgentDefaults => "Model, temperature, max tokens",
+            ConfigCategory::Editor => "Preferred code editor for sessions",
             ConfigCategory::Plugins => "Installed plugins, enable/disable",
             ConfigCategory::Permissions => "File write, shell, git approval",
             ConfigCategory::Appearance => "Theme, colors, layout",
@@ -1031,12 +1036,22 @@ impl Default for ConfigScreenState {
             },
         ]);
 
-        // Appearance
+        // Editor
         // Detect available editors for the editor preference setting
         let available_editors = detect_available_editors();
         let editor_names: Vec<String> = available_editors.iter().map(|(name, _)| name.clone()).collect();
         let default_editor_index = available_editors.iter().position(|(_, avail)| *avail).unwrap_or(0);
 
+        settings.insert(ConfigCategory::Editor, vec![
+            ConfigSetting {
+                key: "preferred_editor".to_string(),
+                label: "Preferred Editor".to_string(),
+                value: ConfigValue::Choice(editor_names, default_editor_index),
+                description: "Editor for opening sessions (o key)".to_string(),
+            },
+        ]);
+
+        // Appearance
         settings.insert(ConfigCategory::Appearance, vec![
             ConfigSetting {
                 key: "theme".to_string(),
@@ -1046,12 +1061,6 @@ impl Default for ConfigScreenState {
                     0,
                 ),
                 description: "Color theme for the TUI".to_string(),
-            },
-            ConfigSetting {
-                key: "preferred_editor".to_string(),
-                label: "Preferred Editor".to_string(),
-                value: ConfigValue::Choice(editor_names, default_editor_index),
-                description: "Editor for opening sessions (o key)".to_string(),
             },
         ]);
 
@@ -1230,45 +1239,48 @@ impl ConfigScreenState {
             }
         }
 
-        // Update Appearance from config
-        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Appearance) {
+        // Update Editor from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Editor) {
             for setting in settings.iter_mut() {
-                match setting.key.as_str() {
-                    "theme" => {
-                        let theme_idx = match config.ui_preferences.theme.as_str() {
-                            "dark" => 0,
-                            "light" => 1,
-                            "system" => 2,
-                            _ => 0,
-                        };
-                        setting.value = ConfigValue::Choice(
-                            vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
-                            theme_idx,
-                        );
-                    }
-                    "preferred_editor" => {
-                        // Load current preferred editor from config
-                        if let Some(ref preferred) = config.ui_preferences.preferred_editor {
-                            // Find the index of the preferred editor in our list
-                            if let ConfigValue::Choice(ref options, ref mut idx) = setting.value {
-                                // Map command to display name
-                                let display_name = match preferred.as_str() {
-                                    "code" => "VS Code",
-                                    "cursor" => "Cursor",
-                                    "zed" => "Zed",
-                                    "nvim" => "Neovim",
-                                    "vim" => "Vim",
-                                    "emacs" => "Emacs",
-                                    "subl" => "Sublime Text",
-                                    _ => preferred.as_str(),
-                                };
-                                if let Some(pos) = options.iter().position(|n| n == display_name) {
-                                    *idx = pos;
-                                }
+                if setting.key == "preferred_editor" {
+                    // Load current preferred editor from config
+                    if let Some(ref preferred) = config.ui_preferences.preferred_editor {
+                        // Find the index of the preferred editor in our list
+                        if let ConfigValue::Choice(ref options, ref mut idx) = setting.value {
+                            // Map command to display name
+                            let display_name = match preferred.as_str() {
+                                "code" => "VS Code",
+                                "cursor" => "Cursor",
+                                "zed" => "Zed",
+                                "nvim" => "Neovim",
+                                "vim" => "Vim",
+                                "emacs" => "Emacs",
+                                "subl" => "Sublime Text",
+                                _ => preferred.as_str(),
+                            };
+                            if let Some(pos) = options.iter().position(|n| n == display_name) {
+                                *idx = pos;
                             }
                         }
                     }
-                    _ => {}
+                }
+            }
+        }
+
+        // Update Appearance from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Appearance) {
+            for setting in settings.iter_mut() {
+                if setting.key == "theme" {
+                    let theme_idx = match config.ui_preferences.theme.as_str() {
+                        "dark" => 0,
+                        "light" => 1,
+                        "system" => 2,
+                        _ => 0,
+                    };
+                    setting.value = ConfigValue::Choice(
+                        vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
+                        theme_idx,
+                    );
                 }
             }
         }
@@ -1317,28 +1329,31 @@ impl ConfigScreenState {
             }
         }
 
+        // Apply Editor settings
+        if let Some(settings) = self.settings.get(&ConfigCategory::Editor) {
+            for setting in settings {
+                if setting.key == "preferred_editor" {
+                    if let ConfigValue::Choice(options, idx) = &setting.value {
+                        if let Some(editor_name) = options.get(*idx) {
+                            // Convert display name to command
+                            if let Some(cmd) = editor_name_to_command(editor_name) {
+                                config.ui_preferences.preferred_editor = Some(cmd.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Apply Appearance settings
         if let Some(settings) = self.settings.get(&ConfigCategory::Appearance) {
             for setting in settings {
-                match setting.key.as_str() {
-                    "theme" => {
-                        if let ConfigValue::Choice(options, idx) = &setting.value {
-                            if let Some(theme) = options.get(*idx) {
-                                config.ui_preferences.theme = theme.to_lowercase();
-                            }
+                if setting.key == "theme" {
+                    if let ConfigValue::Choice(options, idx) = &setting.value {
+                        if let Some(theme) = options.get(*idx) {
+                            config.ui_preferences.theme = theme.to_lowercase();
                         }
                     }
-                    "preferred_editor" => {
-                        if let ConfigValue::Choice(options, idx) = &setting.value {
-                            if let Some(editor_name) = options.get(*idx) {
-                                // Convert display name to command
-                                if let Some(cmd) = editor_name_to_command(editor_name) {
-                                    config.ui_preferences.preferred_editor = Some(cmd.to_string());
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
