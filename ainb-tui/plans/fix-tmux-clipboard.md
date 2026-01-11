@@ -11,64 +11,69 @@ Tmux sessions created by the TUI lack clipboard configuration. The following tmu
 
 ## Solution
 
-### Create Shared Clipboard Configuration
+### Implementation
 
-Add a centralized function in `src/tmux/mod.rs` to configure clipboard for any tmux session:
+Added `configure_clipboard()` function in `src/tmux/mod.rs` that:
+
+1. **Enables OSC 52 clipboard** via `set-option set-clipboard on`
+2. **Binds mouse selection** to system clipboard using `copy-pipe-and-cancel`
+3. **Supports both copy modes**: `copy-mode` (emacs) and `copy-mode-vi`
 
 ```rust
 /// Configure clipboard integration for a tmux session
 pub async fn configure_clipboard(session_name: &str) -> Result<()> {
-    use tokio::process::Command;
-
     // Enable set-clipboard for OSC 52 escape sequence support
-    // This allows the terminal to access the system clipboard
-    Command::new("tmux")
+    let output = Command::new("tmux")
         .args(["set-option", "-t", session_name, "set-clipboard", "on"])
-        .status()
+        .output()
         .await?;
 
-    // For mouse copy mode, configure copy-pipe to system clipboard
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: Use pbcopy
-        Command::new("tmux")
-            .args(["set-option", "-t", session_name, "copy-command", "pbcopy"])
-            .status()
-            .await?;
+    if !output.status.success() {
+        anyhow::bail!("Failed to set tmux option set-clipboard: {}",
+            String::from_utf8_lossy(&output.stderr));
     }
+
+    // Platform-specific clipboard binding
+    #[cfg(target_os = "macos")]
+    bind_clipboard_for_copy_modes(session_name, "pbcopy").await?;
 
     #[cfg(target_os = "linux")]
-    {
-        // Linux: Try xclip or xsel
-        if which::which("xclip").is_ok() {
-            Command::new("tmux")
-                .args(["set-option", "-t", session_name, "copy-command", "xclip -selection clipboard"])
-                .status()
-                .await?;
+    // Uses xclip or xsel if available
+    ...
+}
+
+/// Bind clipboard for both copy-mode and copy-mode-vi
+async fn bind_clipboard_for_copy_modes(session_name: &str, copy_cmd: &str) -> Result<()> {
+    for mode in ["copy-mode-vi", "copy-mode"] {
+        let output = Command::new("tmux")
+            .args([
+                "bind-key", "-T", mode, "MouseDragEnd1Pane",
+                "send-keys", "-X", "copy-pipe-and-cancel", copy_cmd
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            anyhow::bail!("Failed to bind tmux key for {}: {}",
+                mode, String::from_utf8_lossy(&output.stderr));
         }
     }
-
     Ok(())
 }
 ```
 
 ### Integration Points
 
-1. **`src/tmux/session.rs`** - Add to `configure_session()`
-2. **`src/interactive/session_manager.rs`** - Add to `configure_tmux_session()`
-3. **`src/main.rs`** - Add after shell session creation (both `OpenWorkspaceShell` and `OpenShellAtPath`)
-
-### Files to Modify
-
 | File | Change |
 |------|--------|
-| `src/tmux/mod.rs` | Add `configure_clipboard()` function |
-| `src/tmux/session.rs` | Call `configure_clipboard()` in `configure_session()` |
-| `src/interactive/session_manager.rs` | Call `configure_clipboard()` in `configure_tmux_session()` |
-| `src/main.rs` | Add clipboard config after shell session creation |
+| `src/tmux/mod.rs` | Added `configure_clipboard()` and `bind_clipboard_for_copy_modes()` |
+| `src/tmux/session.rs` | Calls `configure_clipboard()` in `configure_session()` |
+| `src/interactive/session_manager.rs` | Calls `configure_clipboard()` in `configure_tmux_session()` |
+| `src/main.rs` | Calls clipboard config after shell session creation |
 
 ## Verification
 
+- [x] Build passes
 - [ ] Test copy FROM tmux shell (select text, should be in system clipboard)
 - [ ] Test paste INTO tmux shell (system clipboard content should paste)
 - [ ] Test on macOS (pbcopy/pbpaste)
@@ -77,5 +82,6 @@ pub async fn configure_clipboard(session_name: &str) -> Result<()> {
 ## Notes
 
 - OSC 52 (set-clipboard) is the modern way to handle clipboard in terminals
-- Mouse selection + drag should trigger copy
-- Paste uses the terminal's paste (Cmd+V on macOS) which sends the clipboard through the PTY
+- Mouse selection + drag triggers copy via `MouseDragEnd1Pane` binding
+- Paste uses the terminal's paste (Cmd+V on macOS) which sends clipboard through PTY
+- Proper error handling with `.output()` and `status.success()` checks
