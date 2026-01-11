@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-11
+### Fixed
+- **git**: credential helper support + commits tab in git view (#27)
+
+### Other
+- **homebrew**: update formula to v0.3.0
+
+
 ## [0.3.0] - 2026-01-10
 ### Added
 - **changelog**: add in-app changelog viewer and manual release pipeline
