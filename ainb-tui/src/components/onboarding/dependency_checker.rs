@@ -162,11 +162,12 @@ impl DependencyChecker {
                 description: "Terminal multiplexer for session management",
             },
             // macOS-only: Restores user namespace access in tmux
+            // Note: This tool has no --version flag, so we test with "echo test"
             #[cfg(target_os = "macos")]
             Dependency {
                 name: "reattach-to-user-namespace",
                 check_cmd: "reattach-to-user-namespace",
-                check_args: &["--version"],
+                check_args: &["echo", "test"],
                 install_hint: "brew install reattach-to-user-namespace",
                 is_mandatory: false,
                 category: DependencyCategory::Session,

@@ -533,7 +533,8 @@ impl InteractiveSessionManager {
         if let Err(e) = crate::tmux::configure_macos_user_namespace(session_name).await {
             warn!(
                 "Failed to configure macOS user namespace for session {}: {}",
-                session_name, e
+                session_name,
+                e
             );
             // Continue anyway - this is optional functionality
         }
