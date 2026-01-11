@@ -353,6 +353,23 @@ fn find_merge_base_with_main(repo: &git2::Repository, head_oid: git2::Oid) -> Op
     repo.merge_base(head_oid, main_oid).ok()
 }
 
+/// Get the diff for a specific commit
+pub fn get_commit_diff(worktree_path: &Path, commit_hash: &str) -> Result<Vec<String>> {
+    // Use git show to get the commit diff - more reliable than git2 for this
+    let output = Command::new("git")
+        .current_dir(worktree_path)
+        .args(&["show", "--stat", "--patch", commit_hash])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Failed to get commit diff: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(|s| s.to_string()).collect())
+}
+
 /// Format timestamp as relative time (e.g., "2 hours ago")
 fn format_relative_time(timestamp: i64) -> String {
     let now = std::time::SystemTime::now()
