@@ -670,6 +670,11 @@ async fn run_tui_loop(
 
                         match create_result {
                             Ok(output) if output.status.success() => {
+                                // Configure clipboard for the tmux session
+                                if let Err(e) = crate::tmux::configure_clipboard(&tmux_name).await {
+                                    warn!("[ACTION] Failed to configure clipboard: {}", e);
+                                }
+
                                 if is_new_shell {
                                     info!("[ACTION] Created new workspace shell: {}", tmux_name);
                                     app.state.add_success_notification(
@@ -800,6 +805,10 @@ async fn run_tui_loop(
 
                             match create_result {
                                 Ok(output) if output.status.success() => {
+                                    // Configure clipboard for the tmux session
+                                    if let Err(e) = crate::tmux::configure_clipboard(&tmux_name).await {
+                                        warn!("[ACTION] Failed to configure clipboard: {}", e);
+                                    }
                                     info!("[ACTION] Created tmux session: {}", tmux_name);
                                 }
                                 Ok(output) => {
@@ -817,6 +826,10 @@ async fn run_tui_loop(
                                 }
                             }
                         } else {
+                            // Ensure clipboard is configured even for existing sessions
+                            if let Err(e) = crate::tmux::configure_clipboard(&tmux_name).await {
+                                warn!("[ACTION] Failed to configure clipboard: {}", e);
+                            }
                             info!("[ACTION] Reusing existing tmux session: {}", tmux_name);
                         }
 

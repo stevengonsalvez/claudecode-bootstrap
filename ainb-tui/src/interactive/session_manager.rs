@@ -523,6 +523,11 @@ impl InteractiveSessionManager {
             .status()
             .await?;
 
+        // Configure clipboard integration
+        crate::tmux::configure_clipboard(session_name)
+            .await
+            .map_err(|e| InteractiveSessionError::Tmux(format!("Failed to configure clipboard: {}", e)))?;
+
         Ok(())
     }
 
