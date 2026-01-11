@@ -1936,12 +1936,15 @@ impl GitViewComponent {
 }
 
 /// Truncate a string to a maximum length, adding "..." if truncated
+/// Uses char-based counting to safely handle UTF-8 multi-byte characters
 fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else if max_len <= 3 {
         "...".to_string()
     } else {
-        format!("{}...", &s[..max_len - 3])
+        let mut truncated: String = s.chars().take(max_len - 3).collect();
+        truncated.push_str("...");
+        truncated
     }
 }

@@ -2218,6 +2218,7 @@ impl EventHandler {
                             }
                             Err(e) => {
                                 tracing::error!("Failed to get commit diff: {}", e);
+                                state.add_error_notification(format!("Failed to load commit diff: {}", e));
                             }
                         }
                     }

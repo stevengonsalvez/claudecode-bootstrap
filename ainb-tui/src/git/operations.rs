@@ -221,17 +221,15 @@ fn commit_and_push_git2(worktree_path: &Path, commit_message: &str) -> Result<St
 /// Try to get credentials from git's credential helper
 fn get_git_credentials(url: &str) -> Option<(String, String)> {
     use std::io::Write;
+    use url::Url;
 
-    // Parse the URL to get protocol and host
-    let protocol = if url.starts_with("https://") { "https" } else { "http" };
-    let host = url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap_or("");
+    // Parse the URL using the url crate for robustness
+    let parsed = Url::parse(url).ok()?;
+    let protocol = parsed.scheme();
+    let host = parsed.host_str()?;
 
-    if host.is_empty() {
+    // Only handle http/https URLs
+    if protocol != "http" && protocol != "https" {
         return None;
     }
 
