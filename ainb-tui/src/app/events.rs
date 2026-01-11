@@ -137,6 +137,9 @@ pub enum AppEvent {
     GitViewPrevFile,   // Navigate to previous file
     GitViewScrollUp,   // Scroll diff up
     GitViewScrollDown, // Scroll diff down
+    GitViewNextCommit, // Navigate to next commit in commits tab
+    GitViewPrevCommit, // Navigate to previous commit in commits tab
+    GitViewShowCommitDiff, // Show diff for selected commit (Enter on Commits tab)
     GitViewCommitPush, // Commit and push changes
     GitViewBack,       // Return to session list
     GitCommitAndPush,  // Direct commit and push from main view (p key)
@@ -1196,6 +1199,9 @@ impl EventHandler {
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollDown)
                             }
+                            crate::components::git_view::GitTab::Commits => {
+                                Some(AppEvent::GitViewNextCommit)
+                            }
                             crate::components::git_view::GitTab::Markdown => {
                                 Some(AppEvent::GitViewScrollDown)
                             }
@@ -1213,6 +1219,9 @@ impl EventHandler {
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollUp)
                             }
+                            crate::components::git_view::GitTab::Commits => {
+                                Some(AppEvent::GitViewPrevCommit)
+                            }
                             crate::components::git_view::GitTab::Markdown => {
                                 Some(AppEvent::GitViewScrollUp)
                             }
@@ -1222,12 +1231,16 @@ impl EventHandler {
                     }
                 }
                 KeyCode::Enter => {
-                    // Toggle folder on Enter key in Files tab
+                    // Toggle folder on Enter key in Files tab, show commit diff in Commits tab
                     if let Some(ref git_state) = state.git_view_state {
-                        if git_state.active_tab == crate::components::git_view::GitTab::Files {
-                            Some(AppEvent::GitViewToggleFolder)
-                        } else {
-                            None
+                        match git_state.active_tab {
+                            crate::components::git_view::GitTab::Files => {
+                                Some(AppEvent::GitViewToggleFolder)
+                            }
+                            crate::components::git_view::GitTab::Commits => {
+                                Some(AppEvent::GitViewShowCommitDiff)
+                            }
+                            _ => None,
                         }
                     } else {
                         None
@@ -2173,6 +2186,41 @@ impl EventHandler {
                         crate::components::git_view::GitTab::Diff => git_state.scroll_diff_down(),
                         crate::components::git_view::GitTab::Markdown => git_state.scroll_markdown_down(),
                         _ => {}
+                    }
+                }
+            }
+            AppEvent::GitViewNextCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    if git_state.selected_commit_index < git_state.commits.len().saturating_sub(1) {
+                        git_state.selected_commit_index += 1;
+                    }
+                }
+            }
+            AppEvent::GitViewPrevCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    if git_state.selected_commit_index > 0 {
+                        git_state.selected_commit_index -= 1;
+                    }
+                }
+            }
+            AppEvent::GitViewShowCommitDiff => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    // Get the selected commit hash
+                    if let Some(commit) = git_state.commits.get(git_state.selected_commit_index) {
+                        let commit_hash = commit.hash_short.clone();
+                        // Load the commit diff
+                        match crate::git::operations::get_commit_diff(&git_state.worktree_path, &commit_hash) {
+                            Ok(diff_lines) => {
+                                git_state.diff_content = diff_lines;
+                                git_state.diff_scroll_offset = 0;
+                                // Switch to Diff tab to show the commit diff
+                                git_state.active_tab = crate::components::git_view::GitTab::Diff;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to get commit diff: {}", e);
+                                state.add_error_notification(format!("Failed to load commit diff: {}", e));
+                            }
+                        }
                     }
                 }
             }

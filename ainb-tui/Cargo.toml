@@ -54,6 +54,7 @@ keyring = { version = "3", features = ["apple-native", "linux-native"] }  # Secu
 regex = "1.10"
 lazy_static = "1.4"
 which = "6.0"  # Cross-platform command detection
+url = "2.5"  # URL parsing for git credential handling
 
 # Markdown and syntax highlighting
 pulldown-cmark = "0.9"  # Markdown parsing
