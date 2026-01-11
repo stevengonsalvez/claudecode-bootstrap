@@ -138,7 +138,7 @@ impl TmuxSession {
         Ok(())
     }
 
-    /// Configure tmux session settings (history, mouse mode, etc.)
+    /// Configure tmux session settings (history, mouse mode, clipboard, etc.)
     async fn configure_session(&self) -> Result<()> {
         // Set history limit
         Command::new("tmux")
@@ -157,6 +157,9 @@ impl TmuxSession {
             .args(["set-option", "-t", &self.sanitized_name, "mouse", "on"])
             .status()
             .await?;
+
+        // Configure clipboard integration
+        crate::tmux::configure_clipboard(&self.sanitized_name).await?;
 
         Ok(())
     }
