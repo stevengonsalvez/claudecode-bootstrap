@@ -283,3 +283,90 @@ fn get_git_credentials(url: &str) -> Option<(String, String)> {
         _ => None,
     }
 }
+
+/// Information about a single commit
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+    pub hash_short: String,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+}
+
+/// Get commits on the current branch that aren't on main/master
+/// Returns commits in reverse chronological order (newest first)
+pub fn get_branch_commits(worktree_path: &Path, limit: usize) -> Result<Vec<CommitInfo>> {
+    use git2::Repository;
+
+    let repo = Repository::open(worktree_path)?;
+
+    // Get current branch HEAD
+    let head = repo.head()?;
+    let head_oid = head.target().ok_or_else(|| anyhow::anyhow!("No HEAD target"))?;
+
+    // Try to find merge-base with main/master to show only branch-specific commits
+    let merge_base = find_merge_base_with_main(&repo, head_oid);
+
+    // Walk commits from HEAD
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push(head_oid)?;
+    revwalk.set_sorting(git2::Sort::TIME)?;
+
+    let mut commits = Vec::new();
+    for oid_result in revwalk.take(limit) {
+        let oid = oid_result?;
+
+        // Stop at merge-base (only show branch-specific commits)
+        if let Some(base) = merge_base {
+            if oid == base {
+                break;
+            }
+        }
+
+        let commit = repo.find_commit(oid)?;
+        commits.push(CommitInfo {
+            hash_short: format!("{:.7}", oid),
+            author: commit.author().name().unwrap_or("Unknown").to_string(),
+            date: format_relative_time(commit.time().seconds()),
+            message: commit.summary().unwrap_or("").to_string(),
+        });
+    }
+
+    Ok(commits)
+}
+
+/// Find merge-base with main or master branch
+fn find_merge_base_with_main(repo: &git2::Repository, head_oid: git2::Oid) -> Option<git2::Oid> {
+    // Try main first, then master
+    let main_branch = repo
+        .find_branch("main", git2::BranchType::Local)
+        .or_else(|_| repo.find_branch("master", git2::BranchType::Local))
+        .ok()?;
+
+    let main_oid = main_branch.get().target()?;
+
+    // If we're on main/master, no merge-base needed
+    if head_oid == main_oid {
+        return None;
+    }
+
+    repo.merge_base(head_oid, main_oid).ok()
+}
+
+/// Format timestamp as relative time (e.g., "2 hours ago")
+fn format_relative_time(timestamp: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let diff = now - timestamp;
+
+    match diff {
+        d if d < 0 => "in the future".to_string(),
+        d if d < 60 => "just now".to_string(),
+        d if d < 3600 => format!("{}m ago", d / 60),
+        d if d < 86400 => format!("{}h ago", d / 3600),
+        d if d < 604800 => format!("{}d ago", d / 86400),
+        d => format!("{}w ago", d / 604800),
+    }
+}

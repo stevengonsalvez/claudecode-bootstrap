@@ -55,6 +55,9 @@ pub struct GitViewState {
     // Markdown viewer state
     pub markdown_content: Vec<MarkdownLine>,  // Rendered markdown lines
     pub markdown_scroll_offset: usize,
+    // Commits tab state
+    pub commits: Vec<crate::git::operations::CommitInfo>,
+    pub selected_commit_index: usize,
 }
 
 /// Represents an item in the file tree (either a folder or file)
@@ -98,6 +101,7 @@ pub enum MarkdownStyle {
 pub enum GitTab {
     Files,
     Diff,
+    Commits,  // Branch commits since diverging from main
     Markdown, // Preview for .md files
 }
 
@@ -160,6 +164,9 @@ impl GitViewState {
             // Markdown viewer state
             markdown_content: Vec::new(),
             markdown_scroll_offset: 0,
+            // Commits tab state
+            commits: Vec::new(),
+            selected_commit_index: 0,
         };
         // Expand root by default
         state.expanded_folders.insert(String::new());
@@ -240,6 +247,11 @@ impl GitViewState {
             self.diff_content.clear();
             self.markdown_content.clear();
         }
+
+        // Load branch commits (commits since diverging from main)
+        self.commits = crate::git::operations::get_branch_commits(&self.worktree_path, 50)
+            .unwrap_or_default();
+        self.selected_commit_index = 0;
 
         Ok(())
     }
@@ -1072,7 +1084,8 @@ impl GitViewState {
     pub fn switch_tab(&mut self) {
         self.active_tab = match self.active_tab {
             GitTab::Files => GitTab::Diff,
-            GitTab::Diff => {
+            GitTab::Diff => GitTab::Commits,
+            GitTab::Commits => {
                 // Only show Markdown tab if current file is a markdown file
                 if self.is_selected_markdown() && !self.markdown_content.is_empty() {
                     GitTab::Markdown
@@ -1181,15 +1194,16 @@ impl GitViewComponent {
 
         // Render raised tab style - dynamically include Markdown tab if applicable
         let tab_titles: Vec<&str> = if git_state.is_selected_markdown() && !git_state.markdown_content.is_empty() {
-            vec!["Files", "Diff", "Markdown"]
+            vec!["Files", "Diff", "Commits", "Markdown"]
         } else {
-            vec!["Files", "Diff"]
+            vec!["Files", "Diff", "Commits"]
         };
 
         let selected_tab = match git_state.active_tab {
             GitTab::Files => 0,
             GitTab::Diff => 1,
-            GitTab::Markdown => if tab_titles.len() > 2 { 2 } else { 0 },
+            GitTab::Commits => 2,
+            GitTab::Markdown => if tab_titles.len() > 3 { 3 } else { 0 },
         };
 
         Self::render_raised_tabs(frame, chunks[0], &tab_titles, selected_tab);
@@ -1198,6 +1212,7 @@ impl GitViewComponent {
         match git_state.active_tab {
             GitTab::Files => Self::render_files_tab(frame, chunks[1], git_state),
             GitTab::Diff => Self::render_diff_tab(frame, chunks[1], git_state),
+            GitTab::Commits => Self::render_commits_tab(frame, chunks[1], git_state),
             GitTab::Markdown => Self::render_markdown_tab(frame, chunks[1], git_state),
         }
 
@@ -1658,6 +1673,67 @@ impl GitViewComponent {
         frame.render_widget(diff_paragraph, area);
     }
 
+    fn render_commits_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CORNFLOWER_BLUE))
+            .style(Style::default().bg(DARK_BG))
+            .title(Line::from(vec![
+                Span::styled(" 📜 ", Style::default().fg(GOLD)),
+                Span::styled("Branch Commits", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            ]));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if git_state.commits.is_empty() {
+            let msg = Paragraph::new(vec![
+                Line::from(Span::styled("No commits on this branch yet", Style::default().fg(MUTED_GRAY))),
+                Line::from(""),
+                Line::from(Span::styled("Commits since diverging from main/master will appear here", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC))),
+            ]);
+            frame.render_widget(msg, inner);
+            return;
+        }
+
+        // Build list items
+        let items: Vec<ListItem> = git_state.commits.iter().enumerate().map(|(i, commit)| {
+            let is_selected = i == git_state.selected_commit_index;
+            let prefix = if is_selected { "▶ " } else { "  " };
+
+            let line = Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(&commit.hash_short, Style::default().fg(GOLD)),
+                Span::raw(" "),
+                Span::styled(
+                    truncate_string(&commit.message, 50),
+                    Style::default().fg(SOFT_WHITE)
+                ),
+                Span::raw(" - "),
+                Span::styled(&commit.author, Style::default().fg(MUTED_GRAY)),
+                Span::raw(" "),
+                Span::styled(&commit.date, Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC)),
+            ]);
+
+            let style = if is_selected {
+                Style::default().bg(LIST_HIGHLIGHT_BG)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(line).style(style)
+        }).collect();
+
+        let mut list_state = ListState::default();
+        list_state.select(Some(git_state.selected_commit_index));
+
+        let list = List::new(items)
+            .highlight_style(Style::default().bg(LIST_HIGHLIGHT_BG));
+
+        frame.render_stateful_widget(list, inner, &mut list_state);
+    }
+
     fn render_markdown_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         if git_state.markdown_content.is_empty() {
             let no_content = Paragraph::new(vec![
@@ -1856,5 +1932,16 @@ impl GitViewComponent {
             .wrap(Wrap { trim: true });
 
         frame.render_widget(status_paragraph, area);
+    }
+}
+
+/// Truncate a string to a maximum length, adding "..." if truncated
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else if max_len <= 3 {
+        "...".to_string()
+    } else {
+        format!("{}...", &s[..max_len - 3])
     }
 }

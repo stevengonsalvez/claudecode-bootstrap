@@ -137,6 +137,8 @@ pub enum AppEvent {
     GitViewPrevFile,   // Navigate to previous file
     GitViewScrollUp,   // Scroll diff up
     GitViewScrollDown, // Scroll diff down
+    GitViewNextCommit, // Navigate to next commit in commits tab
+    GitViewPrevCommit, // Navigate to previous commit in commits tab
     GitViewCommitPush, // Commit and push changes
     GitViewBack,       // Return to session list
     GitCommitAndPush,  // Direct commit and push from main view (p key)
@@ -1196,6 +1198,9 @@ impl EventHandler {
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollDown)
                             }
+                            crate::components::git_view::GitTab::Commits => {
+                                Some(AppEvent::GitViewNextCommit)
+                            }
                             crate::components::git_view::GitTab::Markdown => {
                                 Some(AppEvent::GitViewScrollDown)
                             }
@@ -1212,6 +1217,9 @@ impl EventHandler {
                             }
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollUp)
+                            }
+                            crate::components::git_view::GitTab::Commits => {
+                                Some(AppEvent::GitViewPrevCommit)
                             }
                             crate::components::git_view::GitTab::Markdown => {
                                 Some(AppEvent::GitViewScrollUp)
@@ -2173,6 +2181,20 @@ impl EventHandler {
                         crate::components::git_view::GitTab::Diff => git_state.scroll_diff_down(),
                         crate::components::git_view::GitTab::Markdown => git_state.scroll_markdown_down(),
                         _ => {}
+                    }
+                }
+            }
+            AppEvent::GitViewNextCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    if git_state.selected_commit_index < git_state.commits.len().saturating_sub(1) {
+                        git_state.selected_commit_index += 1;
+                    }
+                }
+            }
+            AppEvent::GitViewPrevCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    if git_state.selected_commit_index > 0 {
+                        git_state.selected_commit_index -= 1;
                     }
                 }
             }
