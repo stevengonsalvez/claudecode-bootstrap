@@ -528,6 +528,16 @@ impl InteractiveSessionManager {
             .await
             .map_err(|e| InteractiveSessionError::Tmux(format!("Failed to configure clipboard: {}", e)))?;
 
+        // macOS: Configure reattach-to-user-namespace for audio/clipboard access
+        // Uses centralized function with shell validation and proper error handling
+        if let Err(e) = crate::tmux::configure_macos_user_namespace(session_name).await {
+            warn!(
+                "Failed to configure macOS user namespace for session {}: {}",
+                session_name, e
+            );
+            // Continue anyway - this is optional functionality
+        }
+
         Ok(())
     }
 

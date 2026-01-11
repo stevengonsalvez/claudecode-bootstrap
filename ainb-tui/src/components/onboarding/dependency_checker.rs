@@ -161,6 +161,17 @@ impl DependencyChecker {
                 category: DependencyCategory::Session,
                 description: "Terminal multiplexer for session management",
             },
+            // macOS-only: Restores user namespace access in tmux
+            #[cfg(target_os = "macos")]
+            Dependency {
+                name: "reattach-to-user-namespace",
+                check_cmd: "reattach-to-user-namespace",
+                check_args: &["--version"],
+                install_hint: "brew install reattach-to-user-namespace",
+                is_mandatory: false,
+                category: DependencyCategory::Session,
+                description: "Enables audio/clipboard access in tmux on macOS",
+            },
             // Toolkit (recommended for full features)
             Dependency {
                 name: "Node.js",
@@ -407,5 +418,30 @@ mod tests {
         let commands = DependencyChecker::get_install_commands(&status, true);
         // Should combine into single brew command
         assert!(commands.iter().any(|c| c.contains("brew install") && c.contains("git") && c.contains("tmux")));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_macos_has_reattach_dependency() {
+        let deps = DependencyChecker::all_dependencies();
+        assert!(
+            deps.iter().any(|d| d.name == "reattach-to-user-namespace"),
+            "macOS should have reattach-to-user-namespace dependency"
+        );
+
+        // Verify it's in Session category and optional
+        let reattach = deps.iter().find(|d| d.name == "reattach-to-user-namespace").unwrap();
+        assert_eq!(reattach.category, DependencyCategory::Session);
+        assert!(!reattach.is_mandatory, "reattach-to-user-namespace should be optional");
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_non_macos_no_reattach_dependency() {
+        let deps = DependencyChecker::all_dependencies();
+        assert!(
+            !deps.iter().any(|d| d.name == "reattach-to-user-namespace"),
+            "Non-macOS should not have reattach-to-user-namespace dependency"
+        );
     }
 }

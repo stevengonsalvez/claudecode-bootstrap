@@ -13,6 +13,24 @@ pub mod process_detection;
 pub mod pty_wrapper;
 pub mod session;
 
+/// Check if reattach-to-user-namespace is available (macOS only).
+/// This tool restores access to the macOS user namespace (audio, clipboard, etc.) in tmux.
+#[cfg(target_os = "macos")]
+pub async fn has_reattach_to_user_namespace() -> bool {
+    tokio::process::Command::new("which")
+        .arg("reattach-to-user-namespace")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Non-macOS: reattach-to-user-namespace is not needed.
+#[cfg(not(target_os = "macos"))]
+pub async fn has_reattach_to_user_namespace() -> bool {
+    false
+}
+
 #[allow(unused_imports)]
 pub use capture::CaptureOptions;
 pub use process_detection::ClaudeProcessDetector;
