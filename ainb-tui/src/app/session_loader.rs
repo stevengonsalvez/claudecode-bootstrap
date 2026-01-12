@@ -214,33 +214,14 @@ impl SessionLoader {
                             continue;
                         }
 
-                        // Create session for orphaned worktree
-                        let mut session = Session::new(
-                            worktree_info.branch_name.clone(),
-                            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not source repo
+                        // Worktree exists but has no container AND no tmux session
+                        // This is a truly orphaned worktree (e.g., from a closed Interactive session)
+                        // Don't create a Boss session for it - just log and skip
+                        // It can be cleaned up via the cleanup function
+                        info!(
+                            "Skipping orphaned worktree {} (no container, no tmux) - candidate for cleanup",
+                            session_id
                         );
-                        session.id = session_id;
-                        session.branch_name = worktree_info.branch_name.clone();
-                        session.mode = SessionMode::Boss;
-                        session.set_status(SessionStatus::Stopped); // No container = stopped
-
-                        let workspace_name = worktree_info
-                            .source_repository
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        let workspace = workspace_map
-                            .entry(worktree_info.source_repository.clone())
-                            .or_insert_with(|| {
-                                Workspace::new(
-                                    workspace_name,
-                                    worktree_info.source_repository.clone(),
-                                )
-                            });
-
-                        workspace.add_session(session);
                     }
                 }
             }
