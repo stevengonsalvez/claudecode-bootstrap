@@ -1,14 +1,195 @@
 // ABOUTME: Workspace detection and validation for git repositories
+// Includes read-through cache for faster repository discovery
 
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use git2::Repository;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use tracing::{debug, info, warn};
 
 use crate::models::Workspace;
+
+// ============================================================================
+// Repository Cache - Read-through cache for faster repo discovery
+// ============================================================================
+
+/// Cached repository entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedRepository {
+    pub path: PathBuf,
+    pub name: String,
+}
+
+/// Repository discovery cache
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RepositoryCache {
+    /// Cache format version for compatibility
+    pub version: u32,
+    /// When the cache was last populated
+    pub last_scan: DateTime<Utc>,
+    /// The search paths that were used for this cache
+    pub scan_paths: Vec<PathBuf>,
+    /// Modification times of scan paths (to detect new folders)
+    pub scan_paths_mtime: HashMap<PathBuf, u64>,
+    /// Cached repository list
+    pub repositories: Vec<CachedRepository>,
+}
+
+impl RepositoryCache {
+    const VERSION: u32 = 1;
+    const CACHE_FILE: &'static str = "cache/repositories.json";
+    const DEFAULT_TTL_SECS: i64 = 3600; // 1 hour
+
+    /// Get the cache file path
+    fn cache_path() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_default()
+            .join(".agents-in-a-box")
+            .join(Self::CACHE_FILE)
+    }
+
+    /// Load cache from disk
+    pub fn load() -> Option<Self> {
+        let path = Self::cache_path();
+        if !path.exists() {
+            debug!("Repository cache not found at {}", path.display());
+            return None;
+        }
+
+        match fs::File::open(&path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                match serde_json::from_reader(reader) {
+                    Ok(cache) => {
+                        debug!("Loaded repository cache from {}", path.display());
+                        Some(cache)
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse repository cache: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to open repository cache: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Save cache to disk
+    pub fn save(&self) -> Result<()> {
+        let path = Self::cache_path();
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let file = fs::File::create(&path)?;
+        let writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(writer, self)?;
+
+        info!("Saved repository cache to {} ({} repos)", path.display(), self.repositories.len());
+        Ok(())
+    }
+
+    /// Check if cache is still valid
+    pub fn is_valid(&self, current_scan_paths: &[PathBuf]) -> bool {
+        // 1. Version check
+        if self.version != Self::VERSION {
+            debug!("Cache invalid: version mismatch ({} != {})", self.version, Self::VERSION);
+            return false;
+        }
+
+        // 2. Scan paths changed
+        let current_set: std::collections::HashSet<_> = current_scan_paths.iter().collect();
+        let cached_set: std::collections::HashSet<_> = self.scan_paths.iter().collect();
+        if current_set != cached_set {
+            debug!("Cache invalid: scan paths changed");
+            return false;
+        }
+
+        // 3. Directory mtime changed (new folder added/removed in scan path)
+        for (path, cached_mtime) in &self.scan_paths_mtime {
+            if let Ok(metadata) = fs::metadata(path) {
+                if let Ok(mtime) = metadata.modified() {
+                    let current_mtime = mtime
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    if current_mtime != *cached_mtime {
+                        debug!("Cache invalid: mtime changed for {}", path.display());
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // 4. TTL check (fallback)
+        let age = Utc::now() - self.last_scan;
+        if age.num_seconds() > Self::DEFAULT_TTL_SECS {
+            debug!("Cache invalid: expired (age {} seconds)", age.num_seconds());
+            return false;
+        }
+
+        true
+    }
+
+    /// Create cache from scan result
+    pub fn from_scan_result(result: &ScanResult, scan_paths: &[PathBuf]) -> Self {
+        let mut scan_paths_mtime = HashMap::new();
+
+        // Capture mtime for each scan path
+        for path in scan_paths {
+            if let Ok(metadata) = fs::metadata(path) {
+                if let Ok(mtime) = metadata.modified() {
+                    let mtime_secs = mtime
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    scan_paths_mtime.insert(path.clone(), mtime_secs);
+                }
+            }
+        }
+
+        Self {
+            version: Self::VERSION,
+            last_scan: Utc::now(),
+            scan_paths: scan_paths.to_vec(),
+            scan_paths_mtime,
+            repositories: result
+                .workspaces
+                .iter()
+                .map(|w| CachedRepository {
+                    path: w.path.clone(),
+                    name: w.name.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Invalidate (delete) the cache
+    pub fn invalidate() -> Result<()> {
+        let path = Self::cache_path();
+        if path.exists() {
+            fs::remove_file(&path)?;
+            info!("Invalidated repository cache");
+        }
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Workspace Scanner
+// ============================================================================
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -54,7 +235,48 @@ impl WorkspaceScanner {
         self
     }
 
+    /// Scan for repositories, using cache if available and valid
     pub fn scan(&self) -> Result<ScanResult> {
+        // Try cache first
+        if let Some(cache) = RepositoryCache::load() {
+            if cache.is_valid(&self.search_paths) {
+                info!(
+                    "Using cached repository list ({} repos)",
+                    cache.repositories.len()
+                );
+                return Ok(ScanResult {
+                    workspaces: cache
+                        .repositories
+                        .into_iter()
+                        .map(|r| Workspace::new(r.name, r.path))
+                        .collect(),
+                    errors: vec![],
+                });
+            }
+        }
+
+        // Cache miss - do full scan
+        info!("Repository cache miss, scanning filesystem...");
+        let result = self.scan_uncached()?;
+
+        // Update cache
+        let cache = RepositoryCache::from_scan_result(&result, &self.search_paths);
+        if let Err(e) = cache.save() {
+            warn!("Failed to save repository cache: {}", e);
+        }
+
+        Ok(result)
+    }
+
+    /// Force a fresh scan, bypassing and updating the cache
+    pub fn scan_fresh(&self) -> Result<ScanResult> {
+        info!("Forcing fresh repository scan...");
+        let _ = RepositoryCache::invalidate();
+        self.scan()
+    }
+
+    /// Scan without using cache (the actual filesystem scan)
+    fn scan_uncached(&self) -> Result<ScanResult> {
         info!(
             "Starting workspace scan with {} search paths",
             self.search_paths.len()
