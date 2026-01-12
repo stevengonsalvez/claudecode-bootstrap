@@ -5494,11 +5494,14 @@ impl AppState {
                 let session = interactive_session.to_session_model();
 
                 // Find or create workspace for this repo
-                if let Some(workspace) = self.workspaces.iter_mut().find(|w| {
+                if let Some((ws_idx, workspace)) = self.workspaces.iter_mut().enumerate().find(|(_, w)| {
                     std::path::Path::new(&w.path).canonicalize().ok()
                         == repo_path.canonicalize().ok()
                 }) {
                     workspace.sessions.push(session);
+                    // Auto-select the new session so the list scrolls to show it
+                    self.selected_workspace_index = Some(ws_idx);
+                    self.selected_session_index = Some(workspace.sessions.len() - 1);
                 } else {
                     // Create new workspace
                     let mut workspace = crate::models::Workspace::new(
@@ -5507,6 +5510,9 @@ impl AppState {
                     );
                     workspace.sessions.push(session);
                     self.workspaces.push(workspace);
+                    // Auto-select the new workspace and session
+                    self.selected_workspace_index = Some(self.workspaces.len() - 1);
+                    self.selected_session_index = Some(0);
                 }
 
                 // Store tmux session for attach operations
