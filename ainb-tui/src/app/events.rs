@@ -75,6 +75,8 @@ pub enum AppEvent {
     BranchSelectPrev,
     BranchSelectConfirm,
     BranchSelectBack,
+    BranchFilterInput(char),
+    BranchFilterBackspace,
     NewSessionProceedToModeSelection,
     NewSessionToggleMode,
     NewSessionProceedFromMode,
@@ -663,8 +665,10 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::BranchSelectBack),
                         KeyCode::Enter => Some(AppEvent::BranchSelectConfirm),
-                        KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::BranchSelectNext),
-                        KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::BranchSelectPrev),
+                        KeyCode::Down => Some(AppEvent::BranchSelectNext),
+                        KeyCode::Up => Some(AppEvent::BranchSelectPrev),
+                        KeyCode::Backspace => Some(AppEvent::BranchFilterBackspace),
+                        KeyCode::Char(c) => Some(AppEvent::BranchFilterInput(c)),
                         _ => None,
                     }
                 }
@@ -1620,6 +1624,12 @@ impl EventHandler {
             }
             AppEvent::BranchSelectBack => {
                 state.branch_select_back();
+            }
+            AppEvent::BranchFilterInput(ch) => {
+                state.branch_filter_update(ch);
+            }
+            AppEvent::BranchFilterBackspace => {
+                state.branch_filter_backspace();
             }
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),

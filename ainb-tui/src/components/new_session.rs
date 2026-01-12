@@ -13,12 +13,14 @@ use crate::app::{
 
 pub struct NewSessionComponent {
     search_list_state: ListState,
+    branch_list_state: ListState,
 }
 
 impl NewSessionComponent {
     pub fn new() -> Self {
         Self {
             search_list_state: ListState::default(),
+            branch_list_state: ListState::default(),
         }
     }
 
@@ -528,7 +530,7 @@ impl NewSessionComponent {
 
     /// Render the branch selection screen
     fn render_branch_selection(
-        &self,
+        &mut self,
         frame: &mut Frame,
         area: Rect,
         session_state: &NewSessionState,
@@ -576,7 +578,7 @@ impl NewSessionComponent {
             .margin(1)
             .constraints(vec![
                 Constraint::Length(2), // Repo info
-                Constraint::Length(1), // Spacer
+                Constraint::Length(3), // Filter input
                 Constraint::Min(0),    // Branch list
                 Constraint::Length(2), // Footer
             ])
@@ -592,13 +594,33 @@ impl NewSessionComponent {
         .alignment(Alignment::Center);
         frame.render_widget(repo_info, chunks[0]);
 
-        // Branch list
+        // Filter input
+        let filter_text = if session_state.branch_filter_text.is_empty() {
+            Span::styled("Type to filter branches...", Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC))
+        } else {
+            Span::styled(&session_state.branch_filter_text, Style::default().fg(soft_white))
+        };
+        let filter_input = Paragraph::new(Line::from(vec![
+            Span::styled("🔍 ", Style::default()),
+            filter_text,
+            Span::styled("│", Style::default().fg(cornflower_blue)), // Cursor
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(subdued_border))
+                .style(Style::default().bg(dark_bg)),
+        );
+        frame.render_widget(filter_input, chunks[1]);
+
+        // Branch list - use filtered_branches
         let branch_items: Vec<ListItem> = session_state
-            .remote_branches
+            .filtered_branches
             .iter()
             .enumerate()
-            .map(|(idx, branch)| {
-                let is_selected = idx == session_state.selected_branch_index;
+            .map(|(display_idx, (_orig_idx, branch))| {
+                let is_selected = display_idx == session_state.selected_branch_index;
 
                 let mut spans = vec![];
 
@@ -638,20 +660,20 @@ impl NewSessionComponent {
                     Style::default().fg(muted_gray),
                 ));
 
-                let base_style = if is_selected {
-                    Style::default().bg(list_highlight_bg)
-                } else {
-                    Style::default()
-                };
-
-                ListItem::new(Line::from(spans)).style(base_style)
+                ListItem::new(Line::from(spans))
             })
             .collect();
 
-        let branch_count = session_state.remote_branches.len();
+        let total_count = session_state.remote_branches.len();
+        let filtered_count = session_state.filtered_branches.len();
+        let count_text = if session_state.branch_filter_text.is_empty() {
+            format!("Branches ({})", total_count)
+        } else {
+            format!("Branches ({}/{})", filtered_count, total_count)
+        };
         let list_title = Line::from(vec![
             Span::styled(" ", Style::default()),
-            Span::styled(format!("Branches ({})", branch_count), Style::default().fg(cornflower_blue)),
+            Span::styled(count_text, Style::default().fg(cornflower_blue)),
             Span::styled(" ", Style::default()),
         ]);
 
@@ -666,12 +688,17 @@ impl NewSessionComponent {
             )
             .highlight_style(Style::default().bg(list_highlight_bg));
 
-        frame.render_widget(branch_list, chunks[2]);
+        // Update list state for proper scrolling
+        self.branch_list_state.select(Some(session_state.selected_branch_index));
+        frame.render_stateful_widget(branch_list, chunks[2], &mut self.branch_list_state);
 
         // Footer
         let footer_spans = vec![
             Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
             Span::styled(" Navigate", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Filter", Style::default().fg(muted_gray)),
             Span::styled("  │  ", Style::default().fg(subdued_border)),
             Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
             Span::styled(" Select", Style::default().fg(muted_gray)),

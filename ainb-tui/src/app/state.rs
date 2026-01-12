@@ -1853,7 +1853,9 @@ pub struct NewSessionState {
     pub repo_input: String,                    // URL or path input from user
     pub repo_source: Option<RepoSource>,       // Parsed repo source
     pub remote_branches: Vec<RemoteBranch>,    // Available branches from remote
-    pub selected_branch_index: usize,          // Selected index in branch picker
+    pub filtered_branches: Vec<(usize, RemoteBranch)>, // (original_index, branch) after filter
+    pub branch_filter_text: String,            // Filter text for fuzzy branch search
+    pub selected_branch_index: usize,          // Selected index in filtered branch list
     pub selected_base_branch: Option<String>,  // The base branch to create worktree from
     pub cached_repo_path: Option<PathBuf>,     // Path to cached bare clone
     pub repo_validation_error: Option<String>, // Error message for UI display
@@ -1891,6 +1893,8 @@ impl Default for NewSessionState {
             repo_input: String::new(),
             repo_source: None,
             remote_branches: Vec::new(),
+            filtered_branches: Vec::new(),
+            branch_filter_text: String::new(),
             selected_branch_index: 0,
             selected_base_branch: None,
             cached_repo_path: None,
@@ -3905,7 +3909,10 @@ impl AppState {
                 info!("Found {} branches", branches.len());
                 if let Some(ref mut state) = self.new_session_state {
                     state.repo_source = Some(source);
+                    // Initialize filtered_branches with all branches (no filter yet)
+                    state.filtered_branches = branches.iter().cloned().enumerate().collect();
                     state.remote_branches = branches;
+                    state.branch_filter_text.clear();
                     state.selected_branch_index = 0;
                     state.is_validating = false;
                     state.step = NewSessionStep::SelectBranch;
@@ -3987,9 +3994,10 @@ impl AppState {
         use crate::git::RemoteRepoManager;
 
         let (source, base_branch) = if let Some(ref state) = self.new_session_state {
-            let branch = state.remote_branches
+            // Get branch from filtered list (which stores (original_idx, branch) tuples)
+            let branch = state.filtered_branches
                 .get(state.selected_branch_index)
-                .map(|b| b.name.clone())
+                .map(|(_, b)| b.name.clone())
                 .or_else(|| state.selected_base_branch.clone())
                 .unwrap_or_else(|| "main".to_string());
             (state.repo_source.clone(), branch)
@@ -4079,31 +4087,78 @@ impl AppState {
 
         if let Ok(branches) = manager.list_remote_branches(&source) {
             if let Some(ref mut state) = self.new_session_state {
+                state.filtered_branches = branches.iter().cloned().enumerate().collect();
                 state.remote_branches = branches;
+                state.branch_filter_text.clear();
                 state.selected_branch_index = 0;
             }
         }
     }
 
-    /// Navigate to next branch in branch picker
+    /// Navigate to next branch in branch picker (uses filtered list)
     pub fn branch_select_next(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
-            if state.step == NewSessionStep::SelectBranch && !state.remote_branches.is_empty() {
+            if state.step == NewSessionStep::SelectBranch && !state.filtered_branches.is_empty() {
                 state.selected_branch_index =
-                    (state.selected_branch_index + 1) % state.remote_branches.len();
+                    (state.selected_branch_index + 1) % state.filtered_branches.len();
             }
         }
     }
 
-    /// Navigate to previous branch in branch picker
+    /// Navigate to previous branch in branch picker (uses filtered list)
     pub fn branch_select_prev(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
-            if state.step == NewSessionStep::SelectBranch && !state.remote_branches.is_empty() {
+            if state.step == NewSessionStep::SelectBranch && !state.filtered_branches.is_empty() {
                 state.selected_branch_index = state
                     .selected_branch_index
                     .checked_sub(1)
-                    .unwrap_or(state.remote_branches.len() - 1);
+                    .unwrap_or(state.filtered_branches.len() - 1);
             }
+        }
+    }
+
+    /// Update branch filter text and re-filter the list
+    pub fn branch_filter_update(&mut self, ch: char) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectBranch {
+                state.branch_filter_text.push(ch);
+                Self::apply_branch_filter(state);
+            }
+        }
+    }
+
+    /// Handle branch filter backspace
+    pub fn branch_filter_backspace(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectBranch {
+                state.branch_filter_text.pop();
+                Self::apply_branch_filter(state);
+            }
+        }
+    }
+
+    /// Apply fuzzy filter to branch list
+    fn apply_branch_filter(state: &mut NewSessionState) {
+        let filter = state.branch_filter_text.to_lowercase();
+        if filter.is_empty() {
+            // No filter - show all branches
+            state.filtered_branches = state.remote_branches.iter().cloned().enumerate().collect();
+        } else {
+            // Fuzzy filter - match if filter chars appear in order
+            state.filtered_branches = state.remote_branches
+                .iter()
+                .enumerate()
+                .filter(|(_, branch)| {
+                    let name = branch.name.to_lowercase();
+                    // Simple substring match (can enhance to fuzzy later)
+                    name.contains(&filter)
+                })
+                .map(|(idx, branch)| (idx, branch.clone()))
+                .collect();
+        }
+        // Reset selection to 0 (or keep valid if possible)
+        if state.selected_branch_index >= state.filtered_branches.len() {
+            state.selected_branch_index = 0;
         }
     }
 
