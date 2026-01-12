@@ -132,6 +132,18 @@ cargo test --features vt100-tests
 cargo test --test e2e_pty_tests
 ```
 
+## Recommended tmux Configuration
+
+Claude Code generates high-frequency screen updates (4,000+ scroll events/sec) which causes flickering in tmux. See `config/tmux.conf` for recommended settings:
+
+```bash
+# Install recommended config
+cp config/tmux.conf ~/.tmux.conf
+tmux source-file ~/.tmux.conf
+```
+
+Key settings: `escape-time 0`, `status-interval 30`, `automatic-rename off`
+
 ## Monorepo Context
 
 This TUI can reference packages from the parent `toolkit/` directory. Git operations work against the monorepo root.

@@ -18,6 +18,8 @@ pub enum DependencyCategory {
     GitHub,
     /// AI CLI tools
     AiCli,
+    /// Configuration optimizations
+    Configuration,
 }
 
 impl DependencyCategory {
@@ -29,6 +31,7 @@ impl DependencyCategory {
             Self::Toolkit => "Toolkit",
             Self::GitHub => "GitHub",
             Self::AiCli => "AI CLIs",
+            Self::Configuration => "Configuration",
         }
     }
 
@@ -40,6 +43,7 @@ impl DependencyCategory {
             Self::Toolkit => "For agent toolkit installation",
             Self::GitHub => "For GitHub integration",
             Self::AiCli => "AI coding assistants",
+            Self::Configuration => "Recommended optimizations",
         }
     }
 }
@@ -230,6 +234,16 @@ impl DependencyChecker {
                 category: DependencyCategory::AiCli,
                 description: "OpenAI's Codex CLI",
             },
+            // Configuration (recommended for best experience)
+            Dependency {
+                name: "tmux anti-flicker config",
+                check_cmd: "sh",
+                check_args: &["-c", "grep -q 'escape-time 0' ~/.tmux.conf 2>/dev/null"],
+                install_hint: "See config/tmux.conf in this repo",
+                is_mandatory: false,
+                category: DependencyCategory::Configuration,
+                description: "Reduces screen flicker with Claude Code",
+            },
         ]
     }
 
@@ -345,6 +359,7 @@ impl DependencyChecker {
             DependencyCategory::Toolkit,
             DependencyCategory::GitHub,
             DependencyCategory::AiCli,
+            DependencyCategory::Configuration,
         ]
     }
 }
@@ -378,7 +393,7 @@ mod tests {
     #[test]
     fn test_dependency_categories() {
         let categories = DependencyChecker::categories();
-        assert_eq!(categories.len(), 6);
+        assert_eq!(categories.len(), 7);
     }
 
     #[test]
