@@ -161,6 +161,17 @@ impl TmuxSession {
         // Configure clipboard integration
         crate::tmux::configure_clipboard(&self.sanitized_name).await?;
 
+        // macOS: Configure reattach-to-user-namespace for audio/clipboard access
+        // Uses centralized function with shell validation and proper error handling
+        if let Err(e) = crate::tmux::configure_macos_user_namespace(&self.sanitized_name).await {
+            tracing::warn!(
+                "Failed to configure macOS user namespace for session {}: {}",
+                self.sanitized_name,
+                e
+            );
+            // Continue anyway - this is optional functionality
+        }
+
         Ok(())
     }
 
