@@ -531,6 +531,40 @@ impl InteractiveSessionManager {
         Ok(())
     }
 
+    /// Wait for the shell prompt to be ready in a tmux session
+    ///
+    /// Polls the tmux pane content until a shell prompt character appears,
+    /// indicating the shell has initialized and is ready to receive commands.
+    async fn wait_for_shell_ready(&self, session_name: &str) -> Result<(), InteractiveSessionError> {
+        use tokio::time::{sleep, Duration};
+
+        debug!("Waiting for shell prompt in session {}", session_name);
+
+        // Wait up to 3 seconds for shell to initialize (30 * 100ms)
+        for attempt in 0..30 {
+            // Capture the pane content - target pane explicitly with :0
+            let output = Command::new("tmux")
+                .args(["capture-pane", "-t", &format!("{}:0", session_name), "-p"])
+                .output()
+                .await?;
+
+            let content = String::from_utf8_lossy(&output.stdout);
+
+            // Check for common shell prompt indicators ($ % > #)
+            // These typically appear at the end of the prompt when shell is ready
+            if content.contains('$') || content.contains('%') || content.contains('>') || content.contains('#') {
+                debug!("Shell prompt detected in session {} after {} attempts", session_name, attempt + 1);
+                return Ok(());
+            }
+
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        // Proceed anyway after timeout - shell might be ready without standard prompt
+        warn!("Timeout waiting for shell prompt in session {}, proceeding anyway", session_name);
+        Ok(())
+    }
+
     /// Start claude CLI in the tmux session
     async fn start_claude_in_tmux(
         &self,
@@ -538,6 +572,10 @@ impl InteractiveSessionManager {
         skip_permissions: bool,
         model: Option<ClaudeModel>,
     ) -> Result<(), InteractiveSessionError> {
+        // Wait for shell to be ready before sending command
+        // This prevents the race condition where send-keys fires before shell initializes
+        self.wait_for_shell_ready(session_name).await?;
+
         // Build environment setup for API key injection
         let env_setup = Self::build_env_setup();
 
@@ -560,10 +598,11 @@ impl InteractiveSessionManager {
 
         info!("Starting claude with command: {}", claude_cmd);
 
-        // Send command to tmux to start claude
+        // Send command to tmux to start claude - target pane explicitly with :0
+        let target = format!("{}:0", session_name);
         let output = Command::new("tmux")
             .args([
-                "send-keys", "-t", session_name,
+                "send-keys", "-t", &target,
                 &full_cmd, "C-m"  // C-m = Enter key
             ])
             .output()
