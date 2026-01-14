@@ -73,12 +73,6 @@ async fn main() -> Result<()> {
     setup_logging();
     setup_panic_handler();
 
-    // Initialize audit logging for mutation tracking
-    if let Err(e) = audit::AuditLogger::init() {
-        tracing::warn!("Failed to initialize audit logger: {}", e);
-        // Continue anyway - audit logging is not critical
-    }
-
     let cli = Cli::parse();
 
     let result = match cli.command {
