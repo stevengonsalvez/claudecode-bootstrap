@@ -1,0 +1,115 @@
+# agents-in-a-box Configuration
+# ==============================
+# Copy this file to: ~/.agents-in-a-box/config/config.toml
+#
+# Configuration is loaded from (in order of precedence):
+#   1. ./.agents-box/config.toml  (project-level)
+#   2. ~/.agents-in-a-box/config/config.toml  (user-level)
+#   3. /etc/agents-in-a-box/config.toml  (system-level)
+
+version = "0.1.0"
+
+# =============================================================================
+# Authentication
+# =============================================================================
+[authentication]
+# Claude authentication provider
+# Options: "system_auth" | "api_key" | "amazon_bedrock" | "google_vertex"
+#          | "azure_foundry" | "glm_zai" | "llm_gateway"
+claude_provider = "system_auth"
+
+# Default Claude model to use
+# Options: "opus" | "sonnet" | "haiku"
+default_model = "sonnet"
+
+# GitHub authentication method (reserved for future use)
+# github_method = "oauth"
+
+# =============================================================================
+# Docker
+# =============================================================================
+[docker]
+# Custom Docker host connection string (optional)
+# If not specified, auto-detects: Docker Desktop, Colima, WSL2, etc.
+# Examples:
+#   - Unix socket: "unix:///var/run/docker.sock"
+#   - TCP: "tcp://localhost:2376"
+#   - Windows named pipe: "npipe:////./pipe/docker_engine"
+# host = "unix:///var/run/docker.sock"
+
+# Docker connection timeout in seconds
+# Used when pinging the Docker daemon to verify connectivity
+timeout = 60
+
+# =============================================================================
+# Workspace Discovery
+# =============================================================================
+[workspace_defaults]
+# Prefix for auto-created branch names when starting new sessions
+# Default creates branches like: "agents/session-a1b2c3d4"
+branch_prefix = "agents/"
+
+# Additional directories to scan for git repositories
+# These are added to the default paths: ~/projects, ~/code, ~/dev, etc.
+workspace_scan_paths = [
+    # "~/work",
+    # "~/personal-projects",
+]
+
+# Patterns to exclude from repository scanning (substring match)
+# These are in addition to built-in exclusions: node_modules, .git, target, dist, build
+exclude_paths = [
+    # "vendor",
+    # "third_party",
+]
+
+# Maximum number of repositories to show in search results
+max_repositories = 500
+
+# =============================================================================
+# UI Preferences
+# =============================================================================
+[ui_preferences]
+# Color theme
+# Options: "dark" | "light"
+theme = "dark"
+
+# Preferred code editor command
+# Used when opening files from the TUI
+# Examples: "code", "cursor", "nvim", "vim"
+# Falls back to: preferred_editor -> code -> $EDITOR
+# preferred_editor = "code"
+
+# Show container mode indicator in session list (Boss/Interactive icons)
+show_container_status = true
+
+# Show git changes in session list (+added, -removed, ~modified)
+show_git_status = true
+
+# =============================================================================
+# Container Templates (Advanced)
+# =============================================================================
+# Define custom container templates for different development environments.
+# These override or extend the built-in templates: claude-dev, node, python, rust
+#
+# Example: Custom Node.js template with additional packages
+# [container_templates.my-node]
+# image_source = { type = "prebuilt", image = "node:20-slim" }
+# working_directory = "/workspace"
+# system_packages = ["git", "curl", "vim"]
+# environment = { NODE_ENV = "development" }
+# memory_limit = "4g"
+# cpu_limit = 2.0
+
+# =============================================================================
+# MCP Servers (Advanced)
+# =============================================================================
+# Configure Model Context Protocol (MCP) servers for enhanced AI capabilities.
+#
+# Example: Context7 documentation server
+# [mcp_servers.context7]
+# name = "context7"
+# command = "npx"
+# args = ["-y", "@context7/mcp-server"]
+# environment = {}
+# init_strategy = "lazy"  # Options: "lazy", "eager", "none"

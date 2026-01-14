@@ -112,10 +112,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
 
-    /// Global environment variables
-    #[serde(default)]
-    pub environment: HashMap<String, String>,
-
     /// Workspace defaults
     #[serde(default)]
     pub workspace_defaults: WorkspaceDefaults,
@@ -127,10 +123,6 @@ pub struct AppConfig {
     /// Docker configuration
     #[serde(default)]
     pub docker: DockerConfig,
-
-    /// Tmux configuration
-    #[serde(default)]
-    pub tmux: TmuxConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,11 +131,7 @@ pub struct WorkspaceDefaults {
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
 
-    /// Whether to auto-detect workspaces on startup
-    #[serde(default = "default_true")]
-    pub auto_detect: bool,
-
-    /// Paths to exclude from workspace scanning
+    /// Paths to exclude from workspace scanning (substring match)
     #[serde(default)]
     pub exclude_paths: Vec<String>,
 
@@ -161,7 +149,6 @@ impl Default for WorkspaceDefaults {
     fn default() -> Self {
         Self {
             branch_prefix: default_branch_prefix(),
-            auto_detect: default_true(),
             exclude_paths: Vec::new(),
             workspace_scan_paths: Vec::new(),
             max_repositories: default_max_repositories(),
@@ -169,7 +156,7 @@ impl Default for WorkspaceDefaults {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiPreferences {
     /// Color theme
     #[serde(default = "default_theme")]
@@ -189,7 +176,18 @@ pub struct UiPreferences {
     pub preferred_editor: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl Default for UiPreferences {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+            show_container_status: true,
+            show_git_status: true,
+            preferred_editor: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerConfig {
     /// Docker host connection string
     /// Examples:
@@ -201,41 +199,15 @@ pub struct DockerConfig {
     /// Connection timeout in seconds
     #[serde(default = "default_docker_timeout")]
     pub timeout: u64,
-
-    /// TLS configuration for TCP connections
-    #[serde(default)]
-    pub tls: Option<DockerTlsConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DockerTlsConfig {
-    /// Path to CA certificate
-    pub ca_cert: Option<String>,
-
-    /// Path to client certificate
-    pub client_cert: Option<String>,
-
-    /// Path to client private key
-    pub client_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TmuxConfig {
-    /// Detach key combination (default: "ctrl-q")
-    #[serde(default = "default_detach_key")]
-    pub detach_key: String,
-
-    /// Preview update interval in milliseconds (default: 100ms)
-    #[serde(default = "default_update_interval")]
-    pub preview_update_interval_ms: u64,
-
-    /// Tmux history limit in lines (default: 10000)
-    #[serde(default = "default_history_limit")]
-    pub history_limit: u32,
-
-    /// Enable mouse scrolling in tmux (default: true)
-    #[serde(default = "default_mouse_scroll")]
-    pub enable_mouse_scroll: bool,
+impl Default for DockerConfig {
+    fn default() -> Self {
+        Self {
+            host: None,
+            timeout: default_docker_timeout(),
+        }
+    }
 }
 
 fn default_version() -> String {
@@ -252,22 +224,6 @@ fn default_branch_prefix() -> String {
 
 fn default_theme() -> String {
     "dark".to_string()
-}
-
-fn default_detach_key() -> String {
-    "ctrl-q".to_string()
-}
-
-fn default_update_interval() -> u64 {
-    100
-}
-
-fn default_history_limit() -> u32 {
-    10000
-}
-
-fn default_mouse_scroll() -> bool {
-    true
 }
 
 fn default_true() -> bool {
@@ -370,13 +326,11 @@ impl AppConfig {
         // Merge maps
         self.container_templates.extend(other.container_templates);
         self.mcp_servers.extend(other.mcp_servers);
-        self.environment.extend(other.environment);
 
         // Override workspace defaults if provided
         if other.workspace_defaults.branch_prefix != default_branch_prefix() {
             self.workspace_defaults.branch_prefix = other.workspace_defaults.branch_prefix;
         }
-        self.workspace_defaults.auto_detect = other.workspace_defaults.auto_detect;
         if !other.workspace_defaults.exclude_paths.is_empty() {
             self.workspace_defaults.exclude_paths = other.workspace_defaults.exclude_paths;
         }
@@ -388,13 +342,31 @@ impl AppConfig {
         self.workspace_defaults.max_repositories = other.workspace_defaults.max_repositories;
 
         // Override UI preferences
-        if other.ui_preferences.theme != default_theme() {
+        // Check if this is an old config (empty theme indicates pre-v0.4 config)
+        let is_old_config = other.ui_preferences.theme.is_empty();
+
+        if !other.ui_preferences.theme.is_empty() && other.ui_preferences.theme != default_theme() {
             self.ui_preferences.theme = other.ui_preferences.theme;
         }
-        self.ui_preferences.show_container_status = other.ui_preferences.show_container_status;
-        self.ui_preferences.show_git_status = other.ui_preferences.show_git_status;
+        // For boolean settings: only override default (true) if config explicitly sets false
+        // AND this is NOT an old config with empty defaults
+        if !is_old_config {
+            // New config: respect explicit settings
+            self.ui_preferences.show_container_status = other.ui_preferences.show_container_status;
+            self.ui_preferences.show_git_status = other.ui_preferences.show_git_status;
+        }
+        // Old configs keep the default (true) values
         if other.ui_preferences.preferred_editor.is_some() {
             self.ui_preferences.preferred_editor = other.ui_preferences.preferred_editor;
+        }
+
+        // Override Docker settings
+        if other.docker.host.is_some() {
+            self.docker.host = other.docker.host;
+        }
+        // Only override timeout if it's non-zero (0 indicates old config with unset value)
+        if other.docker.timeout != 0 && other.docker.timeout != default_docker_timeout() {
+            self.docker.timeout = other.docker.timeout;
         }
     }
 
@@ -434,11 +406,9 @@ impl Default for AppConfig {
             default_container_template: default_container_template(),
             container_templates: HashMap::new(),
             mcp_servers: HashMap::new(),
-            environment: HashMap::new(),
             workspace_defaults: WorkspaceDefaults::default(),
             ui_preferences: UiPreferences::default(),
             docker: DockerConfig::default(),
-            tmux: TmuxConfig::default(),
         };
 
         // Load built-in templates
@@ -547,5 +517,156 @@ mod tests {
 
         assert_eq!(loaded.container_template, Some("node".to_string()));
         assert_eq!(loaded.mcp_servers, vec!["context7".to_string()]);
+    }
+
+    #[test]
+    fn test_app_config_serialization_roundtrip() {
+        // Create config with all customized fields
+        let mut config = AppConfig::default();
+
+        // Set workspace defaults
+        config.workspace_defaults.branch_prefix = "custom/".to_string();
+        config.workspace_defaults.exclude_paths = vec!["vendor".to_string(), "dist".to_string()];
+        config.workspace_defaults.max_repositories = 1000;
+
+        // Set Docker settings
+        config.docker.host = Some("tcp://localhost:2376".to_string());
+        config.docker.timeout = 120;
+
+        // Set UI preferences
+        config.ui_preferences.theme = "light".to_string();
+        config.ui_preferences.show_container_status = false;
+        config.ui_preferences.show_git_status = false;
+        config.ui_preferences.preferred_editor = Some("nvim".to_string());
+
+        // Serialize to TOML
+        let toml_str = toml::to_string_pretty(&config).expect("Failed to serialize config");
+
+        // Verify TOML contains our settings
+        assert!(toml_str.contains("branch_prefix = \"custom/\""), "branch_prefix not in TOML");
+        assert!(toml_str.contains("vendor"), "exclude_paths not in TOML");
+        assert!(toml_str.contains("max_repositories = 1000"), "max_repositories not in TOML");
+        assert!(toml_str.contains("tcp://localhost:2376"), "docker.host not in TOML");
+        assert!(toml_str.contains("timeout = 120"), "docker.timeout not in TOML");
+        assert!(toml_str.contains("theme = \"light\""), "theme not in TOML");
+        assert!(toml_str.contains("show_container_status = false"), "show_container_status not in TOML");
+        assert!(toml_str.contains("show_git_status = false"), "show_git_status not in TOML");
+        assert!(toml_str.contains("preferred_editor = \"nvim\""), "preferred_editor not in TOML");
+
+        // Deserialize back
+        let loaded: AppConfig = toml::from_str(&toml_str).expect("Failed to deserialize config");
+
+        // Verify all fields match
+        assert_eq!(loaded.workspace_defaults.branch_prefix, "custom/");
+        assert_eq!(loaded.workspace_defaults.exclude_paths, vec!["vendor", "dist"]);
+        assert_eq!(loaded.workspace_defaults.max_repositories, 1000);
+        assert_eq!(loaded.docker.host, Some("tcp://localhost:2376".to_string()));
+        assert_eq!(loaded.docker.timeout, 120);
+        assert_eq!(loaded.ui_preferences.theme, "light");
+        assert_eq!(loaded.ui_preferences.show_container_status, false);
+        assert_eq!(loaded.ui_preferences.show_git_status, false);
+        assert_eq!(loaded.ui_preferences.preferred_editor, Some("nvim".to_string()));
+    }
+
+    #[test]
+    fn test_app_config_merge_preserves_docker_settings() {
+        let mut base = AppConfig::default();
+        let mut other = AppConfig::default();
+
+        // Set docker settings in other config
+        other.docker.host = Some("unix:///custom/docker.sock".to_string());
+        other.docker.timeout = 90;
+
+        // Merge
+        base.merge(other);
+
+        // Verify docker settings were merged
+        assert_eq!(base.docker.host, Some("unix:///custom/docker.sock".to_string()));
+        assert_eq!(base.docker.timeout, 90);
+    }
+}
+
+#[cfg(test)]
+mod old_config_tests {
+    use super::*;
+
+    #[test]
+    fn test_old_config_merge_keeps_default_true_for_booleans() {
+        // Start with defaults (which have true for show_container_status and show_git_status)
+        let mut defaults = AppConfig::default();
+        assert!(defaults.ui_preferences.show_container_status, "Default should be true");
+        assert!(defaults.ui_preferences.show_git_status, "Default should be true");
+
+        // Simulate an "old config" with empty theme and false values
+        let old_config = AppConfig {
+            ui_preferences: UiPreferences {
+                theme: "".to_string(), // Empty theme indicates old config
+                show_container_status: false,
+                show_git_status: false,
+                preferred_editor: None,
+            },
+            docker: DockerConfig {
+                host: None,
+                timeout: 0, // 0 indicates old config
+            },
+            ..AppConfig::default()
+        };
+
+        // Merge the old config into defaults
+        defaults.merge(old_config);
+
+        // Old config should NOT override the default true values
+        assert!(
+            defaults.ui_preferences.show_container_status,
+            "Old config should not override show_container_status to false"
+        );
+        assert!(
+            defaults.ui_preferences.show_git_status,
+            "Old config should not override show_git_status to false"
+        );
+
+        // Old config timeout=0 should be ignored, keeping default (60)
+        assert_eq!(
+            defaults.docker.timeout, 60,
+            "Old config timeout=0 should be ignored, keeping default"
+        );
+    }
+
+    #[test]
+    fn test_new_config_merge_respects_explicit_false() {
+        let mut defaults = AppConfig::default();
+
+        // Simulate a "new config" with non-empty theme and explicit false values
+        let new_config = AppConfig {
+            ui_preferences: UiPreferences {
+                theme: "light".to_string(), // Non-empty theme indicates new config
+                show_container_status: false,
+                show_git_status: false,
+                preferred_editor: None,
+            },
+            docker: DockerConfig {
+                host: None,
+                timeout: 30, // Non-zero timeout
+            },
+            ..AppConfig::default()
+        };
+
+        defaults.merge(new_config);
+
+        // New config should override the defaults with explicit false
+        assert!(
+            !defaults.ui_preferences.show_container_status,
+            "New config should be able to set show_container_status to false"
+        );
+        assert!(
+            !defaults.ui_preferences.show_git_status,
+            "New config should be able to set show_git_status to false"
+        );
+
+        // Theme should be updated
+        assert_eq!(defaults.ui_preferences.theme, "light");
+
+        // Timeout should be updated
+        assert_eq!(defaults.docker.timeout, 30);
     }
 }

@@ -144,6 +144,26 @@ tmux source-file ~/.tmux.conf
 
 Key settings: `escape-time 0`, `status-interval 30`, `automatic-rename off`
 
+## Configuration
+
+Configuration files are loaded from (in order of precedence):
+1. `./.agents-box/config.toml` (project-level)
+2. `~/.agents-in-a-box/config/config.toml` (user-level)
+3. `/etc/agents-in-a-box/config.toml` (system-level)
+
+See `config/example.config.toml` for all available options with documentation.
+
+**Key settings:**
+
+| Section | Option | Description |
+|---------|--------|-------------|
+| `[authentication]` | `claude_provider` | Auth method: system_auth, api_key, etc. |
+| `[docker]` | `timeout` | Connection timeout in seconds (default: 60) |
+| `[workspace_defaults]` | `branch_prefix` | Prefix for new branches (default: "agents/") |
+| `[workspace_defaults]` | `exclude_paths` | Patterns to exclude from repo scanning |
+| `[ui_preferences]` | `show_container_status` | Show container mode icons |
+| `[ui_preferences]` | `show_git_status` | Show git changes in session list |
+
 ## Monorepo Context
 
 This TUI can reference packages from the parent `toolkit/` directory. Git operations work against the monorepo root.
