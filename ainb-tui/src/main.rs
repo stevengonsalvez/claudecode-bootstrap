@@ -17,6 +17,7 @@ use std::{
 
 mod agent_parsers;
 mod app;
+mod audit;
 mod claude;
 mod components;
 mod config;
@@ -71,6 +72,12 @@ pub enum Commands {
 async fn main() -> Result<()> {
     setup_logging();
     setup_panic_handler();
+
+    // Initialize audit logging for mutation tracking
+    if let Err(e) = audit::AuditLogger::init() {
+        tracing::warn!("Failed to initialize audit logger: {}", e);
+        // Continue anyway - audit logging is not critical
+    }
 
     let cli = Cli::parse();
 

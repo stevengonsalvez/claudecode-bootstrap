@@ -11,6 +11,7 @@
 
 #![allow(dead_code)]
 
+use crate::audit::{self, AuditResult, AuditTrigger};
 use crate::git::WorktreeManager;
 use crate::models::{ClaudeModel, Session, SessionAgentType, SessionMode, SessionStatus};
 use anyhow::{Context, Result};
@@ -268,6 +269,17 @@ impl InteractiveSessionManager {
         }
 
         info!("Successfully created Interactive session {}", session_id);
+
+        // Audit log the session creation
+        audit::audit_session_created(
+            session_id,
+            &tmux_session_name,
+            &worktree_info.path.display().to_string(),
+            &branch_name,
+            AuditTrigger::UserKeypress("Enter".to_string()),
+            AuditResult::Success,
+        );
+
         Ok(session)
     }
 
@@ -375,6 +387,17 @@ impl InteractiveSessionManager {
         }
 
         info!("Successfully created Interactive session {} with existing worktree", session_id);
+
+        // Audit log the session creation
+        audit::audit_session_created(
+            session_id,
+            &tmux_session_name,
+            &session.worktree_path.display().to_string(),
+            &branch_name,
+            AuditTrigger::UserKeypress("Enter".to_string()),
+            AuditResult::Success,
+        );
+
         Ok(session)
     }
 

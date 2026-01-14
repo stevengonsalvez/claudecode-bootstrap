@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
+use crate::audit::{self, AuditResult, AuditTrigger};
 use dirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -274,9 +275,29 @@ impl AppConfig {
 
         let config_path = config_dir.join("config.toml");
         let content = toml::to_string_pretty(self)?;
-        fs::write(&config_path, content)?;
 
-        Ok(())
+        match fs::write(&config_path, &content) {
+            Ok(()) => {
+                // Audit log the successful config save
+                audit::audit_config_saved(
+                    &config_path.display().to_string(),
+                    AuditTrigger::Automatic,
+                    AuditResult::Success,
+                    None,
+                );
+                Ok(())
+            }
+            Err(e) => {
+                // Audit log the failed config save
+                audit::audit_config_saved(
+                    &config_path.display().to_string(),
+                    AuditTrigger::Automatic,
+                    AuditResult::Failed(e.to_string()),
+                    None,
+                );
+                Err(e.into())
+            }
+        }
     }
 
     /// Get configuration file paths in order of precedence

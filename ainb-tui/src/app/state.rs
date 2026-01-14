@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use crate::app::SessionLoader;
+use crate::audit::{self, AuditResult, AuditTrigger};
 use crate::claude::client::ClaudeChatManager;
 use crate::claude::types::ClaudeStreamingEvent;
 use crate::claude::{ClaudeApiClient, ClaudeMessage};
@@ -5952,6 +5953,13 @@ impl AppState {
                         if pruned_count > 0 {
                             info!("Pruned {} stale git worktree references", pruned_count);
                             cleaned_up += pruned_count;
+
+                            // Audit log the prune operation
+                            audit::audit_git_worktree_prune(
+                                AuditTrigger::UserKeypress("Ctrl+X".to_string()),
+                                AuditResult::Success,
+                                Some(pruned_count),
+                            );
                         }
                     } else {
                         info!("No stale git worktree references to prune");
@@ -5959,10 +5967,24 @@ impl AppState {
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     warn!("Git worktree prune failed: {}", stderr);
+
+                    // Audit log the failed prune
+                    audit::audit_git_worktree_prune(
+                        AuditTrigger::UserKeypress("Ctrl+X".to_string()),
+                        AuditResult::Failed(stderr.to_string()),
+                        None,
+                    );
                 }
             }
             Err(e) => {
                 warn!("Failed to run git worktree prune: {}", e);
+
+                // Audit log the failed prune
+                audit::audit_git_worktree_prune(
+                    AuditTrigger::UserKeypress("Ctrl+X".to_string()),
+                    AuditResult::Failed(e.to_string()),
+                    None,
+                );
             }
         }
 
@@ -5976,6 +5998,13 @@ impl AppState {
             // Reload workspaces to reflect changes
             self.load_real_workspaces().await;
             self.ui_needs_refresh = true;
+
+            // Audit log the overall cleanup
+            audit::audit_orphaned_cleanup(
+                AuditTrigger::UserKeypress("Ctrl+X".to_string()),
+                AuditResult::Success,
+                format!("Cleaned up {} orphaned items (containers + state + git refs)", cleaned_up),
+            );
         } else {
             info!("No orphaned containers or sessions found");
             self.add_info_notification("✅ No orphaned items found".to_string());
@@ -5987,9 +6016,17 @@ impl AppState {
     async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
         info!("Deleting session: {}", session_id);
 
+        // Capture session details for audit logging BEFORE deletion
+        let session_details = self.find_session(session_id).map(|s| {
+            (
+                s.mode.clone(),
+                s.tmux_session_name.clone(),
+                s.workspace_path.clone(),
+            )
+        });
+
         // Determine session mode by finding the session
-        let session_mode = self.find_session(session_id)
-            .map(|s| s.mode.clone());
+        let session_mode = session_details.as_ref().map(|(mode, _, _)| mode.clone());
 
         // Track deletion result but don't early-return on error
         // We want to always refresh the workspace list regardless of deletion outcome
@@ -6027,11 +6064,26 @@ impl AppState {
         self.ui_needs_refresh = true;
 
         // Now check if deletion had an error and report it
-        if let Err(e) = &deletion_result {
+        let audit_result = if let Err(e) = &deletion_result {
             error!("Session deletion encountered error (but UI was refreshed): {}", e);
+            AuditResult::Failed(e.to_string())
         } else {
             info!("Successfully deleted session: {}", session_id);
-        }
+            AuditResult::Success
+        };
+
+        // Audit log the deletion
+        let (tmux_session, worktree_path) = session_details
+            .map(|(_, tmux, path)| (tmux, Some(path)))
+            .unwrap_or((None, None));
+
+        audit::audit_session_deleted(
+            session_id,
+            tmux_session,
+            worktree_path,
+            AuditTrigger::UserKeypress("D".to_string()),
+            audit_result,
+        );
 
         deletion_result
     }

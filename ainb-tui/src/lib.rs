@@ -4,6 +4,7 @@
 
 pub mod agent_parsers;
 pub mod app;
+pub mod audit;
 pub mod claude;
 pub mod components;
 pub mod config;
