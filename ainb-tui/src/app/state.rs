@@ -789,6 +789,7 @@ impl AgentSelectionState {
 pub enum ConfigCategory {
     Authentication,
     Workspace,
+    Docker,
     AgentDefaults,
     Editor,
     Plugins,
@@ -802,6 +803,7 @@ impl ConfigCategory {
         vec![
             ConfigCategory::Authentication,
             ConfigCategory::Workspace,
+            ConfigCategory::Docker,
             ConfigCategory::AgentDefaults,
             ConfigCategory::Editor,
             ConfigCategory::Plugins,
@@ -815,6 +817,7 @@ impl ConfigCategory {
         match self {
             ConfigCategory::Authentication => "Authentication",
             ConfigCategory::Workspace => "Workspace",
+            ConfigCategory::Docker => "Docker",
             ConfigCategory::AgentDefaults => "Agent Defaults",
             ConfigCategory::Editor => "Editor",
             ConfigCategory::Plugins => "Plugins",
@@ -828,6 +831,7 @@ impl ConfigCategory {
         match self {
             ConfigCategory::Authentication => "🔐",
             ConfigCategory::Workspace => "📁",
+            ConfigCategory::Docker => "🐳",
             ConfigCategory::AgentDefaults => "🤖",
             ConfigCategory::Editor => "📝",
             ConfigCategory::Plugins => "🔌",
@@ -840,12 +844,13 @@ impl ConfigCategory {
     pub fn description(&self) -> &'static str {
         match self {
             ConfigCategory::Authentication => "API keys, OAuth, GitHub credentials",
-            ConfigCategory::Workspace => "Default paths, git settings",
+            ConfigCategory::Workspace => "Default paths, git settings, branch prefix",
+            ConfigCategory::Docker => "Container host, timeouts",
             ConfigCategory::AgentDefaults => "Model, temperature, max tokens",
             ConfigCategory::Editor => "Preferred code editor for sessions",
             ConfigCategory::Plugins => "Installed plugins, enable/disable",
             ConfigCategory::Permissions => "File write, shell, git approval",
-            ConfigCategory::Appearance => "Theme, colors, layout",
+            ConfigCategory::Appearance => "Theme, colors, status indicators",
             ConfigCategory::Analytics => "Usage tracking, cost alerts",
         }
     }
@@ -952,10 +957,38 @@ impl Default for ConfigScreenState {
                 description: "Default directory for new sessions".to_string(),
             },
             ConfigSetting {
-                key: "scan_depth".to_string(),
-                label: "Scan Depth".to_string(),
-                value: ConfigValue::Number(3),
-                description: "How deep to scan for git repositories".to_string(),
+                key: "branch_prefix".to_string(),
+                label: "Branch Prefix".to_string(),
+                value: ConfigValue::Text("agents/".to_string()),
+                description: "Prefix for auto-created branch names".to_string(),
+            },
+            ConfigSetting {
+                key: "exclude_paths".to_string(),
+                label: "Exclude Paths".to_string(),
+                value: ConfigValue::Text("node_modules, .git, target".to_string()),
+                description: "Patterns to exclude from repo scanning (comma-separated)".to_string(),
+            },
+            ConfigSetting {
+                key: "max_repositories".to_string(),
+                label: "Max Repositories".to_string(),
+                value: ConfigValue::Number(500),
+                description: "Maximum repositories to show in search results".to_string(),
+            },
+        ]);
+
+        // Docker settings
+        settings.insert(ConfigCategory::Docker, vec![
+            ConfigSetting {
+                key: "docker_host".to_string(),
+                label: "Docker Host".to_string(),
+                value: ConfigValue::Text("Auto-detect".to_string()),
+                description: "Docker daemon connection (auto-detect, unix socket, or TCP)".to_string(),
+            },
+            ConfigSetting {
+                key: "docker_timeout".to_string(),
+                label: "Connection Timeout".to_string(),
+                value: ConfigValue::Number(60),
+                description: "Docker connection timeout in seconds".to_string(),
             },
         ]);
 
@@ -1025,6 +1058,18 @@ impl Default for ConfigScreenState {
                     0,
                 ),
                 description: "Color theme for the TUI".to_string(),
+            },
+            ConfigSetting {
+                key: "show_container_status".to_string(),
+                label: "Show Container Status".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Show container mode icons in session list".to_string(),
+            },
+            ConfigSetting {
+                key: "show_git_status".to_string(),
+                label: "Show Git Status".to_string(),
+                value: ConfigValue::Bool(true),
+                description: "Show git changes in session list".to_string(),
             },
         ]);
 
@@ -1182,8 +1227,36 @@ impl ConfigScreenState {
                             .unwrap_or_else(|| "~/projects".to_string());
                         setting.value = ConfigValue::Text(path);
                     }
-                    "scan_depth" => {
-                        setting.value = ConfigValue::Number(3); // Not in AppConfig yet
+                    "branch_prefix" => {
+                        setting.value = ConfigValue::Text(config.workspace_defaults.branch_prefix.clone());
+                    }
+                    "exclude_paths" => {
+                        let paths = config.workspace_defaults.exclude_paths.join(", ");
+                        setting.value = ConfigValue::Text(if paths.is_empty() {
+                            "node_modules, .git, target".to_string()
+                        } else {
+                            paths
+                        });
+                    }
+                    "max_repositories" => {
+                        setting.value = ConfigValue::Number(config.workspace_defaults.max_repositories as i64);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Update Docker settings from config
+        if let Some(settings) = state.settings.get_mut(&ConfigCategory::Docker) {
+            for setting in settings.iter_mut() {
+                match setting.key.as_str() {
+                    "docker_host" => {
+                        let host_display = config.docker.host.clone()
+                            .unwrap_or_else(|| "Auto-detect".to_string());
+                        setting.value = ConfigValue::Text(host_display);
+                    }
+                    "docker_timeout" => {
+                        setting.value = ConfigValue::Number(config.docker.timeout as i64);
                     }
                     _ => {}
                 }
@@ -1234,17 +1307,26 @@ impl ConfigScreenState {
         // Update Appearance from config
         if let Some(settings) = state.settings.get_mut(&ConfigCategory::Appearance) {
             for setting in settings.iter_mut() {
-                if setting.key == "theme" {
-                    let theme_idx = match config.ui_preferences.theme.as_str() {
-                        "dark" => 0,
-                        "light" => 1,
-                        "system" => 2,
-                        _ => 0,
-                    };
-                    setting.value = ConfigValue::Choice(
-                        vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
-                        theme_idx,
-                    );
+                match setting.key.as_str() {
+                    "theme" => {
+                        let theme_idx = match config.ui_preferences.theme.as_str() {
+                            "dark" => 0,
+                            "light" => 1,
+                            "system" => 2,
+                            _ => 0,
+                        };
+                        setting.value = ConfigValue::Choice(
+                            vec!["Dark".to_string(), "Light".to_string(), "System".to_string()],
+                            theme_idx,
+                        );
+                    }
+                    "show_container_status" => {
+                        setting.value = ConfigValue::Bool(config.ui_preferences.show_container_status);
+                    }
+                    "show_git_status" => {
+                        setting.value = ConfigValue::Bool(config.ui_preferences.show_git_status);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1288,6 +1370,48 @@ impl ConfigScreenState {
                             }
                         }
                     }
+                    "branch_prefix" => {
+                        if let ConfigValue::Text(prefix) = &setting.value {
+                            config.workspace_defaults.branch_prefix = prefix.clone();
+                        }
+                    }
+                    "exclude_paths" => {
+                        if let ConfigValue::Text(paths) = &setting.value {
+                            config.workspace_defaults.exclude_paths = paths
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        }
+                    }
+                    "max_repositories" => {
+                        if let ConfigValue::Number(max) = &setting.value {
+                            config.workspace_defaults.max_repositories = *max as usize;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Apply Docker settings
+        if let Some(settings) = self.settings.get(&ConfigCategory::Docker) {
+            for setting in settings {
+                match setting.key.as_str() {
+                    "docker_host" => {
+                        if let ConfigValue::Text(host) = &setting.value {
+                            if host == "Auto-detect" || host.is_empty() {
+                                config.docker.host = None;
+                            } else {
+                                config.docker.host = Some(host.clone());
+                            }
+                        }
+                    }
+                    "docker_timeout" => {
+                        if let ConfigValue::Number(timeout) = &setting.value {
+                            config.docker.timeout = *timeout as u64;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1312,12 +1436,25 @@ impl ConfigScreenState {
         // Apply Appearance settings
         if let Some(settings) = self.settings.get(&ConfigCategory::Appearance) {
             for setting in settings {
-                if setting.key == "theme" {
-                    if let ConfigValue::Choice(options, idx) = &setting.value {
-                        if let Some(theme) = options.get(*idx) {
-                            config.ui_preferences.theme = theme.to_lowercase();
+                match setting.key.as_str() {
+                    "theme" => {
+                        if let ConfigValue::Choice(options, idx) = &setting.value {
+                            if let Some(theme) = options.get(*idx) {
+                                config.ui_preferences.theme = theme.to_lowercase();
+                            }
                         }
                     }
+                    "show_container_status" => {
+                        if let ConfigValue::Bool(show) = &setting.value {
+                            config.ui_preferences.show_container_status = *show;
+                        }
+                    }
+                    "show_git_status" => {
+                        if let ConfigValue::Bool(show) = &setting.value {
+                            config.ui_preferences.show_git_status = *show;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2963,10 +3100,11 @@ impl AppState {
     }
 
     /// Discover tmux sessions that are NOT managed by agents-in-a-box
-    /// These are sessions without the "tmux_" prefix
+    /// Also includes orphaned `tmux_` sessions whose worktrees no longer exist
     pub async fn load_other_tmux_sessions(&mut self) {
         use tokio::process::Command;
         use crate::models::OtherTmuxSession;
+        use crate::interactive::SessionStore;
 
         info!("Discovering other tmux sessions");
 
@@ -2990,6 +3128,16 @@ impl AppState {
             return;
         }
 
+        // Load session store to identify orphaned tmux_ sessions
+        let session_store = SessionStore::load();
+
+        // Collect tmux names that appear in loaded workspaces (successfully matched)
+        let matched_tmux_names: std::collections::HashSet<&str> = self.workspaces
+            .iter()
+            .flat_map(|ws| ws.sessions.iter())
+            .filter_map(|s| s.tmux_session_name.as_deref())
+            .collect();
+
         let sessions_output = String::from_utf8_lossy(&output.stdout);
         let mut other_sessions = Vec::new();
 
@@ -2999,16 +3147,33 @@ impl AppState {
                 // Session name may contain colons, so reconstruct from all parts except last two
                 let name = parts[..parts.len() - 2].join(":");
 
-                // Skip agents-in-a-box managed sessions
-                // - tmux_ prefix: AI agent sessions
-                // - ainb-ws- prefix: Workspace shell sessions (current format)
-                // - ainb-sh- prefix: Shell sessions (legacy per-branch format)
-                // - ainb-shell- prefix: Shell sessions (old legacy format)
-                if name.starts_with("tmux_")
-                    || name.starts_with("ainb-ws-")
+                // Skip shell sessions (ainb-ws-*, ainb-sh-*, ainb-shell-*)
+                if name.starts_with("ainb-ws-")
                     || name.starts_with("ainb-sh-")
                     || name.starts_with("ainb-shell-") {
                     continue;
+                }
+
+                // For tmux_ sessions, check if they're orphaned
+                if name.starts_with("tmux_") {
+                    // Skip if this session was successfully matched to a workspace
+                    if matched_tmux_names.contains(name.as_str()) {
+                        continue;
+                    }
+
+                    // Check if we have metadata for this session
+                    if let Some(metadata) = session_store.find_by_tmux_name(&name) {
+                        // If worktree exists, session should have been discovered by normal flow
+                        // If we're here, something went wrong - show as orphaned
+                        if metadata.worktree_path.exists() {
+                            debug!("tmux_ session {} has valid worktree but wasn't matched - adding to Other", name);
+                        } else {
+                            debug!("tmux_ session {} is orphaned (worktree deleted) - adding to Other", name);
+                        }
+                    } else {
+                        debug!("tmux_ session {} not in sessions.json - adding to Other", name);
+                    }
+                    // Fall through to add as "other" session
                 }
 
                 let attached = parts[parts.len() - 2] == "1";
@@ -3021,7 +3186,7 @@ impl AppState {
             }
         }
 
-        info!("Discovered {} other tmux sessions", other_sessions.len());
+        info!("Discovered {} other tmux sessions (including orphaned tmux_ sessions)", other_sessions.len());
         self.other_tmux_sessions = other_sessions;
     }
 
@@ -4598,7 +4763,9 @@ impl AppState {
             // For AI agents, proceed to branch input
             state.step = NewSessionStep::InputBranch;
             let uuid_str = uuid::Uuid::new_v4().to_string();
-            state.branch_name = format!("agents-session-{}", &uuid_str[..8]);
+            // Use branch prefix from config (default: "agents/")
+            let prefix = &self.app_config.workspace_defaults.branch_prefix;
+            state.branch_name = format!("{}session-{}", prefix, &uuid_str[..8]);
 
             tracing::info!(
                 "Agent selected: {:?}, transitioning to branch input with branch: {}",

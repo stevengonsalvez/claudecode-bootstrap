@@ -221,8 +221,23 @@ impl WorktreeManager {
 
             if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                 if let Ok(session_id) = Uuid::parse_str(dir_name) {
-                    if let Ok(worktree_info) = self.get_worktree_info(session_id) {
-                        worktrees.push((session_id, worktree_info));
+                    match self.get_worktree_info(session_id) {
+                        Ok(worktree_info) => {
+                            worktrees.push((session_id, worktree_info));
+                        }
+                        Err(e) => {
+                            // Log detailed info about why this worktree was skipped
+                            let symlink_target = std::fs::read_link(&path)
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|_| "unreadable".to_string());
+                            tracing::warn!(
+                                "Skipping worktree {}: {} (symlink: {} -> {})",
+                                session_id,
+                                e,
+                                path.display(),
+                                symlink_target
+                            );
+                        }
                     }
                 }
             }
@@ -261,11 +276,33 @@ impl WorktreeManager {
 
         tracing::debug!("Final worktree path: {:?}", worktree_path);
 
+        // Check if the symlink target exists
         if !worktree_path.exists() {
-            return Err(WorktreeError::NotFound(worktree_path.display().to_string()));
+            return Err(WorktreeError::NotFound(format!(
+                "Symlink target does not exist: {}",
+                worktree_path.display()
+            )));
         }
 
-        let repo = Repository::open(&worktree_path)?;
+        // Check if it's a valid git worktree (has .git file or directory)
+        let git_path = worktree_path.join(".git");
+        if !git_path.exists() {
+            return Err(WorktreeError::NotFound(format!(
+                "Not a git worktree (no .git): {}",
+                worktree_path.display()
+            )));
+        }
+
+        let repo = match Repository::open(&worktree_path) {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(WorktreeError::CommandFailed(format!(
+                    "Failed to open repository at {}: {}",
+                    worktree_path.display(),
+                    e
+                )));
+            }
+        };
         let head = repo.head()?;
         let branch_name = head.shorthand().unwrap_or("unknown").to_string();
         let commit_hash = self.get_current_commit_hash(&worktree_path)?;

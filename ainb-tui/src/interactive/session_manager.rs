@@ -15,6 +15,7 @@ use crate::git::WorktreeManager;
 use crate::models::{ClaudeModel, Session, SessionAgentType, SessionMode, SessionStatus};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -58,6 +59,103 @@ pub struct InteractiveSession {
     pub created_at: DateTime<Utc>,
     pub agent_type: SessionAgentType, // The AI agent or shell for this session
     pub model: Option<ClaudeModel>,   // Claude model for this session (only for Claude agent)
+}
+
+/// Persisted session metadata for discovery across restarts
+///
+/// This solves the branch-mismatch problem: when a user changes branches in a worktree,
+/// the old tmux session name no longer matches the current branch. By persisting the
+/// mapping between session_id, tmux_session_name, and worktree_path, we can reliably
+/// rediscover sessions even after branch changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    pub session_id: Uuid,
+    pub tmux_session_name: String,
+    pub worktree_path: PathBuf,
+    pub workspace_name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Storage for all persisted session metadata
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct SessionStore {
+    pub sessions: HashMap<String, SessionMetadata>, // keyed by tmux_session_name
+}
+
+impl SessionStore {
+    /// Load session store from disk
+    pub fn load() -> Self {
+        let path = Self::storage_path();
+        if !path.exists() {
+            debug!("No sessions.json found at {:?}, returning empty store", path);
+            return Self::default();
+        }
+
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str::<SessionStore>(&content) {
+                Ok(store) => {
+                    debug!("Loaded {} sessions from {:?}", store.sessions.len(), path);
+                    store
+                }
+                Err(e) => {
+                    warn!("Failed to parse sessions.json: {}, returning empty store", e);
+                    Self::default()
+                }
+            },
+            Err(e) => {
+                warn!("Failed to read sessions.json: {}, returning empty store", e);
+                Self::default()
+            }
+        }
+    }
+
+    /// Save session store to disk
+    pub fn save(&self) -> Result<(), std::io::Error> {
+        let path = Self::storage_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        std::fs::write(&path, content)?;
+        debug!("Saved {} sessions to {:?}", self.sessions.len(), path);
+        Ok(())
+    }
+
+    /// Get the storage file path
+    fn storage_path() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".agents-in-a-box")
+            .join("sessions.json")
+    }
+
+    /// Add or update a session
+    pub fn upsert(&mut self, metadata: SessionMetadata) {
+        self.sessions.insert(metadata.tmux_session_name.clone(), metadata);
+    }
+
+    /// Remove a session by tmux name
+    pub fn remove_by_tmux_name(&mut self, tmux_name: &str) {
+        self.sessions.remove(tmux_name);
+    }
+
+    /// Remove a session by session_id
+    pub fn remove_by_session_id(&mut self, session_id: Uuid) {
+        self.sessions.retain(|_, v| v.session_id != session_id);
+    }
+
+    /// Find session by tmux name
+    pub fn find_by_tmux_name(&self, tmux_name: &str) -> Option<&SessionMetadata> {
+        self.sessions.get(tmux_name)
+    }
+
+    /// Get all tmux session names that are tracked
+    pub fn tracked_tmux_names(&self) -> Vec<&str> {
+        self.sessions.keys().map(|s| s.as_str()).collect()
+    }
 }
 
 /// Manager for Interactive mode sessions (host-based, no Docker)
@@ -139,6 +237,7 @@ impl InteractiveSessionManager {
         }
 
         // Step 5: Create session record
+        let created_at = Utc::now();
         let session = InteractiveSession {
             session_id,
             worktree_path: worktree_info.path.clone(),
@@ -146,12 +245,27 @@ impl InteractiveSessionManager {
             tmux_session_name: tmux_session_name.clone(),
             branch_name: branch_name.clone(),
             workspace_name: workspace_name.clone(),
-            created_at: Utc::now(),
+            created_at,
             agent_type,
             model,
         };
 
         self.active_sessions.insert(session_id, session.clone());
+
+        // Step 6: Persist session metadata to sessions.json for discovery across restarts
+        let metadata = SessionMetadata {
+            session_id,
+            tmux_session_name: tmux_session_name.clone(),
+            worktree_path: worktree_info.path.clone(),
+            workspace_name: workspace_name.clone(),
+            created_at,
+        };
+        let mut store = SessionStore::load();
+        store.upsert(metadata);
+        if let Err(e) = store.save() {
+            warn!("Failed to persist session metadata: {}", e);
+            // Continue anyway - session is still usable, just won't survive restarts gracefully
+        }
 
         info!("Successfully created Interactive session {}", session_id);
         Ok(session)
@@ -230,6 +344,8 @@ impl InteractiveSessionManager {
         }
 
         // Step 4: Create session record
+        let created_at = Utc::now();
+        let worktree_path_clone = existing_worktree_path.clone();
         let session = InteractiveSession {
             session_id,
             worktree_path: existing_worktree_path,
@@ -237,12 +353,26 @@ impl InteractiveSessionManager {
             tmux_session_name: tmux_session_name.clone(),
             branch_name: branch_name.clone(),
             workspace_name: workspace_name.clone(),
-            created_at: Utc::now(),
+            created_at,
             agent_type,
             model,
         };
 
         self.active_sessions.insert(session_id, session.clone());
+
+        // Step 5: Persist session metadata to sessions.json for discovery across restarts
+        let metadata = SessionMetadata {
+            session_id,
+            tmux_session_name: tmux_session_name.clone(),
+            worktree_path: worktree_path_clone,
+            workspace_name: workspace_name.clone(),
+            created_at,
+        };
+        let mut store = SessionStore::load();
+        store.upsert(metadata);
+        if let Err(e) = store.save() {
+            warn!("Failed to persist session metadata: {}", e);
+        }
 
         info!("Successfully created Interactive session {} with existing worktree", session_id);
         Ok(session)
@@ -293,8 +423,44 @@ impl InteractiveSessionManager {
 
     /// Discover a session from a tmux session name
     ///
-    /// Matches tmux session to worktree by reverse-engineering the branch name
+    /// Uses a two-phase approach:
+    /// 1. First, try to find the session in sessions.json (handles branch-mismatch case)
+    /// 2. If not found, fall back to reverse-engineering the branch name from tmux session name
     async fn discover_session_from_tmux(&self, tmux_name: &str) -> Result<InteractiveSession, InteractiveSessionError> {
+        // Phase 1: Try to find session in persisted sessions.json
+        // This handles the branch-mismatch case where the user changed branches in the worktree
+        let store = SessionStore::load();
+        if let Some(metadata) = store.find_by_tmux_name(tmux_name) {
+            // Verify the worktree still exists
+            if metadata.worktree_path.exists() {
+                debug!("Found session {} in sessions.json for tmux {}", metadata.session_id, tmux_name);
+
+                // Try to get current branch name from the worktree
+                let branch_name = self.get_current_branch(&metadata.worktree_path)
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // Try to get source repository from worktree
+                let source_repository = self.get_source_repository(&metadata.worktree_path)
+                    .unwrap_or_else(|| metadata.worktree_path.clone());
+
+                return Ok(InteractiveSession {
+                    session_id: metadata.session_id,
+                    worktree_path: metadata.worktree_path.clone(),
+                    source_repository,
+                    tmux_session_name: tmux_name.to_string(),
+                    branch_name,
+                    workspace_name: metadata.workspace_name.clone(),
+                    created_at: metadata.created_at,
+                    agent_type: SessionAgentType::Claude,
+                    model: None,
+                });
+            } else {
+                debug!("Session {} in sessions.json but worktree no longer exists at {:?}",
+                       metadata.session_id, metadata.worktree_path);
+            }
+        }
+
+        // Phase 2: Fall back to branch-name matching (original logic)
         // Remove "tmux_" prefix and reverse sanitization
         let sanitized = tmux_name.strip_prefix("tmux_").unwrap_or(tmux_name);
         let branch_guess = sanitized.replace('_', "/");
@@ -344,6 +510,45 @@ impl InteractiveSessionManager {
         Err(InteractiveSessionError::InvalidState(
             format!("No matching worktree found for tmux session {}", tmux_name)
         ))
+    }
+
+    /// Get the current branch name from a worktree path
+    fn get_current_branch(&self, worktree_path: &Path) -> Option<String> {
+        use git2::Repository;
+
+        let repo = Repository::open(worktree_path).ok()?;
+        let head = repo.head().ok()?;
+
+        if head.is_branch() {
+            head.shorthand().map(|s| s.to_string())
+        } else {
+            // Detached HEAD - get the commit hash
+            head.target().map(|oid| oid.to_string()[..8].to_string())
+        }
+    }
+
+    /// Get the source repository path from a worktree
+    fn get_source_repository(&self, worktree_path: &Path) -> Option<PathBuf> {
+        // Read the .git file in the worktree to find the main repo
+        let git_file = worktree_path.join(".git");
+        if !git_file.exists() || !git_file.is_file() {
+            return None;
+        }
+
+        let content = std::fs::read_to_string(&git_file).ok()?;
+        // Format: "gitdir: /path/to/main/repo/.git/worktrees/name"
+        let gitdir = content.trim().strip_prefix("gitdir: ")?;
+
+        // Navigate from .git/worktrees/name to the main repo
+        let worktree_git_path = PathBuf::from(gitdir);
+        let main_git = worktree_git_path.parent()?.parent()?.parent()?;
+
+        // The main git dir might be .git or bare repo
+        if main_git.file_name()? == ".git" {
+            main_git.parent().map(|p| p.to_path_buf())
+        } else {
+            Some(main_git.to_path_buf())
+        }
     }
 
     /// Remove an Interactive session (cleanup tmux and worktree)
@@ -410,6 +615,15 @@ impl InteractiveSessionManager {
                 error!("Failed to remove worktree for session {}: {}", session_id, e);
                 return Err(e.into());
             }
+        }
+
+        // Step 3: Remove from sessions.json
+        let mut store = SessionStore::load();
+        store.remove_by_tmux_name(&tmux_session_name);
+        store.remove_by_session_id(session_id); // Also remove by ID in case tmux name changed
+        if let Err(e) = store.save() {
+            warn!("Failed to update sessions.json after removal: {}", e);
+            // Continue anyway - removal was successful
         }
 
         info!("<<< InteractiveSessionManager::remove_session() COMPLETE: {}", session_id);
