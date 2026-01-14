@@ -255,7 +255,8 @@ impl SessionLoader {
 
         let scanner = WorkspaceScanner::with_additional_paths(
             self.config.workspace_defaults.workspace_scan_paths.clone(),
-        );
+        )
+        .with_exclude_paths(self.config.workspace_defaults.exclude_paths.clone());
         let scan_result = scanner.scan()?;
 
         let max_repos = self.config.workspace_defaults.max_repositories;

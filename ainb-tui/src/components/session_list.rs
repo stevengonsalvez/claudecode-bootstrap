@@ -141,10 +141,14 @@ impl SessionListComponent {
 
                     let status_indicator = session.status.indicator();
 
-                    // Mode indicator
-                    let mode_indicator = match session.mode {
-                        SessionMode::Boss => "🐳",
-                        SessionMode::Interactive => "🖥️",
+                    // Mode indicator (controlled by show_container_status config)
+                    let mode_indicator = if state.app_config.ui_preferences.show_container_status {
+                        match session.mode {
+                            SessionMode::Boss => "🐳 ",
+                            SessionMode::Interactive => "🖥️ ",
+                        }
+                    } else {
+                        ""
                     };
 
                     // Tmux status indicator
@@ -156,7 +160,8 @@ impl SessionListComponent {
                         "○"
                     };
 
-                    let changes_text = if session.git_changes.total() > 0 {
+                    // Git changes (controlled by show_git_status config)
+                    let changes_text = if state.app_config.ui_preferences.show_git_status && session.git_changes.total() > 0 {
                         format!(" ({})", session.git_changes.format())
                     } else {
                         String::new()
@@ -178,7 +183,7 @@ impl SessionListComponent {
                         Span::styled("  ", Style::default()),
                         Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
                         Span::styled(format!(" {} ", status_indicator), Style::default()),
-                        Span::styled(format!("{} ", mode_indicator), Style::default()),
+                        Span::styled(mode_indicator.to_string(), Style::default()),
                         Span::styled(format!("{} ", tmux_indicator), Style::default().fg(tmux_color)),
                         Span::styled(session.branch_name.clone(), Style::default().fg(branch_color).add_modifier(if is_selected_session { Modifier::BOLD } else { Modifier::empty() })),
                         Span::styled(changes_text, Style::default().fg(WARNING_ORANGE)),

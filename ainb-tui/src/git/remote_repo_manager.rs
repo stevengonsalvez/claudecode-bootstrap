@@ -324,7 +324,7 @@ impl RemoteRepoManager {
             }
         }
 
-        // Create the worktree
+        // Create the worktree - try normal first, fallback to --no-checkout if filters fail
         let output = Command::new("git")
             .args([
                 "worktree",
@@ -337,10 +337,66 @@ impl RemoteRepoManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(RemoteRepoError::CloneFailed(format!(
-                "Failed to create worktree: {}",
-                stderr
-            )));
+
+            // Check if failure is due to smudge/clean filter (e.g., transcrypt)
+            if stderr.contains("smudge filter") || stderr.contains("clean filter") {
+                warn!(
+                    "Worktree creation failed due to filter issue, retrying with --no-checkout: {}",
+                    stderr
+                );
+
+                // Clean up any partial worktree that might have been created
+                if worktree_path.exists() {
+                    let _ = std::fs::remove_dir_all(worktree_path);
+                }
+
+                // Retry with --no-checkout to skip the problematic filter
+                let retry_output = Command::new("git")
+                    .args([
+                        "worktree",
+                        "add",
+                        "--no-checkout",
+                        worktree_path.to_string_lossy().as_ref(),
+                        branch_name,
+                    ])
+                    .current_dir(cache_path)
+                    .output()?;
+
+                if !retry_output.status.success() {
+                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
+                    return Err(RemoteRepoError::CloneFailed(format!(
+                        "Failed to create worktree (even with --no-checkout): {}",
+                        retry_stderr
+                    )));
+                }
+
+                // Checkout files with filter bypass (transcrypt uses 'crypt' filter)
+                let checkout_output = Command::new("git")
+                    .args([
+                        "-c", "filter.crypt.smudge=cat",
+                        "-c", "filter.crypt.clean=cat",
+                        "checkout",
+                        "--force",
+                    ])
+                    .current_dir(worktree_path)
+                    .output()?;
+
+                if !checkout_output.status.success() {
+                    let checkout_stderr = String::from_utf8_lossy(&checkout_output.stderr);
+                    warn!("Checkout with filter bypass had issues: {}", checkout_stderr);
+                    // Continue anyway - the worktree exists, files just might not be checked out
+                }
+
+                info!(
+                    "Created worktree with filter bypass at: {}",
+                    worktree_path.display()
+                );
+            } else {
+                return Err(RemoteRepoError::CloneFailed(format!(
+                    "Failed to create worktree: {}",
+                    stderr
+                )));
+            }
         }
 
         info!(

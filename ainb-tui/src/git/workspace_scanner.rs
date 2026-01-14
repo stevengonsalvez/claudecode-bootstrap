@@ -235,6 +235,17 @@ impl WorkspaceScanner {
         self
     }
 
+    /// Add additional exclude patterns from config
+    pub fn with_exclude_paths(mut self, exclude_paths: Vec<String>) -> Self {
+        // Add user-configured exclude patterns to the built-in ones
+        for pattern in exclude_paths {
+            if !self.ignore_patterns.contains(&pattern) {
+                self.ignore_patterns.push(pattern);
+            }
+        }
+        self
+    }
+
     /// Scan for repositories, using cache if available and valid
     pub fn scan(&self) -> Result<ScanResult> {
         // Try cache first

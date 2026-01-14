@@ -65,8 +65,11 @@ impl ContainerManager {
     pub async fn new() -> Result<Self, ContainerError> {
         let docker = Self::connect_to_docker().map_err(ContainerError::Connection)?;
 
-        // Test the connection with timeout
-        let ping_timeout = std::time::Duration::from_secs(10);
+        // Test the connection with configurable timeout (default: 60s)
+        let timeout_secs = crate::config::AppConfig::load()
+            .map(|c| c.docker.timeout)
+            .unwrap_or(60);
+        let ping_timeout = std::time::Duration::from_secs(timeout_secs);
         tokio::time::timeout(ping_timeout, docker.ping())
             .await
             .map_err(|_| {
