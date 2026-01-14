@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::{
     AppState,
-    state::{NewSessionState, NewSessionStep, RepoSourceChoice},
+    state::{BranchCheckoutMode, NewSessionState, NewSessionStep, RepoSourceChoice},
 };
 
 pub struct NewSessionComponent {
@@ -578,21 +578,42 @@ impl NewSessionComponent {
             .margin(1)
             .constraints(vec![
                 Constraint::Length(2), // Repo info
+                Constraint::Length(1), // Mode indicator (NEW)
                 Constraint::Length(3), // Filter input
                 Constraint::Min(0),    // Branch list
                 Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Repo info
+        // Repo info with mode-specific guidance
+        let guidance_text = match session_state.branch_checkout_mode {
+            BranchCheckoutMode::CreateNew => "Choose a base branch to create worktree from",
+            BranchCheckoutMode::CheckoutExisting => "Choose a remote branch to checkout directly",
+        };
         let repo_info = Paragraph::new(Line::from(vec![
             Span::styled("📁 ", Style::default()),
             Span::styled(&repo_display, Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
             Span::styled(" → ", Style::default().fg(muted_gray)),
-            Span::styled("Choose a base branch to create worktree from", Style::default().fg(muted_gray)),
+            Span::styled(guidance_text, Style::default().fg(muted_gray)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(repo_info, chunks[0]);
+
+        // Mode indicator
+        let mode_indicator = match session_state.branch_checkout_mode {
+            BranchCheckoutMode::CreateNew => Line::from(vec![
+                Span::styled("Mode: ", Style::default().fg(muted_gray)),
+                Span::styled("🌱 Create New Branch", Style::default().fg(selection_green).add_modifier(Modifier::BOLD)),
+                Span::styled(" (ainb/...)", Style::default().fg(muted_gray)),
+            ]),
+            BranchCheckoutMode::CheckoutExisting => Line::from(vec![
+                Span::styled("Mode: ", Style::default().fg(muted_gray)),
+                Span::styled("📥 Checkout Existing", Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
+                Span::styled(" (use branch as-is)", Style::default().fg(muted_gray)),
+            ]),
+        };
+        let mode_widget = Paragraph::new(mode_indicator).alignment(Alignment::Center);
+        frame.render_widget(mode_widget, chunks[1]);
 
         // Filter input
         let filter_text = if session_state.branch_filter_text.is_empty() {
@@ -612,7 +633,7 @@ impl NewSessionComponent {
                 .border_style(Style::default().fg(subdued_border))
                 .style(Style::default().bg(dark_bg)),
         );
-        frame.render_widget(filter_input, chunks[1]);
+        frame.render_widget(filter_input, chunks[2]);
 
         // Branch list - use filtered_branches
         let branch_items: Vec<ListItem> = session_state
@@ -690,12 +711,15 @@ impl NewSessionComponent {
 
         // Update list state for proper scrolling
         self.branch_list_state.select(Some(session_state.selected_branch_index));
-        frame.render_stateful_widget(branch_list, chunks[2], &mut self.branch_list_state);
+        frame.render_stateful_widget(branch_list, chunks[3], &mut self.branch_list_state);
 
         // Footer
         let footer_spans = vec![
             Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
-            Span::styled(" Navigate", Style::default().fg(muted_gray)),
+            Span::styled(" Nav", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Tab", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Mode", Style::default().fg(muted_gray)),
             Span::styled("  │  ", Style::default().fg(subdued_border)),
             Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
             Span::styled(" Filter", Style::default().fg(muted_gray)),
@@ -709,7 +733,7 @@ impl NewSessionComponent {
 
         let footer = Paragraph::new(Line::from(footer_spans))
             .alignment(Alignment::Center);
-        frame.render_widget(footer, chunks[3]);
+        frame.render_widget(footer, chunks[4]);
     }
 
     fn render_repo_selection(

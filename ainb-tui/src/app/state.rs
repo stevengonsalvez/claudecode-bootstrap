@@ -1961,6 +1961,14 @@ pub enum AgentModelFocus {
     Model,
 }
 
+/// Mode for remote branch checkout - create new branch or checkout existing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BranchCheckoutMode {
+    #[default]
+    CreateNew,        // Create ainb/{uuid} branch from selected (default)
+    CheckoutExisting, // Use the remote branch directly
+}
+
 #[derive(Debug)]
 pub struct NewSessionState {
     pub source_choice: RepoSourceChoice, // Local or Remote repo source
@@ -1999,6 +2007,7 @@ pub struct NewSessionState {
     pub repo_validation_error: Option<String>, // Error message for UI display
     pub is_validating: bool,                   // Show loading indicator
     pub recent_repos: Vec<ParsedRepo>,         // Recently used repos for suggestions
+    pub branch_checkout_mode: BranchCheckoutMode, // Toggle: create new vs checkout existing
 }
 
 impl Default for NewSessionState {
@@ -2039,6 +2048,7 @@ impl Default for NewSessionState {
             repo_validation_error: None,
             is_validating: false,
             recent_repos: Vec::new(),
+            branch_checkout_mode: BranchCheckoutMode::default(),
         }
     }
 }
@@ -2154,6 +2164,14 @@ impl NewSessionState {
         self.agent_model_focus = match self.agent_model_focus {
             AgentModelFocus::Agent => AgentModelFocus::Model,
             AgentModelFocus::Model => AgentModelFocus::Agent,
+        };
+    }
+
+    /// Toggle between CreateNew and CheckoutExisting branch modes
+    pub fn toggle_branch_checkout_mode(&mut self) {
+        self.branch_checkout_mode = match self.branch_checkout_mode {
+            BranchCheckoutMode::CreateNew => BranchCheckoutMode::CheckoutExisting,
+            BranchCheckoutMode::CheckoutExisting => BranchCheckoutMode::CreateNew,
         };
     }
 
@@ -4159,14 +4177,14 @@ impl AppState {
     pub async fn clone_remote_repo(&mut self) {
         use crate::git::RemoteRepoManager;
 
-        let (source, base_branch) = if let Some(ref state) = self.new_session_state {
+        let (source, base_branch, checkout_mode) = if let Some(ref state) = self.new_session_state {
             // Get branch from filtered list (which stores (original_idx, branch) tuples)
             let branch = state.filtered_branches
                 .get(state.selected_branch_index)
                 .map(|(_, b)| b.name.clone())
                 .or_else(|| state.selected_base_branch.clone())
                 .unwrap_or_else(|| "main".to_string());
-            (state.repo_source.clone(), branch)
+            (state.repo_source.clone(), branch, state.branch_checkout_mode)
         } else {
             error!("clone_remote_repo called but no state");
             return;
@@ -4214,11 +4232,15 @@ impl AppState {
                 info!("Cloned to: {}", cache_path.display());
                 if let Some(ref mut state) = self.new_session_state {
                     state.cached_repo_path = Some(cache_path);
-                    state.selected_base_branch = Some(base_branch);
-                    state.branch_name = format!(
-                        "ainb/{}",
-                        uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
-                    );
+                    state.selected_base_branch = Some(base_branch.clone());
+                    // Set branch name based on checkout mode
+                    state.branch_name = match checkout_mode {
+                        BranchCheckoutMode::CreateNew => format!(
+                            "ainb/{}",
+                            uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
+                        ),
+                        BranchCheckoutMode::CheckoutExisting => base_branch,
+                    };
                     state.is_validating = false;
                     state.step = NewSessionStep::SelectAgent;
                 }
@@ -5225,20 +5247,36 @@ impl AppState {
                             }
                         };
 
+                        // Route worktree creation based on checkout mode
+                        let checkout_mode = state.branch_checkout_mode;
                         tracing::info!(
-                            "Creating worktree from bare cache: {} -> {} (branch: {}, base: {})",
+                            "Creating worktree from cache: {} -> {} (branch: {}, base: {}, mode: {:?})",
                             cached_path.display(),
                             worktree_path.display(),
                             branch_name,
-                            base_branch
+                            base_branch,
+                            checkout_mode
                         );
 
-                        if let Err(e) = manager.create_worktree_from_cache(
-                            cached_path,
-                            &worktree_path,
-                            branch_name,
-                            base_branch,
-                        ) {
+                        let worktree_result = match checkout_mode {
+                            BranchCheckoutMode::CreateNew => {
+                                manager.create_worktree_from_cache(
+                                    cached_path,
+                                    &worktree_path,
+                                    branch_name,
+                                    base_branch,
+                                )
+                            }
+                            BranchCheckoutMode::CheckoutExisting => {
+                                manager.checkout_existing_branch_worktree(
+                                    cached_path,
+                                    &worktree_path,
+                                    base_branch, // Use the selected remote branch directly
+                                )
+                            }
+                        };
+
+                        if let Err(e) = worktree_result {
                             tracing::error!("Failed to create worktree: {}", e);
                             state.repo_validation_error = Some(format!("Failed to create worktree: {}", e));
                             state.step = NewSessionStep::InputRepoSource;

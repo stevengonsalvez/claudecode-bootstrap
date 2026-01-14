@@ -77,6 +77,7 @@ pub enum AppEvent {
     BranchSelectBack,
     BranchFilterInput(char),
     BranchFilterBackspace,
+    BranchToggleCheckoutMode, // Tab to toggle between create new vs checkout existing
     NewSessionProceedToModeSelection,
     NewSessionToggleMode,
     NewSessionProceedFromMode,
@@ -667,6 +668,7 @@ impl EventHandler {
                         KeyCode::Enter => Some(AppEvent::BranchSelectConfirm),
                         KeyCode::Down => Some(AppEvent::BranchSelectNext),
                         KeyCode::Up => Some(AppEvent::BranchSelectPrev),
+                        KeyCode::Tab => Some(AppEvent::BranchToggleCheckoutMode),
                         KeyCode::Backspace => Some(AppEvent::BranchFilterBackspace),
                         KeyCode::Char(c) => Some(AppEvent::BranchFilterInput(c)),
                         _ => None,
@@ -1630,6 +1632,11 @@ impl EventHandler {
             }
             AppEvent::BranchFilterBackspace => {
                 state.branch_filter_backspace();
+            }
+            AppEvent::BranchToggleCheckoutMode => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.toggle_branch_checkout_mode();
+                }
             }
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),

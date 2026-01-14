@@ -406,6 +406,80 @@ impl RemoteRepoManager {
         Ok(())
     }
 
+    /// Checkout an existing remote branch into a worktree
+    ///
+    /// Unlike create_worktree_from_cache which creates a new local branch,
+    /// this creates a local tracking branch for an existing remote branch.
+    pub fn checkout_existing_branch_worktree(
+        &self,
+        cache_path: &Path,
+        worktree_path: &Path,
+        remote_branch: &str,
+    ) -> Result<(), RemoteRepoError> {
+        info!(
+            "Checking out existing branch '{}' to worktree at {}",
+            remote_branch,
+            worktree_path.display()
+        );
+
+        // Create parent directory for worktree
+        if let Some(parent) = worktree_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Check if local tracking branch already exists
+        let local_exists = Command::new("git")
+            .args(["rev-parse", "--verify", remote_branch])
+            .current_dir(cache_path)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !local_exists {
+            // Create local tracking branch from remote
+            let remote_ref = format!("origin/{}", remote_branch);
+            let output = Command::new("git")
+                .args(["branch", "--track", remote_branch, &remote_ref])
+                .current_dir(cache_path)
+                .output()?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.contains("already exists") {
+                    return Err(RemoteRepoError::CloneFailed(format!(
+                        "Failed to create tracking branch '{}': {}",
+                        remote_branch, stderr
+                    )));
+                }
+            }
+        }
+
+        // Create worktree using the branch name
+        let output = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                worktree_path.to_string_lossy().as_ref(),
+                remote_branch,
+            ])
+            .current_dir(cache_path)
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(RemoteRepoError::CloneFailed(format!(
+                "Failed to create worktree for existing branch: {}",
+                stderr
+            )));
+        }
+
+        info!(
+            "Successfully checked out existing branch '{}' to worktree",
+            remote_branch
+        );
+        Ok(())
+    }
+
     /// Get list of cached repositories for recent repos feature
     pub fn list_cached_repos(&self) -> Result<Vec<ParsedRepo>> {
         let mut repos = Vec::new();
