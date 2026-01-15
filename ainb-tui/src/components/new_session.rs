@@ -578,7 +578,7 @@ impl NewSessionComponent {
             .margin(1)
             .constraints(vec![
                 Constraint::Length(2), // Repo info
-                Constraint::Length(1), // Mode indicator (NEW)
+                Constraint::Length(3), // Mode toggle box (prominent)
                 Constraint::Length(3), // Filter input
                 Constraint::Min(0),    // Branch list
                 Constraint::Length(2), // Footer
@@ -599,20 +599,41 @@ impl NewSessionComponent {
         .alignment(Alignment::Center);
         frame.render_widget(repo_info, chunks[0]);
 
-        // Mode indicator
-        let mode_indicator = match session_state.branch_checkout_mode {
-            BranchCheckoutMode::CreateNew => Line::from(vec![
-                Span::styled("Mode: ", Style::default().fg(muted_gray)),
-                Span::styled("🌱 Create New Branch", Style::default().fg(selection_green).add_modifier(Modifier::BOLD)),
-                Span::styled(" (ainb/...)", Style::default().fg(muted_gray)),
-            ]),
-            BranchCheckoutMode::CheckoutExisting => Line::from(vec![
-                Span::styled("Mode: ", Style::default().fg(muted_gray)),
-                Span::styled("📥 Checkout Existing", Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
-                Span::styled(" (use branch as-is)", Style::default().fg(muted_gray)),
-            ]),
+        // Mode toggle - prominent box showing current mode with Tab hint
+        let (mode_icon, mode_text, mode_desc, mode_color, border_color) = match session_state.branch_checkout_mode {
+            BranchCheckoutMode::CreateNew => (
+                "🌱",
+                "CREATE NEW BRANCH",
+                "Will create ainb/{uuid} from selected",
+                selection_green,
+                selection_green,
+            ),
+            BranchCheckoutMode::CheckoutExisting => (
+                "📥",
+                "CHECKOUT EXISTING",
+                "Will use the branch name as-is",
+                cornflower_blue,
+                cornflower_blue,
+            ),
         };
-        let mode_widget = Paragraph::new(mode_indicator).alignment(Alignment::Center);
+        let mode_content = Line::from(vec![
+            Span::styled(format!(" {} ", mode_icon), Style::default().fg(mode_color)),
+            Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled(mode_desc, Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(subdued_border)),
+            Span::styled("Tab", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" to switch", Style::default().fg(muted_gray)),
+        ]);
+        let mode_widget = Paragraph::new(mode_content)
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(border_color))
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(mode_widget, chunks[1]);
 
         // Filter input
