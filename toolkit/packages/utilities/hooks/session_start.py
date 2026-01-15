@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "python-dotenv",
+#     "langfuse>=2.44.0,<3.0.0",
 # ]
 # ///
 
@@ -19,6 +20,12 @@ try:
     load_dotenv()
 except ImportError:
     pass  # dotenv is optional
+
+# Langfuse integration (optional - no-op if not configured)
+try:
+    from utils.langfuse import get_tracer
+except ImportError:
+    get_tracer = lambda: None  # Fallback if module not found
 
 
 def log_session_start(input_data):
@@ -229,7 +236,18 @@ def main():
         
         # Log the session start event
         log_session_start(input_data)
-        
+
+        # Start Langfuse trace (no-op if not configured)
+        tracer = get_tracer()
+        if tracer:
+            branch, changes = get_git_status()
+            tracer.start_session_trace(
+                session_id=session_id,
+                source=source,
+                git_branch=branch,
+                uncommitted_changes=changes
+            )
+
         # Run git status if requested
         if args.git_status:
             git_status_info = []
