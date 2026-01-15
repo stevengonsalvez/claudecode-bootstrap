@@ -4783,18 +4783,34 @@ impl AppState {
                 return true; // Signal that async shell creation is needed
             }
 
-            // For AI agents, proceed to branch input
-            state.step = NewSessionStep::InputBranch;
-            let uuid_str = uuid::Uuid::new_v4().to_string();
-            // Use branch prefix from config (default: "agents/")
-            let prefix = &self.app_config.workspace_defaults.branch_prefix;
-            state.branch_name = format!("{}session-{}", prefix, &uuid_str[..8]);
+            // For AI agents, check if we should skip branch input
+            // In CheckoutExisting mode for remote repos, the branch name is already set
+            let skip_branch_input = state.branch_checkout_mode == BranchCheckoutMode::CheckoutExisting
+                && state.cached_repo_path.is_some()
+                && !state.branch_name.is_empty();
 
-            tracing::info!(
-                "Agent selected: {:?}, transitioning to branch input with branch: {}",
-                state.selected_agent,
-                state.branch_name
-            );
+            if skip_branch_input {
+                // Skip InputBranch step - go directly to mode selection
+                state.step = NewSessionStep::SelectMode;
+                tracing::info!(
+                    "Agent selected: {:?}, skipping branch input (CheckoutExisting mode), branch: {}",
+                    state.selected_agent,
+                    state.branch_name
+                );
+            } else {
+                // Normal flow: proceed to branch input
+                state.step = NewSessionStep::InputBranch;
+                let uuid_str = uuid::Uuid::new_v4().to_string();
+                // Use branch prefix from config (default: "agents/")
+                let prefix = &self.app_config.workspace_defaults.branch_prefix;
+                state.branch_name = format!("{}session-{}", prefix, &uuid_str[..8]);
+
+                tracing::info!(
+                    "Agent selected: {:?}, transitioning to branch input with branch: {}",
+                    state.selected_agent,
+                    state.branch_name
+                );
+            }
         }
         false
     }
