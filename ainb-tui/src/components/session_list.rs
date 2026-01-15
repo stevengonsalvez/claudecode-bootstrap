@@ -102,6 +102,9 @@ impl SessionListComponent {
                             Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
                             Span::styled(" $", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
                             Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" x", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" cleanup ", Style::default().fg(MUTED_GRAY)),
                         ])
                     }),
             )

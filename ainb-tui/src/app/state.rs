@@ -6130,8 +6130,13 @@ impl AppState {
             }
         }
 
+        // Step 4: Clean up orphaned tmux shell sessions (ainb-ws-* and ainb-shell-*)
+        info!("Cleaning up orphaned tmux shell sessions");
+        let shells_cleaned = self.cleanup_orphaned_tmux_shells().await;
+        cleaned_up += shells_cleaned;
+
         if cleaned_up > 0 {
-            info!("Cleaned up {} orphaned items (containers + state + git refs)", cleaned_up);
+            info!("Cleaned up {} orphaned items (containers + state + git refs + tmux shells)", cleaned_up);
             self.add_success_notification(format!(
                 "🧹 Cleaned up {} orphaned items",
                 cleaned_up
@@ -6145,7 +6150,7 @@ impl AppState {
             audit::audit_orphaned_cleanup(
                 AuditTrigger::UserKeypress("Ctrl+X".to_string()),
                 AuditResult::Success,
-                format!("Cleaned up {} orphaned items (containers + state + git refs)", cleaned_up),
+                format!("Cleaned up {} orphaned items (containers + state + git refs + tmux shells)", cleaned_up),
             );
         } else {
             info!("No orphaned containers or sessions found");
@@ -6153,6 +6158,76 @@ impl AppState {
         }
 
         Ok(cleaned_up)
+    }
+
+    /// Clean up orphaned tmux shell sessions (ainb-ws-* and ainb-shell-*)
+    /// Returns the number of sessions killed
+    async fn cleanup_orphaned_tmux_shells(&mut self) -> usize {
+        use tokio::process::Command;
+
+        // Get list of all tmux sessions
+        let output = match Command::new("tmux")
+            .args(["list-sessions", "-F", "#{session_name}"])
+            .output()
+            .await
+        {
+            Ok(output) if output.status.success() => output,
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                // "no server running" is not an error - just means no tmux sessions
+                if !stderr.contains("no server running") {
+                    warn!("tmux list-sessions failed: {}", stderr);
+                }
+                return 0;
+            }
+            Err(e) => {
+                warn!("Failed to run tmux list-sessions: {}", e);
+                return 0;
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let orphaned_shells: Vec<String> = stdout
+            .lines()
+            .filter(|name| name.starts_with("ainb-ws-") || name.starts_with("ainb-shell-"))
+            .map(|s| s.to_string())
+            .collect();
+
+        if orphaned_shells.is_empty() {
+            info!("No orphaned tmux shell sessions found");
+            return 0;
+        }
+
+        info!("Found {} orphaned tmux shell sessions to clean up", orphaned_shells.len());
+        let mut killed_count = 0;
+
+        for session_name in &orphaned_shells {
+            info!("Killing orphaned tmux shell session: {}", session_name);
+            match Command::new("tmux")
+                .args(["kill-session", "-t", session_name])
+                .output()
+                .await
+            {
+                Ok(output) if output.status.success() => {
+                    killed_count += 1;
+                    info!("Successfully killed tmux session: {}", session_name);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Failed to kill tmux session {}: {}", session_name, stderr);
+                }
+                Err(e) => {
+                    warn!("Failed to run tmux kill-session for {}: {}", session_name, e);
+                }
+            }
+        }
+
+        if killed_count > 0 {
+            // Reload other tmux sessions to reflect changes
+            self.load_other_tmux_sessions().await;
+        }
+
+        killed_count
     }
 
     async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
