@@ -410,6 +410,8 @@ impl RemoteRepoManager {
     ///
     /// Unlike create_worktree_from_cache which creates a new local branch,
     /// this creates a local tracking branch for an existing remote branch.
+    /// Uses -B flag to handle the case where the branch is already checked
+    /// out in the cache (standard clone has default branch checked out).
     pub fn checkout_existing_branch_worktree(
         &self,
         cache_path: &Path,
@@ -427,40 +429,18 @@ impl RemoteRepoManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Check if local tracking branch already exists
-        let local_exists = Command::new("git")
-            .args(["rev-parse", "--verify", remote_branch])
-            .current_dir(cache_path)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if !local_exists {
-            // Create local tracking branch from remote
-            let remote_ref = format!("origin/{}", remote_branch);
-            let output = Command::new("git")
-                .args(["branch", "--track", remote_branch, &remote_ref])
-                .current_dir(cache_path)
-                .output()?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if !stderr.contains("already exists") {
-                    return Err(RemoteRepoError::CloneFailed(format!(
-                        "Failed to create tracking branch '{}': {}",
-                        remote_branch, stderr
-                    )));
-                }
-            }
-        }
-
-        // Create worktree using the branch name
+        // Use -B to force create/reset the branch even if it's checked out elsewhere
+        // This handles the case where the branch (e.g., main) is already checked out
+        // in the cache directory (standard clone has default branch checked out)
+        let remote_ref = format!("origin/{}", remote_branch);
         let output = Command::new("git")
             .args([
                 "worktree",
                 "add",
-                worktree_path.to_string_lossy().as_ref(),
+                "-B",
                 remote_branch,
+                worktree_path.to_string_lossy().as_ref(),
+                &remote_ref,
             ])
             .current_dir(cache_path)
             .output()?;
@@ -472,6 +452,12 @@ impl RemoteRepoManager {
                 stderr
             )));
         }
+
+        // Set up tracking for the branch in the worktree
+        let _ = Command::new("git")
+            .args(["branch", "--set-upstream-to", &remote_ref, remote_branch])
+            .current_dir(worktree_path)
+            .output();
 
         info!(
             "Successfully checked out existing branch '{}' to worktree",
