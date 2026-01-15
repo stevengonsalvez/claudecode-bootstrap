@@ -175,6 +175,12 @@ pub enum AppEvent {
     ScrollPreviewUp,              // Scroll tmux preview up
     ScrollPreviewDown,            // Scroll tmux preview down
     ToggleExpandAll,              // Toggle expand/collapse all workspaces
+    // Other tmux rename events
+    OtherTmuxStartRename,         // Start rename mode for selected "Other tmux" session
+    OtherTmuxRenameChar(char),    // Character input for rename
+    OtherTmuxRenameBackspace,     // Backspace in rename
+    OtherTmuxConfirmRename,       // Confirm rename (Enter)
+    OtherTmuxCancelRename,        // Cancel rename (Escape)
     // AINB 2.0: Home screen events
     HomeScreenSelectTile,        // Select current tile (Enter)
     HomeScreenNavigateUp,        // Navigate up in tile grid
@@ -379,6 +385,17 @@ impl EventHandler {
             }
         }
 
+        // Handle "Other tmux" rename mode (high priority)
+        if state.other_tmux_rename_mode {
+            match key_event.code {
+                KeyCode::Enter => return Some(AppEvent::OtherTmuxConfirmRename),
+                KeyCode::Esc => return Some(AppEvent::OtherTmuxCancelRename),
+                KeyCode::Backspace => return Some(AppEvent::OtherTmuxRenameBackspace),
+                KeyCode::Char(c) => return Some(AppEvent::OtherTmuxRenameChar(c)),
+                _ => return None,
+            }
+        }
+
         // Handle onboarding wizard view FIRST (before any other handlers)
         // Onboarding is a modal experience that should not be interrupted by global keybinds
         if state.current_view == View::Onboarding {
@@ -516,6 +533,14 @@ impl EventHandler {
                 Some(AppEvent::AttachTmuxSession)
             }
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
+            KeyCode::F(2) => {
+                // F2 for rename - only works in "Other tmux" section
+                if state.is_other_tmux_selected() {
+                    Some(AppEvent::OtherTmuxStartRename)
+                } else {
+                    Some(AppEvent::ShowNotification("F2 rename only works on 'Other tmux' sessions".to_string()))
+                }
+            }
             KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
@@ -1546,6 +1571,14 @@ impl EventHandler {
             AppEvent::ToggleHelp => state.toggle_help(),
             AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
             AppEvent::ToggleExpandAll => state.toggle_expand_all_workspaces(),
+            // Other tmux rename events
+            AppEvent::OtherTmuxStartRename => state.start_other_tmux_rename(),
+            AppEvent::OtherTmuxRenameChar(c) => state.other_tmux_rename_char(c),
+            AppEvent::OtherTmuxRenameBackspace => state.other_tmux_rename_backspace(),
+            AppEvent::OtherTmuxCancelRename => state.cancel_other_tmux_rename(),
+            AppEvent::OtherTmuxConfirmRename => {
+                state.pending_async_action = Some(AsyncAction::ConfirmOtherTmuxRename);
+            }
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);

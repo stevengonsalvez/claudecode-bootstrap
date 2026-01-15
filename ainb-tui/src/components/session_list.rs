@@ -70,16 +70,40 @@ impl SessionListComponent {
                             Style::default().fg(if is_focused { CORNFLOWER_BLUE } else { MUTED_GRAY }).add_modifier(Modifier::BOLD)
                         ),
                     ]))
-                    .title_bottom(Line::from(vec![
-                        Span::styled(" j/k", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                        Span::styled(" nav ", Style::default().fg(MUTED_GRAY)),
-                        Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
-                        Span::styled(" Enter", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                        Span::styled(" select ", Style::default().fg(MUTED_GRAY)),
-                        Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
-                        Span::styled(" $", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-                        Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
-                    ])),
+                    .title_bottom(if state.other_tmux_rename_mode {
+                        // Rename mode help
+                        Line::from(vec![
+                            Span::styled(" Enter", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" confirm ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" Esc", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" cancel ", Style::default().fg(MUTED_GRAY)),
+                        ])
+                    } else if state.is_other_tmux_selected() {
+                        // Other tmux selected help
+                        Line::from(vec![
+                            Span::styled(" j/k", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" nav ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" a", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" attach ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" F2", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" rename ", Style::default().fg(MUTED_GRAY)),
+                        ])
+                    } else {
+                        // Default help
+                        Line::from(vec![
+                            Span::styled(" j/k", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" nav ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" Enter", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" select ", Style::default().fg(MUTED_GRAY)),
+                            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(" $", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                            Span::styled(" shell ", Style::default().fg(MUTED_GRAY)),
+                        ])
+                    }),
             )
             .highlight_style(Style::default().bg(LIST_HIGHLIGHT_BG))
             .highlight_symbol("▶ ");
@@ -280,13 +304,30 @@ impl SessionListComponent {
                         MUTED_GRAY
                     };
 
-                    let session_line = Line::from(vec![
-                        Span::styled("  ", Style::default()),
-                        Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
-                        Span::styled(format!(" {} ", status), Style::default()),
-                        Span::styled(other_session.name.clone(), Style::default().fg(name_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() })),
-                        Span::styled(windows_text, Style::default().fg(MUTED_GRAY)),
-                    ]);
+                    // Check if this session is being renamed
+                    let is_being_renamed = is_selected && state.other_tmux_rename_mode;
+
+                    let session_line = if is_being_renamed {
+                        // Show inline rename input
+                        Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(format!(" {} ", status), Style::default()),
+                            Span::styled("✏️ ", Style::default()),
+                            Span::styled(
+                                format!("{}_", state.other_tmux_rename_buffer),
+                                Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+                            ),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
+                            Span::styled(format!(" {} ", status), Style::default()),
+                            Span::styled(other_session.name.clone(), Style::default().fg(name_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() })),
+                            Span::styled(windows_text, Style::default().fg(MUTED_GRAY)),
+                        ])
+                    };
 
                     items.push(ListItem::new(session_line));
                 }

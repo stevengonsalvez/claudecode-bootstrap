@@ -1839,6 +1839,10 @@ pub struct AppState {
     pub other_tmux_sessions: Vec<crate::models::OtherTmuxSession>,
     pub other_tmux_expanded: bool,
     pub selected_other_tmux_index: Option<usize>,
+    /// Whether we're in rename mode for the selected "Other tmux" session
+    pub other_tmux_rename_mode: bool,
+    /// Buffer for the new name being typed during rename
+    pub other_tmux_rename_buffer: String,
 
     // AINB 2.0: Home screen and agent selection
     pub home_screen_state: HomeScreenState,
@@ -2242,6 +2246,7 @@ pub enum AsyncAction {
     CleanupOrphaned,           // Clean up orphaned containers without worktrees
     AttachToOtherTmux(String), // Attach to a non-agents-in-a-box tmux session by name
     KillOtherTmux(String),     // Kill a non-agents-in-a-box tmux session by name
+    ConfirmOtherTmuxRename,    // Confirm and execute rename for "Other tmux" session
     // Shell session actions (one shell per workspace)
     OpenWorkspaceShell {
         workspace_index: usize,                      // Index of workspace to open shell for
@@ -2309,6 +2314,8 @@ impl Default for AppState {
             other_tmux_sessions: Vec::new(),
             other_tmux_expanded: true, // Default to expanded
             selected_other_tmux_index: None,
+            other_tmux_rename_mode: false,
+            other_tmux_rename_buffer: String::new(),
 
             // AINB 2.0: Home screen and agent selection
             home_screen_state: HomeScreenState::default(),
@@ -3643,6 +3650,82 @@ impl AppState {
     /// Check if the selection is in the "Other tmux" section
     pub fn is_other_tmux_selected(&self) -> bool {
         self.selected_other_tmux_index.is_some() && self.selected_workspace_index.is_none()
+    }
+
+    /// Start rename mode for the selected "Other tmux" session
+    pub fn start_other_tmux_rename(&mut self) {
+        if let Some(session) = self.selected_other_tmux_session() {
+            self.other_tmux_rename_buffer = session.name.clone();
+            self.other_tmux_rename_mode = true;
+        }
+    }
+
+    /// Cancel rename mode
+    pub fn cancel_other_tmux_rename(&mut self) {
+        self.other_tmux_rename_mode = false;
+        self.other_tmux_rename_buffer.clear();
+    }
+
+    /// Add a character to the rename buffer
+    pub fn other_tmux_rename_char(&mut self, c: char) {
+        if self.other_tmux_rename_mode {
+            self.other_tmux_rename_buffer.push(c);
+        }
+    }
+
+    /// Remove a character from the rename buffer
+    pub fn other_tmux_rename_backspace(&mut self) {
+        if self.other_tmux_rename_mode {
+            self.other_tmux_rename_buffer.pop();
+        }
+    }
+
+    /// Execute the rename using tmux rename-session
+    pub async fn confirm_other_tmux_rename(&mut self) -> Result<(), String> {
+        if !self.other_tmux_rename_mode {
+            return Err("Not in rename mode".to_string());
+        }
+
+        let new_name = self.other_tmux_rename_buffer.trim().to_string();
+        if new_name.is_empty() {
+            return Err("Name cannot be empty".to_string());
+        }
+
+        if let Some(idx) = self.selected_other_tmux_index {
+            if let Some(session) = self.other_tmux_sessions.get(idx) {
+                let old_name = session.name.clone();
+
+                // Sanitize new name (tmux compatible)
+                let sanitized_name = new_name
+                    .replace(' ', "_")
+                    .replace('.', "_")
+                    .replace(':', "_");
+
+                // Execute tmux rename-session
+                let output = tokio::process::Command::new("tmux")
+                    .args(["rename-session", "-t", &old_name, &sanitized_name])
+                    .output()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                if output.status.success() {
+                    // Exit rename mode
+                    self.other_tmux_rename_mode = false;
+                    self.other_tmux_rename_buffer.clear();
+
+                    // Reload other tmux sessions to reflect the change
+                    self.load_other_tmux_sessions().await;
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(format!("tmux rename-session failed: {}", stderr))
+                }
+            } else {
+                Err("No session selected".to_string())
+            }
+        } else {
+            Err("No session selected".to_string())
+        }
     }
 
     pub fn toggle_claude_chat(&mut self) {
@@ -6382,6 +6465,19 @@ impl AppState {
                 action @ AsyncAction::KillOtherTmux(_) => {
                     debug!("KillOtherTmux action deferred to main loop");
                     self.pending_async_action = Some(action);
+                }
+                AsyncAction::ConfirmOtherTmuxRename => {
+                    info!("Executing Other tmux rename");
+                    match self.confirm_other_tmux_rename().await {
+                        Ok(()) => {
+                            self.add_success_notification("Session renamed successfully".to_string());
+                            self.ui_needs_refresh = true;
+                        }
+                        Err(e) => {
+                            warn!("Failed to rename session: {}", e);
+                            self.add_error_notification(format!("Rename failed: {}", e));
+                        }
+                    }
                 }
                 action @ AsyncAction::OpenWorkspaceShell { .. } => {
                     debug!("OpenWorkspaceShell action deferred to main loop");
