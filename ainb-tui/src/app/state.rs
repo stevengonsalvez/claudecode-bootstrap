@@ -1927,8 +1927,13 @@ async fn load_workspaces_async() -> anyhow::Result<Vec<Workspace>> {
                         let workspace_path = interactive_session.source_repository.clone();
                         let workspace_name = interactive_session.workspace_name.clone();
 
-                        // Find or create workspace
-                        if let Some(workspace) = workspaces.iter_mut().find(|w| w.path == workspace_path) {
+                        // Find or create workspace using canonicalized path comparison
+                        // This prevents duplicates when paths differ only by normalization
+                        // (e.g., symlinks, ".." components, trailing slashes)
+                        let canonical_workspace_path = workspace_path.canonicalize().ok();
+                        if let Some(workspace) = workspaces.iter_mut().find(|w| {
+                            w.path.canonicalize().ok() == canonical_workspace_path
+                        }) {
                             workspace.add_session(session);
                         } else {
                             let mut workspace = Workspace::new(workspace_name, workspace_path);
