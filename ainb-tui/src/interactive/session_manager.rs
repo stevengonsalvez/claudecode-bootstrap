@@ -222,8 +222,9 @@ impl InteractiveSessionManager {
 
         info!("Created worktree at: {}", worktree_info.path.display());
 
-        // Step 2: Create tmux session name
-        let tmux_session_name = Self::generate_tmux_name(&branch_name);
+        // Step 2: Create tmux session name (format: tmux_{folder}_{branch})
+        let worktree_folder = Self::extract_worktree_folder(&worktree_info.path);
+        let tmux_session_name = Self::generate_tmux_name(&worktree_folder, &branch_name);
 
         // Step 3: Start tmux session
         info!("Starting tmux session: {}", tmux_session_name);
@@ -340,8 +341,9 @@ impl InteractiveSessionManager {
             std::os::unix::fs::symlink(&existing_worktree_path, &session_path).ok();
         }
 
-        // Step 1: Create tmux session name
-        let tmux_session_name = Self::generate_tmux_name(&branch_name);
+        // Step 1: Create tmux session name (format: tmux_{folder}_{branch})
+        let worktree_folder = Self::extract_worktree_folder(&existing_worktree_path);
+        let tmux_session_name = Self::generate_tmux_name(&worktree_folder, &branch_name);
 
         // Step 2: Start tmux session
         info!("Starting tmux session: {}", tmux_session_name);
@@ -494,8 +496,13 @@ impl InteractiveSessionManager {
             .map_err(|e| InteractiveSessionError::InvalidState(format!("Failed to list worktrees: {}", e)))?;
 
         for (session_id, worktree) in worktrees {
-            if worktree.branch_name.contains(&branch_guess) ||
-               Self::generate_tmux_name(&worktree.branch_name) == tmux_name {
+            // Try matching both new format (tmux_{folder}_{branch}) and legacy format (tmux_{branch})
+            let worktree_folder = Self::extract_worktree_folder(&worktree.path);
+            let matches_new_format = Self::generate_tmux_name(&worktree_folder, &worktree.branch_name) == tmux_name;
+            let matches_legacy_format = Self::generate_tmux_name_legacy(&worktree.branch_name) == tmux_name;
+            let matches_branch_guess = worktree.branch_name.contains(&branch_guess);
+
+            if matches_new_format || matches_legacy_format || matches_branch_guess {
 
                 // Extract workspace name from worktree directory name
                 // Worktree naming: <repo-name>--<branch-hash>--<session-id>
@@ -600,9 +607,21 @@ impl InteractiveSessionManager {
             match self.worktree_manager.get_worktree_info(session_id) {
                 Ok(worktree) => {
                     info!("Found worktree with branch: {}", worktree.branch_name);
-                    let tmux_name = Self::generate_tmux_name(&worktree.branch_name);
-                    info!("Generated tmux session name: {}", tmux_name);
-                    tmux_name
+                    let worktree_folder = Self::extract_worktree_folder(&worktree.path);
+                    let tmux_name = Self::generate_tmux_name(&worktree_folder, &worktree.branch_name);
+                    let legacy_name = Self::generate_tmux_name_legacy(&worktree.branch_name);
+                    // Check if new format session exists, otherwise try legacy
+                    let check_new = std::process::Command::new("tmux")
+                        .args(["has-session", "-t", &tmux_name])
+                        .output();
+                    let final_name = if check_new.map(|o| o.status.success()).unwrap_or(false) {
+                        info!("Found tmux session with new format: {}", tmux_name);
+                        tmux_name
+                    } else {
+                        info!("Trying legacy tmux session name: {}", legacy_name);
+                        legacy_name
+                    };
+                    final_name
                 }
                 Err(e) => {
                     // Couldn't find worktree, can't determine tmux session name
@@ -685,16 +704,40 @@ impl InteractiveSessionManager {
 
     // ===== Private Helper Methods =====
 
-    /// Generate a tmux session name from a branch name
+    /// Generate a tmux session name from worktree folder and branch name
     ///
-    /// Sanitizes the branch name to be tmux-compatible
-    fn generate_tmux_name(branch_name: &str) -> String {
+    /// Format: tmux_{folder}_{branch}
+    /// Sanitizes both folder and branch to be tmux-compatible
+    fn generate_tmux_name(worktree_folder: &str, branch_name: &str) -> String {
+        let sanitized_folder = worktree_folder
+            .replace(' ', "_")
+            .replace('.', "_")
+            .replace('/', "_")
+            .replace(':', "_");
+        let sanitized_branch = branch_name
+            .replace(' ', "_")
+            .replace('.', "_")
+            .replace('/', "_")
+            .replace(':', "_");
+        format!("tmux_{}_{}", sanitized_folder, sanitized_branch)
+    }
+
+    /// Generate legacy tmux session name (branch only) for backwards compatibility
+    fn generate_tmux_name_legacy(branch_name: &str) -> String {
         let sanitized = branch_name
             .replace(' ', "_")
             .replace('.', "_")
             .replace('/', "_")
             .replace(':', "_");
         format!("tmux_{}", sanitized)
+    }
+
+    /// Extract folder name from a worktree path
+    fn extract_worktree_folder(path: &Path) -> String {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("session")
+            .to_string()
     }
 
     /// Start a new tmux session
@@ -924,19 +967,62 @@ mod tests {
 
     #[test]
     fn test_generate_tmux_name() {
+        // New format: tmux_{folder}_{branch}
         assert_eq!(
-            InteractiveSessionManager::generate_tmux_name("feature/my-feature"),
+            InteractiveSessionManager::generate_tmux_name("myrepo--abc123", "feature/my-feature"),
+            "tmux_myrepo--abc123_feature_my-feature"
+        );
+
+        assert_eq!(
+            InteractiveSessionManager::generate_tmux_name("project--xyz789", "fix.bug:test"),
+            "tmux_project--xyz789_fix_bug_test"
+        );
+
+        assert_eq!(
+            InteractiveSessionManager::generate_tmux_name("simple-folder", "simple"),
+            "tmux_simple-folder_simple"
+        );
+
+        // Test folder with special chars
+        assert_eq!(
+            InteractiveSessionManager::generate_tmux_name("my.repo/path:foo", "main"),
+            "tmux_my_repo_path_foo_main"
+        );
+    }
+
+    #[test]
+    fn test_generate_tmux_name_legacy() {
+        // Legacy format: tmux_{branch}
+        assert_eq!(
+            InteractiveSessionManager::generate_tmux_name_legacy("feature/my-feature"),
             "tmux_feature_my-feature"
         );
 
         assert_eq!(
-            InteractiveSessionManager::generate_tmux_name("fix.bug:test"),
+            InteractiveSessionManager::generate_tmux_name_legacy("fix.bug:test"),
             "tmux_fix_bug_test"
         );
 
         assert_eq!(
-            InteractiveSessionManager::generate_tmux_name("simple"),
+            InteractiveSessionManager::generate_tmux_name_legacy("simple"),
             "tmux_simple"
+        );
+    }
+
+    #[test]
+    fn test_extract_worktree_folder() {
+        use std::path::PathBuf;
+
+        let path = PathBuf::from("/home/user/worktrees/myrepo--abc123--uuid");
+        assert_eq!(
+            InteractiveSessionManager::extract_worktree_folder(&path),
+            "myrepo--abc123--uuid"
+        );
+
+        let root_path = PathBuf::from("/");
+        assert_eq!(
+            InteractiveSessionManager::extract_worktree_folder(&root_path),
+            "session" // fallback
         );
     }
 
