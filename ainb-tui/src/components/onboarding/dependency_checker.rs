@@ -175,7 +175,7 @@ impl DependencyChecker {
                 install_hint: "brew install reattach-to-user-namespace",
                 is_mandatory: false,
                 category: DependencyCategory::Session,
-                description: "Enables audio/clipboard access in tmux on macOS",
+                description: "Enables say/audio, notifications, keychain in tmux",
             },
             // Toolkit (recommended for full features)
             Dependency {
