@@ -8,6 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [0.5.0] - 2026-01-16
+### Added
+- **audit**: add audit trail for user-initiated mutations
+- **cleanup**: add orphaned tmux shell cleanup to 'x' key
+- **git**: add checkout existing remote branch option
+- **git**: add read-through cache for repository discovery
+- **new-session**: add fuzzy filter and scroll to branch selection
+- **onboarding**: add tmux anti-flicker config and setup check
+- **session**: add session metadata persistence for reliable discovery
+- **tmux**: improve session naming with folder prefix
+- **tui**: add F2 rename for Other tmux sessions
+
+### Fixed
+- **config**: handle boolean defaults for old config files
+- **git**: handle transcrypt smudge filter in checkout existing branch
+- **git**: handle transcrypt/smudge filters in worktree creation
+- **git**: skip branch input step for CheckoutExisting mode
+- **git**: use -B flag for existing branch worktree checkout
+- **session**: wait for shell ready before starting claude in tmux
+- **session-loader**: don't mark orphaned worktrees as Boss sessions
+- **sessions**: use canonicalized path comparison on startup
+- **tmux**: add reattach-to-user-namespace for macOS services
+- **tmux**: enable clipboard integration for shell sessions (#28)
+- **tmux**: enable macOS audio/clipboard access in tmux sessions (#26)
+- **tui**: auto-select newly created sessions to prevent list clipping
+- **ui**: make branch checkout mode toggle more prominent
+
+### Documentation
+- **deps**: clarify reattach-to-user-namespace description
+- **tmux**: add clipboard integration config and setup guide
+
+### Other
+- **homebrew**: update formula to v0.4.0
+- **release**: bump version to 0.5.0
+- **audit**: simplify to use standard tracing log
+
+
+## [0.5.0] - 2026-01-16
 
 ### Added
 - **cleanup**: Add orphaned tmux shell cleanup to 'x' key (ainb-ws-*, ainb-shell-*)
