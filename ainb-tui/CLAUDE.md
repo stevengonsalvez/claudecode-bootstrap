@@ -162,6 +162,12 @@ The config enables clipboard integration for macOS. After installing:
 - **Kitty/Ghostty**: Works out of the box with OSC 52
 - **Warp**: Limited tmux support - use iTerm2/Kitty for tmux work
 
+**macOS audio/notifications in tmux** (for `say` command, etc.):
+```bash
+brew install reattach-to-user-namespace
+```
+The config auto-detects and uses it if installed.
+
 ## Configuration
 
 Configuration files are loaded from (in order of precedence):
