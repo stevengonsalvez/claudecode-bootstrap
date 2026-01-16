@@ -39,46 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **tmux**: add clipboard integration config and setup guide
 
 ### Other
-- **homebrew**: update formula to v0.4.0
-- **release**: bump version to 0.5.0
 - **audit**: simplify to use standard tracing log
-
-
-## [0.5.0] - 2026-01-16
-
-### Added
-- **cleanup**: Add orphaned tmux shell cleanup to 'x' key (ainb-ws-*, ainb-shell-*)
-- **tui**: Add F2 rename for Other tmux sessions
-- **tmux**: Improve session naming with folder prefix (tmux_{folder}_{branch})
-- **git**: Add checkout existing remote branch option
-- **audit**: Add audit trail for user-initiated mutations
-- **session**: Add session metadata persistence for reliable discovery
-- **git**: Add read-through cache for repository discovery
-- **onboarding**: Add tmux anti-flicker config and setup check
-- **new-session**: Add fuzzy filter and scroll to branch selection
-- **tmux**: Add clipboard integration config (OSC 52, vi-mode, prefix+P paste)
-
-### Fixed
-- **sessions**: Use canonicalized path comparison on startup
-- **git**: Handle transcrypt smudge filter in checkout existing branch
-- **git**: Use -B flag for existing branch worktree checkout
-- **git**: Skip branch input step for CheckoutExisting mode
-- **ui**: Make branch checkout mode toggle more prominent
-- **git**: Handle transcrypt/smudge filters in worktree creation
-- **config**: Handle boolean defaults for old config files
-- **tmux**: Enable macOS audio/clipboard access in tmux sessions (#26)
-- **session**: Wait for shell ready before starting claude in tmux
-- **session-loader**: Don't mark orphaned worktrees as Boss sessions
-- **tui**: Auto-select newly created sessions to prevent list clipping
-- **tmux**: Enable clipboard integration for shell sessions (#28)
-- **tmux**: Add reattach-to-user-namespace for macOS services (say, audio, notifications)
-
-### Documentation
-- **tmux**: Add clipboard integration config and setup guide
-- **deps**: Clarify reattach-to-user-namespace description
-
-### Other
-- **audit**: Simplify to use standard tracing log
 
 ## [0.4.0] - 2026-01-11
 ### Fixed
