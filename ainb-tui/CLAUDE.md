@@ -142,7 +142,25 @@ cp config/tmux.conf ~/.tmux.conf
 tmux source-file ~/.tmux.conf
 ```
 
-Key settings: `escape-time 0`, `status-interval 30`, `automatic-rename off`
+**Key settings:**
+- Anti-flicker: `escape-time 0`, `status-interval 30`, `automatic-rename off`
+- Clipboard: `set-clipboard on`, mouse drag → pbcopy, `prefix + P` to paste
+
+### Clipboard Setup
+
+The config enables clipboard integration for macOS. After installing:
+
+| Action | How |
+|--------|-----|
+| Copy (mouse) | Drag to select, release → clipboard |
+| Copy (keyboard) | `prefix + [`, select with `v`, press `y` |
+| Paste | `prefix + P` (Shift+P) or `Cmd+V` |
+
+**Terminal-specific setup:**
+
+- **iTerm2**: Enable Preferences → General → "Applications in terminal may access clipboard"
+- **Kitty/Ghostty**: Works out of the box with OSC 52
+- **Warp**: Limited tmux support - use iTerm2/Kitty for tmux work
 
 ## Configuration
 
