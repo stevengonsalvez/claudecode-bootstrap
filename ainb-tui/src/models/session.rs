@@ -62,8 +62,8 @@ impl SessionAgentType {
 
     pub fn is_available(&self) -> bool {
         match self {
-            SessionAgentType::Claude | SessionAgentType::Shell => true,
-            SessionAgentType::Codex | SessionAgentType::Gemini | SessionAgentType::Kiro => false,
+            SessionAgentType::Claude | SessionAgentType::Shell | SessionAgentType::Codex | SessionAgentType::Gemini => true,
+            SessionAgentType::Kiro => false,
         }
     }
 }

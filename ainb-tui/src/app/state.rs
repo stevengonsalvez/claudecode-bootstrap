@@ -658,7 +658,7 @@ impl AgentProvider {
                 AgentModel::new("GPT-5.2-Codex", "Latest Codex model", CostTier::High, true),
                 AgentModel::new("o3-mini", "Reasoning focused", CostTier::Medium, false),
             ],
-            status: ProviderStatus::ComingSoon,
+            status: ProviderStatus::Available,
         }
     }
 
@@ -669,7 +669,7 @@ impl AgentProvider {
             models: vec![
                 AgentModel::new("Gemini 2.0 Pro", "1M context window", CostTier::High, true),
             ],
-            status: ProviderStatus::ComingSoon,
+            status: ProviderStatus::Available,
         }
     }
 
