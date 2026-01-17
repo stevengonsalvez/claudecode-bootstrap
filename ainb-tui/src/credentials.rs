@@ -9,6 +9,8 @@ const SERVICE_NAME: &str = "agents-in-a-box";
 /// Credential keys for different secrets
 pub enum CredentialKey {
     AnthropicApiKey,
+    OpenAiApiKey,
+    GeminiApiKey,
     GithubPat,
 }
 
@@ -16,6 +18,8 @@ impl CredentialKey {
     fn as_str(&self) -> &'static str {
         match self {
             CredentialKey::AnthropicApiKey => "anthropic_api_key",
+            CredentialKey::OpenAiApiKey => "openai_api_key",
+            CredentialKey::GeminiApiKey => "gemini_api_key",
             CredentialKey::GithubPat => "github_pat",
         }
     }
@@ -114,6 +118,92 @@ pub fn get_anthropic_api_key_masked() -> String {
         Ok(Some(key)) => {
             if key.len() > 12 {
                 format!("{}••••••••", &key[..12])
+            } else {
+                "••••••••".to_string()
+            }
+        }
+        _ => "Not configured".to_string(),
+    }
+}
+
+// =============================================================================
+// OpenAI API Key Functions
+// =============================================================================
+
+/// Store OpenAI API key
+pub fn store_openai_api_key(api_key: &str) -> Result<()> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("API key cannot be empty"));
+    }
+    if !api_key.starts_with("sk-") {
+        tracing::warn!("API key doesn't start with 'sk-' - may be invalid");
+    }
+    store_credential(CredentialKey::OpenAiApiKey, api_key)
+}
+
+/// Get OpenAI API key
+pub fn get_openai_api_key() -> Result<Option<String>> {
+    get_credential(CredentialKey::OpenAiApiKey)
+}
+
+/// Check if OpenAI API key is configured
+pub fn has_openai_api_key() -> bool {
+    has_credential(CredentialKey::OpenAiApiKey)
+}
+
+/// Delete OpenAI API key
+pub fn delete_openai_api_key() -> Result<()> {
+    delete_credential(CredentialKey::OpenAiApiKey)
+}
+
+/// Get masked display of OpenAI API key (for UI)
+pub fn get_openai_api_key_masked() -> String {
+    match get_openai_api_key() {
+        Ok(Some(key)) => {
+            if key.len() > 8 {
+                format!("{}••••••••", &key[..8])
+            } else {
+                "••••••••".to_string()
+            }
+        }
+        _ => "Not configured".to_string(),
+    }
+}
+
+// =============================================================================
+// Gemini API Key Functions
+// =============================================================================
+
+/// Store Gemini API key
+pub fn store_gemini_api_key(api_key: &str) -> Result<()> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("API key cannot be empty"));
+    }
+    // Gemini keys don't have a strict prefix requirement
+    store_credential(CredentialKey::GeminiApiKey, api_key)
+}
+
+/// Get Gemini API key
+pub fn get_gemini_api_key() -> Result<Option<String>> {
+    get_credential(CredentialKey::GeminiApiKey)
+}
+
+/// Check if Gemini API key is configured
+pub fn has_gemini_api_key() -> bool {
+    has_credential(CredentialKey::GeminiApiKey)
+}
+
+/// Delete Gemini API key
+pub fn delete_gemini_api_key() -> Result<()> {
+    delete_credential(CredentialKey::GeminiApiKey)
+}
+
+/// Get masked display of Gemini API key (for UI)
+pub fn get_gemini_api_key_masked() -> String {
+    match get_gemini_api_key() {
+        Ok(Some(key)) => {
+            if key.len() > 8 {
+                format!("{}••••••••", &key[..8])
             } else {
                 "••••••••".to_string()
             }

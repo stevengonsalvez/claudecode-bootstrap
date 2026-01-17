@@ -6,20 +6,36 @@
 
 set -euo pipefail
 
-# Function: Wait for Claude Code to be ready for input
-# Usage: wait_for_claude_ready <session_name>
+# Function: Wait for CLI to be ready for input
+# Usage: wait_for_cli_ready <session_name> [cli_provider] [timeout]
+# cli_provider: claude (default) | codex | gemini
 # Returns: 0 on success, 1 on timeout
-wait_for_claude_ready() {
+wait_for_cli_ready() {
     local SESSION=$1
-    local TIMEOUT=${2:-30}  # Optional timeout parameter, default 30s
+    local CLI_PROVIDER="${2:-claude}"
+    local TIMEOUT=${3:-30}
     local START=$(date +%s)
+
+    # Provider-specific ready patterns
+    local READY_PATTERN
+    case "$CLI_PROVIDER" in
+        codex)
+            READY_PATTERN="Codex|Ready|Working|>|\\$"
+            ;;
+        gemini)
+            READY_PATTERN="Gemini|Ready|>|\\$"
+            ;;
+        *)
+            READY_PATTERN="Claude Code|Welcome back|──────|Style:|bypass permissions"
+            ;;
+    esac
 
     while true; do
         # Capture pane output (suppress errors if session not ready)
         PANE_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || echo "")
 
-        # Check for Claude prompt/splash (any of these indicates readiness)
-        if echo "$PANE_OUTPUT" | grep -qE "Claude Code|Welcome back|──────|Style:|bypass permissions"; then
+        # Check for CLI prompt/splash
+        if echo "$PANE_OUTPUT" | grep -qE "$READY_PATTERN"; then
             # Verify not in error state
             if ! echo "$PANE_OUTPUT" | grep -qiE "error|crash|failed|command not found"; then
                 return 0
@@ -38,14 +54,39 @@ wait_for_claude_ready() {
     done
 }
 
-# Function: Spawn a Claude agent in tmux
-# Usage: spawn_agent_tmux <session_name> <work_dir> <task> [agent_type]
+# Backwards compatibility alias
+wait_for_claude_ready() {
+    wait_for_cli_ready "$1" "claude" "${2:-30}"
+}
+
+# Function: Spawn a CLI agent in tmux
+# Usage: spawn_agent_tmux <session_name> <work_dir> <task> [agent_type] [cli_provider]
+# cli_provider: claude (default) | codex | gemini
 # Returns: 0 on success, 1 on failure
 spawn_agent_tmux() {
     local SESSION="$1"
     local WORK_DIR="$2"
     local TASK="$3"
     local AGENT_TYPE="${4:-general-purpose}"  # Optional agent type
+    local CLI_PROVIDER="${5:-claude}"  # Optional CLI provider
+
+    # Determine CLI command based on provider
+    local CLI_CMD
+    local CLI_FLAGS
+    case "$CLI_PROVIDER" in
+        codex)
+            CLI_CMD="codex"
+            CLI_FLAGS="--full-auto"
+            ;;
+        gemini)
+            CLI_CMD="gemini"
+            CLI_FLAGS=""
+            ;;
+        *)
+            CLI_CMD="claude"
+            CLI_FLAGS="--dangerously-skip-permissions"
+            ;;
+    esac
 
     # Create tmux session
     tmux new-session -d -s "$SESSION" -c "$WORK_DIR" || return 1
@@ -55,11 +96,15 @@ spawn_agent_tmux() {
         return 1
     fi
 
-    # Start Claude Code in the session
-    tmux send-keys -t "$SESSION" "claude --dangerously-skip-permissions" C-m
+    # Start CLI in the session
+    if [ -n "$CLI_FLAGS" ]; then
+        tmux send-keys -t "$SESSION" "$CLI_CMD $CLI_FLAGS" C-m
+    else
+        tmux send-keys -t "$SESSION" "$CLI_CMD" C-m
+    fi
 
-    # Wait for Claude to be ready
-    if ! wait_for_claude_ready "$SESSION" 30; then
+    # Wait for CLI to be ready
+    if ! wait_for_cli_ready "$SESSION" "$CLI_PROVIDER" 30; then
         # Cleanup on failure
         tmux kill-session -t "$SESSION" 2>/dev/null || true
         return 1
@@ -72,21 +117,18 @@ spawn_agent_tmux() {
     tmux send-keys -t "$SESSION" -l "$TASK"
     tmux send-keys -t "$SESSION" C-m
 
-    # Small delay for Claude to start processing
+    # Small delay for CLI to start processing
     sleep 1
 
-    # Verify task was received
+    # Verify task was received (provider-agnostic check)
     local CURRENT_OUTPUT=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || echo "")
-    if echo "$CURRENT_OUTPUT" | grep -qE "Thought for|Forming|Creating|Implement|⏳|✽|∴"; then
-        # Task received and processing
-        return 0
-    elif echo "$CURRENT_OUTPUT" | grep -qE "error|failed|crash"; then
+    if echo "$CURRENT_OUTPUT" | grep -qiE "error|failed|crash|command not found"; then
         # Error detected
         return 1
-    else
-        # Unable to confirm but likely ok (agent may still be starting)
-        return 0
     fi
+
+    # Task likely received (different CLIs have different processing indicators)
+    return 0
 }
 
 # Function: Send additional message to running agent

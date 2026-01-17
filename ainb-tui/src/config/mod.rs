@@ -71,10 +71,72 @@ impl ClaudeAuthProvider {
     }
 }
 
+/// CLI provider for agent sessions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CliProvider {
+    /// Claude Code CLI (default)
+    #[default]
+    Claude,
+    /// OpenAI Codex CLI
+    Codex,
+    /// Google Gemini CLI
+    Gemini,
+}
+
+impl CliProvider {
+    /// Get the CLI command to run
+    pub fn command(&self) -> &'static str {
+        match self {
+            CliProvider::Claude => "claude",
+            CliProvider::Codex => "codex",
+            CliProvider::Gemini => "gemini",
+        }
+    }
+
+    /// Get the environment variable name for API key
+    pub fn api_key_env_var(&self) -> &'static str {
+        match self {
+            CliProvider::Claude => "ANTHROPIC_API_KEY",
+            CliProvider::Codex => "OPENAI_API_KEY",
+            CliProvider::Gemini => "GEMINI_API_KEY",
+        }
+    }
+
+    /// Get display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            CliProvider::Claude => "Claude Code",
+            CliProvider::Codex => "OpenAI Codex",
+            CliProvider::Gemini => "Google Gemini",
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CliProvider::Claude => "claude",
+            CliProvider::Codex => "codex",
+            CliProvider::Gemini => "gemini",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "codex" | "openai" => CliProvider::Codex,
+            "gemini" | "google" => CliProvider::Gemini,
+            _ => CliProvider::Claude,
+        }
+    }
+}
+
 /// Authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthenticationConfig {
-    /// Claude authentication provider
+    /// Active CLI provider for agent sessions
+    #[serde(default)]
+    pub cli_provider: CliProvider,
+
+    /// Claude authentication provider (for Claude-specific auth methods)
     #[serde(default)]
     pub claude_provider: ClaudeAuthProvider,
 
@@ -332,6 +394,7 @@ impl AppConfig {
         // Don't override version
 
         // Merge authentication config
+        self.authentication.cli_provider = other.authentication.cli_provider;
         self.authentication.claude_provider = other.authentication.claude_provider;
         if other.authentication.default_model != default_claude_model() {
             self.authentication.default_model = other.authentication.default_model;
@@ -443,7 +506,13 @@ impl Default for AppConfig {
 pub fn load_from_env() -> HashMap<String, String> {
     std::env::vars()
         .filter(|(k, _)| {
-            k.starts_with("AGENTS_BOX_") || k.starts_with("CLAUDE_") || k.starts_with("ANTHROPIC_")
+            k.starts_with("AGENTS_BOX_")
+                || k.starts_with("CLAUDE_")
+                || k.starts_with("ANTHROPIC_")
+                || k.starts_with("OPENAI_")
+                || k.starts_with("CODEX_")
+                || k.starts_with("GEMINI_")
+                || k.starts_with("GOOGLE_API_")
         })
         .collect()
 }
