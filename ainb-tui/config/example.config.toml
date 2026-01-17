@@ -13,17 +13,32 @@ version = "0.1.0"
 # Authentication
 # =============================================================================
 [authentication]
-# Claude authentication provider
+# Active CLI provider for agent sessions
+# Options: "claude" | "codex" | "gemini"
+cli_provider = "claude"
+
+# Claude-specific authentication provider
 # Options: "system_auth" | "api_key" | "amazon_bedrock" | "google_vertex"
 #          | "azure_foundry" | "glm_zai" | "llm_gateway"
 claude_provider = "system_auth"
 
-# Default Claude model to use
+# Default Claude model to use (only applies when cli_provider = "claude")
 # Options: "opus" | "sonnet" | "haiku"
 default_model = "sonnet"
 
 # GitHub authentication method (reserved for future use)
 # github_method = "oauth"
+
+# -----------------------------------------------------------------------------
+# API Keys
+# -----------------------------------------------------------------------------
+# API keys are stored securely in your system keychain, not in this file.
+# Use the TUI auth setup (press 'a' on home screen) to configure keys.
+#
+# Environment variables (for CI/automation):
+#   - Claude:  ANTHROPIC_API_KEY
+#   - Codex:   OPENAI_API_KEY
+#   - Gemini:  GEMINI_API_KEY
 
 # =============================================================================
 # Docker

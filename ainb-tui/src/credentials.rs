@@ -7,8 +7,11 @@ use keyring::Entry;
 const SERVICE_NAME: &str = "agents-in-a-box";
 
 /// Credential keys for different secrets
+#[derive(Clone, Copy)]
 pub enum CredentialKey {
     AnthropicApiKey,
+    OpenAiApiKey,
+    GeminiApiKey,
     GithubPat,
 }
 
@@ -16,7 +19,39 @@ impl CredentialKey {
     fn as_str(&self) -> &'static str {
         match self {
             CredentialKey::AnthropicApiKey => "anthropic_api_key",
+            CredentialKey::OpenAiApiKey => "openai_api_key",
+            CredentialKey::GeminiApiKey => "gemini_api_key",
             CredentialKey::GithubPat => "github_pat",
+        }
+    }
+
+    /// Returns the expected prefix for API key validation, if any
+    fn expected_prefix(&self) -> Option<&'static str> {
+        match self {
+            CredentialKey::AnthropicApiKey => Some("sk-ant-"),
+            CredentialKey::OpenAiApiKey => Some("sk-"),
+            CredentialKey::GeminiApiKey => None, // Gemini keys don't have a strict prefix
+            CredentialKey::GithubPat => Some("ghp_"),
+        }
+    }
+
+    /// Returns the number of characters to show in masked display
+    fn mask_visible_chars(&self) -> usize {
+        match self {
+            CredentialKey::AnthropicApiKey => 12, // Show "sk-ant-xxxxx"
+            CredentialKey::OpenAiApiKey => 8,     // Show "sk-xxxxx"
+            CredentialKey::GeminiApiKey => 8,
+            CredentialKey::GithubPat => 8,
+        }
+    }
+
+    /// Returns a human-readable name for the credential
+    fn display_name(&self) -> &'static str {
+        match self {
+            CredentialKey::AnthropicApiKey => "Anthropic API key",
+            CredentialKey::OpenAiApiKey => "OpenAI API key",
+            CredentialKey::GeminiApiKey => "Gemini API key",
+            CredentialKey::GithubPat => "GitHub PAT",
         }
     }
 }
@@ -80,46 +115,114 @@ pub fn has_credential(key: CredentialKey) -> bool {
     get_credential(key).map(|opt| opt.is_some()).unwrap_or(false)
 }
 
-/// Store Anthropic API key
-pub fn store_anthropic_api_key(api_key: &str) -> Result<()> {
-    // Basic validation
+// =============================================================================
+// Generic API Key Helpers
+// =============================================================================
+
+/// Store an API key with validation based on credential type
+fn store_api_key(key: CredentialKey, api_key: &str) -> Result<()> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("API key cannot be empty"));
     }
-    if !api_key.starts_with("sk-ant-") {
-        tracing::warn!("API key doesn't start with 'sk-ant-' - may be invalid");
+
+    if let Some(prefix) = key.expected_prefix() {
+        if !api_key.starts_with(prefix) {
+            tracing::warn!(
+                "{} doesn't start with '{}' - may be invalid",
+                key.display_name(),
+                prefix
+            );
+        }
     }
 
-    store_credential(CredentialKey::AnthropicApiKey, api_key)
+    store_credential(key, api_key)
 }
 
-/// Get Anthropic API key
-pub fn get_anthropic_api_key() -> Result<Option<String>> {
-    get_credential(CredentialKey::AnthropicApiKey)
-}
-
-/// Check if Anthropic API key is configured
-pub fn has_anthropic_api_key() -> bool {
-    has_credential(CredentialKey::AnthropicApiKey)
-}
-
-/// Delete Anthropic API key
-pub fn delete_anthropic_api_key() -> Result<()> {
-    delete_credential(CredentialKey::AnthropicApiKey)
-}
-
-/// Get masked display of API key (for UI)
-pub fn get_anthropic_api_key_masked() -> String {
-    match get_anthropic_api_key() {
-        Ok(Some(key)) => {
-            if key.len() > 12 {
-                format!("{}••••••••", &key[..12])
+/// Get masked display of an API key (for UI)
+fn get_api_key_masked(key: CredentialKey) -> String {
+    match get_credential(key) {
+        Ok(Some(value)) => {
+            let visible = key.mask_visible_chars();
+            if value.len() > visible {
+                format!("{}••••••••", &value[..visible])
             } else {
                 "••••••••".to_string()
             }
         }
         _ => "Not configured".to_string(),
     }
+}
+
+// =============================================================================
+// Anthropic API Key (convenience wrappers)
+// =============================================================================
+
+pub fn store_anthropic_api_key(api_key: &str) -> Result<()> {
+    store_api_key(CredentialKey::AnthropicApiKey, api_key)
+}
+
+pub fn get_anthropic_api_key() -> Result<Option<String>> {
+    get_credential(CredentialKey::AnthropicApiKey)
+}
+
+pub fn has_anthropic_api_key() -> bool {
+    has_credential(CredentialKey::AnthropicApiKey)
+}
+
+pub fn delete_anthropic_api_key() -> Result<()> {
+    delete_credential(CredentialKey::AnthropicApiKey)
+}
+
+pub fn get_anthropic_api_key_masked() -> String {
+    get_api_key_masked(CredentialKey::AnthropicApiKey)
+}
+
+// =============================================================================
+// OpenAI API Key (convenience wrappers)
+// =============================================================================
+
+pub fn store_openai_api_key(api_key: &str) -> Result<()> {
+    store_api_key(CredentialKey::OpenAiApiKey, api_key)
+}
+
+pub fn get_openai_api_key() -> Result<Option<String>> {
+    get_credential(CredentialKey::OpenAiApiKey)
+}
+
+pub fn has_openai_api_key() -> bool {
+    has_credential(CredentialKey::OpenAiApiKey)
+}
+
+pub fn delete_openai_api_key() -> Result<()> {
+    delete_credential(CredentialKey::OpenAiApiKey)
+}
+
+pub fn get_openai_api_key_masked() -> String {
+    get_api_key_masked(CredentialKey::OpenAiApiKey)
+}
+
+// =============================================================================
+// Gemini API Key (convenience wrappers)
+// =============================================================================
+
+pub fn store_gemini_api_key(api_key: &str) -> Result<()> {
+    store_api_key(CredentialKey::GeminiApiKey, api_key)
+}
+
+pub fn get_gemini_api_key() -> Result<Option<String>> {
+    get_credential(CredentialKey::GeminiApiKey)
+}
+
+pub fn has_gemini_api_key() -> bool {
+    has_credential(CredentialKey::GeminiApiKey)
+}
+
+pub fn delete_gemini_api_key() -> Result<()> {
+    delete_credential(CredentialKey::GeminiApiKey)
+}
+
+pub fn get_gemini_api_key_masked() -> String {
+    get_api_key_masked(CredentialKey::GeminiApiKey)
 }
 
 #[cfg(test)]
