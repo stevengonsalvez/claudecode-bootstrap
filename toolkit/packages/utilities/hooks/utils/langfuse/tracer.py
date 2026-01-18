@@ -10,11 +10,21 @@ This module provides a tracer that:
 """
 
 import os
+import sys
 import json
 import hashlib
 import logging
-import fcntl
 from pathlib import Path
+
+# Platform-specific file locking
+# fcntl is Unix-only; on Windows we fall back to no-op locking
+HAS_FCNTL = False
+if sys.platform != 'win32':
+    try:
+        import fcntl
+        HAS_FCNTL = True
+    except ImportError:
+        pass
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple, List
 
@@ -25,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 # Try to import Langfuse SDK
 HAS_LANGFUSE = False
-_langfuse_client = None
 
 config = get_config()
 if config.is_available():
@@ -113,7 +122,14 @@ class SessionRegistry:
         return self._locks_dir / f"{name}.lock"
 
     def _acquire_lock(self, name: str) -> int:
-        """Acquire exclusive lock, returns file descriptor."""
+        """
+        Acquire exclusive lock, returns file descriptor.
+
+        On Windows or if fcntl is not available, returns -1 (no-op).
+        """
+        if not HAS_FCNTL:
+            return -1
+
         lock_file = self._get_lock_file(name)
         fd = os.open(str(lock_file), os.O_RDWR | os.O_CREAT)
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -121,11 +137,14 @@ class SessionRegistry:
 
     def _release_lock(self, fd: int) -> None:
         """Release lock and close file descriptor."""
+        if fd < 0:
+            return  # No-op lock (Windows or fcntl unavailable)
+
         try:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to release lock or close fd {fd}: {e}")
 
     def _load_json(self, path: Path) -> Dict[str, Any]:
         """Load JSON file, return empty dict on failure."""

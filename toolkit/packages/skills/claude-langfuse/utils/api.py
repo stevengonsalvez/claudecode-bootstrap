@@ -7,10 +7,14 @@ Provides a simple interface to query Langfuse traces and observations.
 
 import os
 import json
+import logging
 import requests
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class LangfuseClient:
@@ -84,8 +88,8 @@ class LangfuseClient:
                 if session.get('status') == 'active':
                     return session.get('session_id')
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to get current session ID: {e}")
 
         return None
 
@@ -103,8 +107,8 @@ class LangfuseClient:
                 with open(session_file, 'r') as f:
                     session = json.load(f)
                 return session.get('trace_id')
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to get trace ID from session file: {e}")
 
         return None
 

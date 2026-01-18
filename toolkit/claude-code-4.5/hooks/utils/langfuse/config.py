@@ -7,8 +7,12 @@ the Langfuse SDK, ensuring zero overhead when not configured.
 
 import os
 import re
+import logging
 from pathlib import Path
 from typing import Optional
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 def _load_secrets_file():
@@ -41,8 +45,9 @@ def _load_secrets_file():
             value = value.strip()
             if not os.getenv(key):  # Don't override existing env vars
                 os.environ[key] = value
-    except Exception:
-        pass  # Fail silently - secrets file is optional
+    except Exception as e:
+        # Log at debug level - secrets file is optional, so this is not an error
+        logger.debug(f"Failed to load secrets from ~/.secrets: {e}")
 
 
 # Load secrets on module import
