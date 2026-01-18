@@ -655,8 +655,9 @@ impl AgentProvider {
             name: "Codex CLI".to_string(),
             vendor: "OpenAI".to_string(),
             models: vec![
-                AgentModel::new("GPT-5.2-Codex", "Latest Codex model", CostTier::High, true),
-                AgentModel::new("o3-mini", "Reasoning focused", CostTier::Medium, false),
+                AgentModel::new("o3", "Most powerful reasoning model", CostTier::Premium, false),
+                AgentModel::new("o4-mini", "Fast reasoning, math & coding", CostTier::High, false),
+                AgentModel::new("codex-mini", "Default CLI model, low-latency", CostTier::Medium, true),
             ],
             status: ProviderStatus::Available,
         }
@@ -667,7 +668,9 @@ impl AgentProvider {
             name: "Gemini CLI".to_string(),
             vendor: "Google".to_string(),
             models: vec![
-                AgentModel::new("Gemini 2.0 Pro", "1M context window", CostTier::High, true),
+                AgentModel::new("gemini-2.5-pro", "1M context, adaptive thinking", CostTier::High, true),
+                AgentModel::new("gemini-2.5-flash", "Fast multimodal model", CostTier::Medium, false),
+                AgentModel::new("gemini-2.5-flash-lite", "Ultra-efficient, low cost", CostTier::Low, false),
             ],
             status: ProviderStatus::Available,
         }
