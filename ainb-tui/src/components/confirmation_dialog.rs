@@ -15,9 +15,6 @@ impl ConfirmationDialogComponent {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         if let Some(dialog) = &state.confirmation_dialog {
-            // Clear the area first
-            frame.render_widget(Clear, area);
-
             // Calculate dialog size (center it)
             let dialog_width = 60.min(area.width - 4);
             let dialog_height = 8;
@@ -28,6 +25,10 @@ impl ConfirmationDialogComponent {
                 width: dialog_width,
                 height: dialog_height,
             };
+
+            // Clear ONLY the dialog area, not the entire screen
+            // This prevents ghost/duplicate UI elements from appearing
+            frame.render_widget(Clear, dialog_area);
 
             // Render dialog background
             let block = Block::default()

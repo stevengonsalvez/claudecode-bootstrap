@@ -498,7 +498,12 @@ async fn run_tui_loop(
                         _ => {}
                     }
                 }
-                Event::Resize(_, _) => {}
+                Event::Resize(_, _) => {
+                    // Clear terminal buffer on resize to prevent ghost/duplicate UI elements
+                    // The old frame buffer contains data for the previous terminal size,
+                    // which can cause stale content to appear without this clear
+                    terminal.clear()?;
+                }
                 Event::FocusGained => {}
                 Event::FocusLost => {}
                 Event::Paste(_) => {}
