@@ -655,9 +655,10 @@ impl AgentProvider {
             name: "Codex CLI".to_string(),
             vendor: "OpenAI".to_string(),
             models: vec![
-                AgentModel::new("o3", "Most powerful reasoning model", CostTier::Premium, false),
-                AgentModel::new("o4-mini", "Fast reasoning, math & coding", CostTier::High, false),
-                AgentModel::new("codex-mini", "Default CLI model, low-latency", CostTier::Medium, true),
+                AgentModel::new("gpt-5.2-codex", "Latest frontier agentic coding model", CostTier::Premium, true),
+                AgentModel::new("gpt-5.1-codex-max", "Deep and fast reasoning flagship", CostTier::High, false),
+                AgentModel::new("gpt-5.1-codex-mini", "Cheaper, faster, less capable", CostTier::Medium, false),
+                AgentModel::new("gpt-5.2", "Frontier model, reasoning & coding", CostTier::Premium, false),
             ],
             status: ProviderStatus::Available,
         }
