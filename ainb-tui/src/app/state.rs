@@ -668,6 +668,8 @@ impl AgentProvider {
             name: "Gemini CLI".to_string(),
             vendor: "Google".to_string(),
             models: vec![
+                AgentModel::new("gemini-3-pro", "Latest reasoning model (preview)", CostTier::Premium, false),
+                AgentModel::new("gemini-3-flash", "Fast agentic model (preview)", CostTier::High, false),
                 AgentModel::new("gemini-2.5-pro", "1M context, adaptive thinking", CostTier::High, true),
                 AgentModel::new("gemini-2.5-flash", "Fast multimodal model", CostTier::Medium, false),
                 AgentModel::new("gemini-2.5-flash-lite", "Ultra-efficient, low cost", CostTier::Low, false),
