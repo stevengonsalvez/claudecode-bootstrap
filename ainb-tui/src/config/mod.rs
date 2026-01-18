@@ -127,6 +127,15 @@ impl CliProvider {
             _ => CliProvider::Claude,
         }
     }
+
+    /// Get the flag to skip permission prompts for this CLI
+    pub fn skip_permissions_flag(&self) -> &'static str {
+        match self {
+            CliProvider::Claude => "--dangerously-skip-permissions",
+            CliProvider::Codex => "--dangerously-bypass-approvals-and-sandbox",
+            CliProvider::Gemini => "-y",
+        }
+    }
 }
 
 /// Authentication configuration

@@ -230,12 +230,15 @@ impl InteractiveSessionManager {
         info!("Starting tmux session: {}", tmux_session_name);
         self.start_tmux_session(&tmux_session_name, &worktree_info.path).await?;
 
-        // Step 4: Start claude CLI in tmux session (only for Claude agent)
-        if agent_type == SessionAgentType::Claude {
-            info!("Starting claude CLI in tmux session (model={:?}, skip_permissions={})", model, skip_permissions);
-            self.start_claude_in_tmux(&tmux_session_name, skip_permissions, model).await?;
-        } else {
-            info!("Skipping claude CLI for agent type: {:?}", agent_type);
+        // Step 4: Start CLI in tmux session (for AI agent types)
+        match agent_type {
+            SessionAgentType::Claude | SessionAgentType::Codex | SessionAgentType::Gemini => {
+                info!("Starting {:?} CLI in tmux session (model={:?}, skip_permissions={})", agent_type, model, skip_permissions);
+                self.start_cli_in_tmux(&tmux_session_name, skip_permissions, model, agent_type).await?;
+            }
+            _ => {
+                info!("Skipping CLI for agent type: {:?}", agent_type);
+            }
         }
 
         // Step 5: Create session record
@@ -349,12 +352,15 @@ impl InteractiveSessionManager {
         info!("Starting tmux session: {}", tmux_session_name);
         self.start_tmux_session(&tmux_session_name, &existing_worktree_path).await?;
 
-        // Step 3: Start claude CLI in tmux session (only for Claude agent)
-        if agent_type == SessionAgentType::Claude {
-            info!("Starting claude CLI in tmux session (model={:?}, skip_permissions={})", model, skip_permissions);
-            self.start_claude_in_tmux(&tmux_session_name, skip_permissions, model).await?;
-        } else {
-            info!("Skipping claude CLI for agent type: {:?}", agent_type);
+        // Step 3: Start CLI in tmux session (for AI agent types)
+        match agent_type {
+            SessionAgentType::Claude | SessionAgentType::Codex | SessionAgentType::Gemini => {
+                info!("Starting {:?} CLI in tmux session (model={:?}, skip_permissions={})", agent_type, model, skip_permissions);
+                self.start_cli_in_tmux(&tmux_session_name, skip_permissions, model, agent_type).await?;
+            }
+            _ => {
+                info!("Skipping CLI for agent type: {:?}", agent_type);
+            }
         }
 
         // Step 4: Create session record
@@ -856,40 +862,54 @@ impl InteractiveSessionManager {
         Ok(())
     }
 
-    /// Start claude CLI in the tmux session
-    async fn start_claude_in_tmux(
+    /// Start AI CLI in the tmux session (Claude, Codex, or Gemini)
+    async fn start_cli_in_tmux(
         &self,
         session_name: &str,
         skip_permissions: bool,
         model: Option<ClaudeModel>,
+        agent_type: SessionAgentType,
     ) -> Result<(), InteractiveSessionError> {
+        use crate::config::CliProvider;
+
         // Wait for shell to be ready before sending command
         // This prevents the race condition where send-keys fires before shell initializes
         self.wait_for_shell_ready(session_name).await?;
 
         // Build environment setup for API key injection
-        let env_setup = Self::build_env_setup();
+        let env_setup = Self::build_env_setup_for_provider(agent_type);
 
-        // Build the claude command with appropriate flags
-        let mut cmd_parts = vec!["claude".to_string()];
+        // Determine CLI provider from agent type
+        let provider = match agent_type {
+            SessionAgentType::Claude => CliProvider::Claude,
+            SessionAgentType::Codex => CliProvider::Codex,
+            SessionAgentType::Gemini => CliProvider::Gemini,
+            _ => return Ok(()), // Shell and other types don't need CLI
+        };
 
-        // Add model flag if specified
-        if let Some(m) = model {
-            cmd_parts.push("--model".to_string());
-            cmd_parts.push(m.cli_value().to_string());
+        // Build the CLI command with appropriate flags
+        let mut cmd_parts = vec![provider.command().to_string()];
+
+        // Add model flag if specified (Claude-specific for now)
+        // TODO: Add model selection support for Codex and Gemini
+        if agent_type == SessionAgentType::Claude {
+            if let Some(m) = model {
+                cmd_parts.push("--model".to_string());
+                cmd_parts.push(m.cli_value().to_string());
+            }
         }
 
-        // Add permissions flag if specified
+        // Add skip permissions flag if specified (provider-specific)
         if skip_permissions {
-            cmd_parts.push("--dangerously-skip-permissions".to_string());
+            cmd_parts.push(provider.skip_permissions_flag().to_string());
         }
 
-        let claude_cmd = cmd_parts.join(" ");
-        let full_cmd = format!("{}{}", env_setup, claude_cmd);
+        let cli_cmd = cmd_parts.join(" ");
+        let full_cmd = format!("{}{}", env_setup, cli_cmd);
 
-        info!("Starting claude with command: {}", claude_cmd);
+        info!("Starting {} with command: {}", provider.display_name(), cli_cmd);
 
-        // Send command to tmux to start claude - target pane explicitly with :0
+        // Send command to tmux to start CLI - target pane explicitly with :0
         let target = format!("{}:0", session_name);
         let output = Command::new("tmux")
             .args([
@@ -902,13 +922,13 @@ impl InteractiveSessionManager {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(InteractiveSessionError::Tmux(
-                format!("Failed to start claude in tmux: {}", stderr)
+                format!("Failed to start {} in tmux: {}", provider.display_name(), stderr)
             ));
         }
 
         info!(
-            "Started claude CLI in tmux session: {} (model={:?}, skip_permissions={})",
-            session_name, model, skip_permissions
+            "Started {} CLI in tmux session: {} (model={:?}, skip_permissions={})",
+            provider.display_name(), session_name, model, skip_permissions
         );
         Ok(())
     }
@@ -934,6 +954,35 @@ impl InteractiveSessionManager {
         }
 
         String::new()
+    }
+
+    /// Build environment setup for injecting API key based on provider
+    fn build_env_setup_for_provider(agent_type: SessionAgentType) -> String {
+        use crate::credentials;
+
+        match agent_type {
+            SessionAgentType::Claude => {
+                // Use existing logic for Claude
+                Self::build_env_setup()
+            }
+            SessionAgentType::Codex => {
+                // Inject OpenAI API key if available
+                if let Ok(Some(api_key)) = credentials::get_openai_api_key() {
+                    info!("Injecting OPENAI_API_KEY for Codex CLI");
+                    return format!("export OPENAI_API_KEY='{}' && ", api_key);
+                }
+                String::new()
+            }
+            SessionAgentType::Gemini => {
+                // Inject Gemini API key if available
+                if let Ok(Some(api_key)) = credentials::get_gemini_api_key() {
+                    info!("Injecting GEMINI_API_KEY for Gemini CLI");
+                    return format!("export GEMINI_API_KEY='{}' && ", api_key);
+                }
+                String::new()
+            }
+            _ => String::new(),
+        }
     }
 }
 
