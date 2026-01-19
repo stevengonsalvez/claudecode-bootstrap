@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "python-dotenv",
+#     "langfuse>=2.44.0,<3.0.0",
 # ]
 # ///
 
@@ -18,6 +19,12 @@ try:
     load_dotenv()
 except ImportError:
     pass  # dotenv is optional
+
+# Langfuse integration (optional - no-op if not configured)
+try:
+    from utils.langfuse import get_tracer
+except ImportError:
+    get_tracer = lambda: None  # Fallback if module not found
 
 
 def log_user_prompt(session_id, input_data):
@@ -55,14 +62,52 @@ def validate_prompt(prompt):
         # Add any patterns you want to block
         # Example: ('rm -rf /', 'Dangerous command detected'),
     ]
-    
+
     prompt_lower = prompt.lower()
-    
+
     for pattern, reason in blocked_patterns:
         if pattern.lower() in prompt_lower:
             return False, reason
-    
+
     return True, None
+
+
+def get_message_count(transcript_path: str) -> int:
+    """Parse transcript to count messages."""
+    try:
+        with open(transcript_path, 'r') as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
+
+
+def check_context_health(input_data: dict) -> dict | None:
+    """Check context health and return warning if needed."""
+    transcript_path = input_data.get('transcript_path', '')
+    if not transcript_path:
+        return None
+
+    count = get_message_count(transcript_path)
+
+    # 80% threshold (40/50 messages)
+    if count >= 40:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": f"⚠️ Context Health: {count}/50 messages (80%). Consider running /reflect to capture learnings before session ends."
+            }
+        }
+
+    # 70% threshold (35/50 messages)
+    if count >= 35:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": f"🟡 Context Health: {count}/50 messages (70%). Session approaching limit."
+            }
+        }
+
+    return None
 
 
 def main():
@@ -84,7 +129,18 @@ def main():
         
         # Log the user prompt
         log_user_prompt(session_id, input_data)
-        
+
+        # Log to Langfuse (no-op if not configured)
+        tracer = get_tracer()
+        if tracer:
+            tracer.log_user_prompt(session_id, prompt)
+
+        # Check context health and inject warning if needed
+        health_warning = check_context_health(input_data)
+        if health_warning:
+            print(json.dumps(health_warning))
+            # Don't exit - allow prompt to proceed with warning injected
+
         # Validate prompt if requested and not in log-only mode
         if args.validate and not args.log_only:
             is_valid, reason = validate_prompt(prompt)

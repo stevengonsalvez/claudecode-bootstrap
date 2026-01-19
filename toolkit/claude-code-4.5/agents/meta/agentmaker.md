@@ -212,3 +212,54 @@ tools: Write, Read, LS, Glob
 - Optimize tool grants for minimal attack surface
 
 Remember: Crystal-clear descriptions guide the router; crystal-clear prompts guide the specialist. Master both, and your agent library becomes a superpower.
+
+## Skill vs Agent: When to Create Which
+
+### Key Distinction
+- **Agents** = Capabilities (can DO things repeatedly)
+- **Skills** = Solutions (fix SPECIFIC problems)
+
+### Create an AGENT when:
+- Recurring capability needed (e.g., "code reviewer", "backend developer")
+- Broad domain expertise required
+- Multiple workflows/scenarios covered
+- Will be invoked many times for different tasks
+
+### Create a SKILL when:
+- One-time discovery/workaround (debugging insight)
+- Error-specific fix (misleading error message solved)
+- Configuration quirk (non-obvious setup discovered)
+- Reusable pattern for a SPECIFIC problem
+
+### Skill Quality Gates (must pass ALL):
+- [ ] **Reusable**: Will help with future similar tasks
+- [ ] **Non-trivial**: Requires discovery, not just docs lookup
+- [ ] **Specific**: Exact trigger conditions describable
+- [ ] **Verified**: Solution actually worked
+- [ ] **No duplication**: Doesn't exist already
+
+### Skill Creation Guidelines
+
+**Location**: Always create in PROJECT `.claude/skills/` first
+- User can review before committing
+- Move to global `~/.claude/skills/` if broadly applicable
+
+**Naming**: `{problem-domain}-{specific-issue}`
+- `prisma-connection-pool-exhaustion`
+- `nextjs-hydration-mismatch-fix`
+- `docker-compose-network-dns-resolution`
+
+**Description for Semantic Matching**:
+Include exact error messages, symptoms, technologies:
+```yaml
+description: |
+  Fix for "ECONNREFUSED 127.0.0.1:5432" when Prisma can't connect.
+  Use when: (1) Docker Compose, (2) Prisma ORM, (3) PostgreSQL
+  Symptoms: Connection refused on localhost, works on host network
+  Solves: Docker networking isolation issue
+```
+
+### Delegation to reflect agent
+If during agent creation you discover a skill-worthy pattern:
+- Note it for `/reflect` to capture
+- Or create the skill directly in `.claude/skills/`

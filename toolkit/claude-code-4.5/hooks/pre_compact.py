@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "python-dotenv",
+#     "pyyaml",
 # ]
 # ///
 
@@ -43,6 +44,20 @@ def log_pre_compact(input_data):
     # Write back to file with formatting
     with open(log_file, 'w') as f:
         json.dump(log_data, f, indent=2)
+
+
+def is_auto_reflect_enabled() -> bool:
+    """Check if auto-reflection is enabled."""
+    state_path = Path.home() / '.claude' / 'session' / 'reflect-state.yaml'
+    if not state_path.exists():
+        return False
+    try:
+        import yaml
+        with open(state_path, 'r') as f:
+            state = yaml.safe_load(f) or {}
+            return state.get('auto_reflect', False)
+    except Exception:
+        return False
 
 
 def backup_transcript(transcript_path, trigger):
@@ -96,13 +111,27 @@ def main():
         
         # Trigger handover command if requested
         if args.handover:
-            # Output JSON to add context that will trigger handover
-            output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreCompact",
-                    "additionalContext": "Please execute the /handover command to create a handover document before compaction proceeds."
+            if is_auto_reflect_enabled():
+                # Trigger reflection THEN handover
+                output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreCompact",
+                        "additionalContext": (
+                            "Auto-reflection is enabled. Please:\n"
+                            "1. Run /reflect to analyze this session for learnings\n"
+                            "2. Then run /handover to create the handover document\n"
+                            "This ensures learnings are captured before context compaction."
+                        )
+                    }
                 }
-            }
+            else:
+                # Original behavior - just handover
+                output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreCompact",
+                        "additionalContext": "Please execute the /handover command to create a handover document before compaction proceeds."
+                    }
+                }
             print(json.dumps(output))
             sys.exit(0)
         
