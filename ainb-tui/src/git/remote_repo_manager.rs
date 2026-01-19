@@ -22,6 +22,8 @@ pub enum RemoteRepoError {
     InvalidRepo(String),
     #[error("IO error: {0}")]
     IoError(String),
+    #[error("Worktree already exists for branch '{branch}' at: {path}")]
+    WorktreeExists { branch: String, path: String },
 }
 
 impl From<std::io::Error> for RemoteRepoError {
@@ -509,6 +511,18 @@ impl RemoteRepoManager {
                     "Created worktree with filter bypass at: {}",
                     worktree_path.display()
                 );
+            } else if stderr.contains("is already used by worktree at") {
+                // Extract the path from error like: fatal: 'branch' is already used by worktree at '/path/to/worktree'
+                let path = stderr
+                    .split("worktree at '")
+                    .nth(1)
+                    .and_then(|s| s.split('\'').next())
+                    .unwrap_or("unknown")
+                    .to_string();
+                return Err(RemoteRepoError::WorktreeExists {
+                    branch: remote_branch.to_string(),
+                    path,
+                });
             } else {
                 return Err(RemoteRepoError::CloneFailed(format!(
                     "Failed to create worktree for existing branch: {}",
