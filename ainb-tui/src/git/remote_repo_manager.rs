@@ -429,15 +429,15 @@ impl RemoteRepoManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Use -B to force create/reset the branch even if it's checked out elsewhere
-        // This handles the case where the branch (e.g., main) is already checked out
-        // in the cache directory (standard clone has default branch checked out)
+        // Use --track -b to create a tracking branch for the remote
+        // Using -B causes issues with branch names containing slashes (e.g., feature/issue-888)
         let remote_ref = format!("origin/{}", remote_branch);
         let output = Command::new("git")
             .args([
                 "worktree",
                 "add",
-                "-B",
+                "--track",
+                "-b",
                 remote_branch,
                 worktree_path.to_string_lossy().as_ref(),
                 &remote_ref,
