@@ -10,7 +10,7 @@ metadata:
   category: devops
   keywords: [tmux, monitoring, sessions, agents, processes]
 
-compatibility: Requires tmux, jq. Optional: lsof, tmuxwatch
+compatibility: "Requires tmux, jq. Optional: lsof, tmuxwatch"
 
 allowed-tools:
   - Bash
@@ -126,14 +126,14 @@ if [ -f ".tmux-dev-session.json" ]; then
 fi
 ```
 
-**Agent Metadata** (`~/.claude/agents/*.json`):
+**Agent Metadata** (`{{HOME_TOOL_DIR}}/agents/*.json`):
 ```bash
-if [ -f "$HOME/.claude/agents/${SESSION}.json" ]; then
-    AGENT_TYPE=$(jq -r '.agent_type' "$HOME/.claude/agents/${SESSION}.json")
-    TASK=$(jq -r '.task' "$HOME/.claude/agents/${SESSION}.json")
-    STATUS=$(jq -r '.status' "$HOME/.claude/agents/${SESSION}.json")
-    DIRECTORY=$(jq -r '.directory' "$HOME/.claude/agents/${SESSION}.json")
-    CREATED=$(jq -r '.created' "$HOME/.claude/agents/${SESSION}.json")
+if [ -f "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json" ]; then
+    AGENT_TYPE=$(jq -r '.agent_type' "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json")
+    TASK=$(jq -r '.task' "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json")
+    STATUS=$(jq -r '.status' "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json")
+    DIRECTORY=$(jq -r '.directory' "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json")
+    CREATED=$(jq -r '.created' "$HOME/{{TOOL_DIR}}/agents/${SESSION}.json")
 fi
 ```
 
@@ -192,7 +192,7 @@ fi
 - **Panes**: 2 (agent | monitoring)
 - **Last Output**: "Analyzing auth.py dependencies..."
 - **Attach**: `tmux attach -t agent-1705160000`
-- **Metadata**: `~/.claude/agents/agent-1705160000.json`
+- **Metadata**: `{{HOME_TOOL_DIR}}/agents/agent-1705160000.json`
 
 ### 3. agent-1705161000
 - **Agent Type**: aider
@@ -234,7 +234,7 @@ tmux ls
 **Kill all completed agents**:
 ```bash
 for session in $(tmux ls | grep "^agent-" | cut -d: -f1); do
-    STATUS=$(jq -r '.status' "$HOME/.claude/agents/${session}.json" 2>/dev/null)
+    STATUS=$(jq -r '.status' "$HOME/{{TOOL_DIR}}/agents/${session}.json" 2>/dev/null)
     if [ "$STATUS" = "completed" ]; then
         tmux kill-session -t "$session"
     fi
@@ -328,7 +328,7 @@ Full report with all metadata, sample output, recommendations.
       "runtime": "15m",
       "directory": "/Users/stevie/projects/myapp",
       "worktree": "worktrees/agent-1705160000",
-      "metadata_file": "~/.claude/agents/agent-1705160000.json"
+      "metadata_file": "{{HOME_TOOL_DIR}}/agents/agent-1705160000.json"
     }
   ],
   "summary": {
@@ -364,7 +364,7 @@ This skill is used by:
 ## File Structure
 
 ```
-~/.claude/agents/
+{{HOME_TOOL_DIR}}/agents/
   agent-{timestamp}.json           # Agent metadata
 
 .tmux-dev-session.json             # Dev environment metadata (per project)
