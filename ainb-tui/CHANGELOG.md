@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.0-beta1] - 2026-01-20
+### Added
+- **agents**: add Gemini 3 preview models
+- **agents**: enable Codex and Gemini CLI providers
+- **cli**: add provider-specific skip permissions flags for Codex and Gemini
+- **providers**: add multi-provider CLI support for Codex and Gemini (#30)
+- **toolkit**: add reflect self-improvement system
+- **tui**: add Shift+scroll for horizontal pan in logs viewer
+- **tui**: add logs viewer improvements
+- add codex bootstrap and prompt generation
+
+### Fixed
+- **agents**: update Codex and Gemini models to latest versions
+- **agents**: update Codex models to match actual CLI options
+- **git**: resolve worktree creation failure for branches with slashes
+- **git**: show clear error when worktree already exists for branch
+- **tui**: resolve ghost/duplicate UI elements on resize
+- sanitize codex prompts to avoid arg parsing
+- standardize tool paths and tmux-monitor frontmatter
+
+### Documentation
+- add FAQ with tmux tips and troubleshooting
+- add claude-code packages migration issue stub
+
+### Other
+- **changelog**: remove duplicate 0.5.0 entry
+- **homebrew**: update formula to v0.5.0
+
+
 ## [0.5.0] - 2026-01-16
 ### Added
 - **audit**: add audit trail for user-initiated mutations
