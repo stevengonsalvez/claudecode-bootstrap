@@ -119,6 +119,9 @@ components:
       - direct-objective
       - fun-casual
 
+    reflections:
+      - index
+
     commands:
       session:
         - prime

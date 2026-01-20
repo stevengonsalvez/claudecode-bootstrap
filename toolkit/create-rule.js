@@ -48,6 +48,63 @@ const TOOL_CONFIG = {
             }
         }
     },
+    codex: {
+        ruleDir: 'codex',
+        targetSubdir: '.codex',
+        usePackagesStructure: true,
+        forceHomeInstall: true,
+        copyClaudeMd: false,
+        copySettings: false,
+        generatePromptsFromCommands: true,
+        packageMappings: {
+            'skills': 'skills',
+            'workflows/single-agent/commands': 'commands',
+            'workflows/multi-agent/commands': 'commands',
+            'utilities/commands': 'commands',
+            'utilities/templates': 'templates',
+            'utilities/reflections': 'reflections'
+        },
+        projectRootCopies: ['AGENTS.md'],
+        toolSpecificFiles: ['codex/config.toml'],
+        templateSubstitutions: {
+            '**/*.md': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.sh': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.py': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.js': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.ts': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.json': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.yaml': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.yml': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            },
+            '**/*.toml': {
+                'TOOL_DIR': '.codex',
+                'HOME_TOOL_DIR': '~/.codex'
+            }
+        }
+    },
     'packages': {
         ruleDir: 'packages',
         targetSubdir: '.claude',
@@ -63,11 +120,44 @@ const TOOL_CONFIG = {
             'utilities/commands': 'commands',
             'utilities/hooks': 'hooks',
             'utilities/templates': 'templates',
-            'utilities/output-styles': 'output-styles'
+            'utilities/output-styles': 'output-styles',
+            'utilities/reflections': 'reflections'
         },
         excludeFiles: [],
         templateSubstitutions: {
             '**/*.md': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.sh': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.py': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.js': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.ts': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.json': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.yaml': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.yml': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.toml': {
                 'TOOL_DIR': '.claude',
                 'HOME_TOOL_DIR': '~/.claude'
             }
@@ -139,6 +229,98 @@ function parseFrontMatter(filePath) {
     } catch {
         return {};
     }
+}
+
+function validateSkillFrontmatter(skillsDir) {
+    const errors = [];
+
+    function walk(dir) {
+        const items = readdirSync(dir);
+        for (const item of items) {
+            const fullPath = path.join(dir, item);
+            const isDirectory = statSync(fullPath).isDirectory();
+            if (isDirectory) {
+                walk(fullPath);
+                continue;
+            }
+            if (item !== 'SKILL.md') {
+                continue;
+            }
+
+            const content = fs.readFileSync(fullPath, 'utf8');
+            const match = content.match(/^---([\s\S]*?)---/);
+            if (!match) {
+                errors.push(`${fullPath}: missing YAML frontmatter`);
+                continue;
+            }
+            try {
+                yaml.load(match[1]);
+            } catch (err) {
+                errors.push(`${fullPath}: ${err.message}`);
+            }
+        }
+    }
+
+    if (fs.existsSync(skillsDir)) {
+        walk(skillsDir);
+    }
+
+    if (errors.length > 0) {
+        const errorMessage = `Invalid SKILL.md YAML frontmatter:\n- ${errors.join('\n- ')}`;
+        throw new Error(errorMessage);
+    }
+}
+
+function getPromptDescription(content, fallbackName) {
+    const headingMatch = content.match(/^#\s+(.+)$/m);
+    if (headingMatch) {
+        return headingMatch[1].trim();
+    }
+    return fallbackName.replace(/[-_]+/g, ' ').trim();
+}
+
+function buildPromptFrontmatter(description) {
+    const safeDescription = description.replace(/"/g, '\\"');
+    return `---\ndescription: \"${safeDescription}\"\n---\n\n`;
+}
+
+function createCodexPromptsFromCommands(commandsDir, promptsDir) {
+    if (!fs.existsSync(commandsDir)) {
+        return 0;
+    }
+
+    fs.mkdirSync(promptsDir, { recursive: true });
+    const files = readdirSync(commandsDir).filter((f) => f.endsWith('.md'));
+    let created = 0;
+
+    for (const file of files) {
+        const sourcePath = path.join(commandsDir, file);
+        const destPath = path.join(promptsDir, file);
+        const content = fs.readFileSync(sourcePath, 'utf8');
+
+        if (content.startsWith('---')) {
+            fs.writeFileSync(destPath, content);
+            created++;
+            continue;
+        }
+
+        const baseName = path.basename(file, '.md');
+        const description = getPromptDescription(content, baseName);
+        const frontmatter = buildPromptFrontmatter(description);
+        const preamble = [
+            'IMPORTANT:',
+            '- Do not rely on slash-command arguments for this prompt.',
+            '- Always ask the user for any required inputs in chat, then proceed.',
+            '- Treat the user response as $ARGUMENTS if the prompt references it.',
+            '',
+            '',
+        ].join('\n');
+        const promptBody = `${frontmatter}${preamble}${content}`;
+        fs.writeFileSync(destPath, promptBody);
+        created++;
+    }
+
+    return created;
 }
 
 function showProgress(message, isComplete = false) {
@@ -230,9 +412,18 @@ function copyDirectoryRecursive(source, destination, excludeFiles = [], template
         
         // Check if this file needs template substitution
         // Support both exact filename and relative path matching
-        const substitutions = templateSubstitutions[file.fileName] || 
+        let substitutions = templateSubstitutions[file.fileName] || 
                             templateSubstitutions[file.relativePath] || 
                             (file.relativePath.endsWith('.md') ? templateSubstitutions['**/*.md'] : null);
+
+        if (!substitutions) {
+            for (const [pattern, patternSubs] of Object.entries(templateSubstitutions)) {
+                if (pattern.startsWith('**/*.') && file.relativePath.endsWith(pattern.slice(4))) {
+                    substitutions = patternSubs;
+                    break;
+                }
+            }
+        }
         
         if (substitutions) {
             let content = fs.readFileSync(file.source, 'utf8');
@@ -387,7 +578,8 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
     let destDir;
     let displayPath;
 
-    if (targetFolder) {
+    const shouldUseHome = !targetFolder || config.forceHomeInstall;
+    if (!shouldUseHome) {
         destDir = path.join(targetFolder, config.targetSubdir);
         displayPath = path.join(targetFolder, config.targetSubdir);
     } else {
@@ -407,6 +599,17 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
     const packagesDir = path.join(__dirname, 'packages');
     let totalFilesCopied = 0;
 
+    if (config.validateSkillFrontmatter !== false && config.packageMappings && Object.prototype.hasOwnProperty.call(config.packageMappings, 'skills')) {
+        showProgress('Validating SKILL.md frontmatter');
+        try {
+            validateSkillFrontmatter(path.join(packagesDir, 'skills'));
+            completeProgress('Validated SKILL.md frontmatter');
+        } catch (error) {
+            completeProgress('SKILL.md frontmatter validation failed');
+            throw error;
+        }
+    }
+
     // Copy using package mappings
     for (const [source, target] of Object.entries(config.packageMappings)) {
         const sourceDir = path.join(packagesDir, source);
@@ -421,26 +624,95 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
         }
     }
 
+    if (config.generatePromptsFromCommands) {
+        const commandsDir = path.join(destDir, 'commands');
+        const promptsDir = path.join(destDir, 'prompts');
+        showProgress('Generating Codex prompts from commands');
+        const promptsCreated = createCodexPromptsFromCommands(commandsDir, promptsDir);
+        completeProgress(`Generated ${promptsCreated} prompts`);
+        totalFilesCopied += promptsCreated;
+    }
+
     // Copy CLAUDE.md from claude-code-4.5 if it exists
-    const claudeMdSource = path.join(__dirname, 'claude-code-4.5', 'CLAUDE.md');
-    if (fs.existsSync(claudeMdSource)) {
-        showProgress('Copying CLAUDE.md');
-        let content = fs.readFileSync(claudeMdSource, 'utf8');
-        if (config.templateSubstitutions && config.templateSubstitutions['**/*.md']) {
-            content = substituteTemplate(content, config.templateSubstitutions['**/*.md']);
+    if (config.copyClaudeMd !== false) {
+        const claudeMdSource = path.join(__dirname, 'claude-code-4.5', 'CLAUDE.md');
+        if (fs.existsSync(claudeMdSource)) {
+            showProgress('Copying CLAUDE.md');
+            let content = fs.readFileSync(claudeMdSource, 'utf8');
+            if (config.templateSubstitutions && config.templateSubstitutions['**/*.md']) {
+                content = substituteTemplate(content, config.templateSubstitutions['**/*.md']);
+            }
+            fs.writeFileSync(path.join(destDir, 'CLAUDE.md'), content);
+            totalFilesCopied++;
+            completeProgress('Copied CLAUDE.md');
         }
-        fs.writeFileSync(path.join(destDir, 'CLAUDE.md'), content);
-        totalFilesCopied++;
-        completeProgress('Copied CLAUDE.md');
     }
 
     // Copy settings.json from claude-code-4.5 if it exists
-    const settingsSource = path.join(__dirname, 'claude-code-4.5', 'settings.json');
-    if (fs.existsSync(settingsSource)) {
-        showProgress('Copying settings.json');
-        fs.copyFileSync(settingsSource, path.join(destDir, 'settings.json'));
-        totalFilesCopied++;
-        completeProgress('Copied settings.json');
+    if (config.copySettings !== false) {
+        const settingsSource = path.join(__dirname, 'claude-code-4.5', 'settings.json');
+        if (fs.existsSync(settingsSource)) {
+            showProgress('Copying settings.json');
+            fs.copyFileSync(settingsSource, path.join(destDir, 'settings.json'));
+            totalFilesCopied++;
+            completeProgress('Copied settings.json');
+        }
+    }
+
+    if (config.toolSpecificFiles) {
+        showProgress('Copying tool-specific files');
+        let toolFilesCopied = 0;
+        for (const toolFile of config.toolSpecificFiles) {
+            const sourcePath = path.join(__dirname, toolFile);
+            const fileName = path.basename(toolFile);
+            const destPath = path.join(destDir, fileName);
+
+            if (fs.existsSync(sourcePath)) {
+                const substitutions = (config.templateSubstitutions || {})[fileName] ||
+                    (fileName.endsWith('.md') ? (config.templateSubstitutions || {})['**/*.md'] : null);
+
+                if (substitutions) {
+                    let content = fs.readFileSync(sourcePath, 'utf8');
+                    content = substituteTemplate(content, substitutions);
+                    fs.writeFileSync(destPath, content);
+                } else {
+                    fs.copyFileSync(sourcePath, destPath);
+                }
+                toolFilesCopied++;
+            }
+        }
+        completeProgress(`Copied ${toolFilesCopied} tool-specific files`);
+    }
+
+    if (config.projectRootCopies) {
+        const rootTarget = targetFolder || (config.forceHomeInstall ? destDir : null);
+        if (rootTarget) {
+            if (!fs.existsSync(rootTarget)) {
+                fs.mkdirSync(rootTarget, { recursive: true });
+            }
+        }
+        showProgress('Copying project root files');
+        let rootFilesCopied = 0;
+        for (const fileName of config.projectRootCopies) {
+            const sourcePath = path.join(__dirname, config.ruleDir, fileName);
+            if (!fs.existsSync(sourcePath) || !rootTarget) {
+                continue;
+            }
+            const destPath = path.join(rootTarget, fileName);
+
+            const substitutions = (config.templateSubstitutions || {})[fileName] ||
+                (fileName.endsWith('.md') ? (config.templateSubstitutions || {})['**/*.md'] : null);
+
+            if (substitutions) {
+                let content = fs.readFileSync(sourcePath, 'utf8');
+                content = substituteTemplate(content, substitutions);
+                fs.writeFileSync(destPath, content);
+            } else {
+                fs.copyFileSync(sourcePath, destPath);
+            }
+            rootFilesCopied++;
+        }
+        completeProgress(`Copied ${rootFilesCopied} project root files`);
     }
 
     console.log(`\n\x1b[32m🎉 packages setup complete!\x1b[0m`);
@@ -457,7 +729,8 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
     let destDir;
     let displayPath;
     
-    if (targetFolder) {
+    const shouldUseHome = !targetFolder || config.forceHomeInstall;
+    if (!shouldUseHome) {
         // If targetFolder is specified, use it instead of home directory
         destDir = path.join(targetFolder, config.targetSubdir);
         displayPath = path.join(targetFolder, config.targetSubdir);
@@ -481,6 +754,34 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
     const sourceDir = path.join(__dirname, config.ruleDir);
     const filesCopied = copyDirectoryRecursive(sourceDir, destDir, config.excludeFiles || [], config.templateSubstitutions || {});
     completeProgress(`Copied ${filesCopied} files to ${displayPath}`);
+
+    if (targetFolder && config.projectRootCopies) {
+        if (!fs.existsSync(targetFolder)) {
+            fs.mkdirSync(targetFolder, { recursive: true });
+        }
+        showProgress('Copying project root files');
+        let rootFilesCopied = 0;
+        for (const fileName of config.projectRootCopies) {
+            const sourcePath = path.join(__dirname, config.ruleDir, fileName);
+            const destPath = path.join(targetFolder, fileName);
+            if (!fs.existsSync(sourcePath)) {
+                continue;
+            }
+
+            const substitutions = (config.templateSubstitutions || {})[fileName] ||
+                (fileName.endsWith('.md') ? (config.templateSubstitutions || {})['**/*.md'] : null);
+
+            if (substitutions) {
+                let content = fs.readFileSync(sourcePath, 'utf8');
+                content = substituteTemplate(content, substitutions);
+                fs.writeFileSync(destPath, content);
+            } else {
+                fs.copyFileSync(sourcePath, destPath);
+            }
+            rootFilesCopied++;
+        }
+        completeProgress(`Copied ${rootFilesCopied} project root files`);
+    }
 
     // Copy skills folder for claude-code-4.5
     if (tool === 'claude-code-4.5') {

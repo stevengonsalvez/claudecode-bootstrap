@@ -22,6 +22,7 @@ This project provides a CLI tool to help you set up and manage rule files for va
    node create-rule.js --tool=gemini
    node create-rule.js --tool=amazonq
    node create-rule.js --tool=claude-code
+   node create-rule.js --tool=codex
    ```
 
 4. **Follow the prompts:**
@@ -33,6 +34,10 @@ This project provides a CLI tool to help you set up and manage rule files for va
 **For claude-code (Home Directory Installation):**
 - Copies complete tool setup to your home directory (`~/.claude`)
 - No project folder required - installs globally for the tool
+
+**For codex (Home Directory Installation):**
+- Copies codex configuration and skills to your home directory (`~/.codex`)
+- Optional: pass `--targetFolder=<project>` to add `AGENTS.md` to a project
 
 **For gemini/amazonq (Project-Specific Installation):**
 - Prompts for target project folder
@@ -50,6 +55,12 @@ This project provides a CLI tool to help you set up and manage rule files for va
 - Copies entire `claude-code/` directory to `~/.claude/`
 - Includes: commands, guides, templates, docs, and main CLAUDE.md
 - Status line uses Bun runtime for ultra-fast JS execution with built-in caching
+
+**codex**:
+- Copies codex setup to `~/.codex/` (config + skills/commands/templates/reflections via packages)
+- Writes `AGENTS.md` into `~/.codex/` by default; pass `--targetFolder` to drop it into a project root
+- Generates Codex prompts from commands at `~/.codex/prompts/` (invoke as `/prompts:<name>`)
+- Designed to mirror the claude-code workflow while honoring Codex CLI conventions
 
 **gemini**: 
 - Copies all shared content from `claude-code/` to `PROJECT/.gemini/`
