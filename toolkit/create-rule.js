@@ -307,15 +307,18 @@ function createCodexPromptsFromCommands(commandsDir, promptsDir) {
         const baseName = path.basename(file, '.md');
         const description = getPromptDescription(content, baseName);
         const frontmatter = buildPromptFrontmatter(description);
+        const sanitized = content
+            .replace(/\$\{?ARGUMENTS\}?/g, '<USER_INPUT>')
+            .replace(/\$\{?ARG\}?/g, '<ARG>')
+            .replace(/\$[A-Z_][A-Z0-9_]*/g, '<VAR>');
         const preamble = [
             'IMPORTANT:',
             '- Do not rely on slash-command arguments for this prompt.',
             '- Always ask the user for any required inputs in chat, then proceed.',
-            '- Treat the user response as $ARGUMENTS if the prompt references it.',
             '',
             '',
         ].join('\n');
-        const promptBody = `${frontmatter}${preamble}${content}`;
+        const promptBody = `${frontmatter}${preamble}${sanitized}`;
         fs.writeFileSync(destPath, promptBody);
         created++;
     }
