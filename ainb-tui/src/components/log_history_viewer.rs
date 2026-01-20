@@ -188,6 +188,8 @@ pub struct LogHistoryViewerState {
     pub selection: TextSelection,
     /// Log entries pane area (for mouse coordinate mapping)
     pub log_entries_area: Option<ratatui::layout::Rect>,
+    /// Horizontal scroll offset for log content
+    pub horizontal_scroll: usize,
 }
 
 impl LogHistoryViewerState {
@@ -206,12 +208,21 @@ impl LogHistoryViewerState {
             error_message: None,
             selection: TextSelection::default(),
             log_entries_area: None,
+            horizontal_scroll: 0,
         }
     }
 
     /// Set the log directory and refresh log files
     pub fn set_log_dir(&mut self, log_dir: PathBuf) {
         self.log_dir = Some(log_dir);
+
+        // Auto-prune old logs (>24h) on startup
+        if let Ok(count) = self.prune_old_logs() {
+            if count > 0 {
+                tracing::info!("Pruned {} old log files (>24h)", count);
+            }
+        }
+
         self.refresh_sessions();
     }
 
@@ -527,6 +538,21 @@ impl LogHistoryViewerState {
         self.scroll_offset = (self.scroll_offset + lines).min(max_offset);
     }
 
+    /// Scroll log content left (horizontal)
+    pub fn scroll_left(&mut self, amount: usize) {
+        self.horizontal_scroll = self.horizontal_scroll.saturating_sub(amount);
+    }
+
+    /// Scroll log content right (horizontal)
+    pub fn scroll_right(&mut self, amount: usize) {
+        self.horizontal_scroll += amount;
+    }
+
+    /// Reset horizontal scroll to start
+    pub fn scroll_home(&mut self) {
+        self.horizontal_scroll = 0;
+    }
+
     /// Page up in log entries
     pub fn page_up(&mut self, page_size: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(page_size);
@@ -568,6 +594,61 @@ impl LogHistoryViewerState {
     /// Hide the viewer
     pub fn hide(&mut self) {
         self.is_visible = false;
+    }
+
+    /// Prune log files older than 24 hours
+    /// Returns the number of files deleted
+    pub fn prune_old_logs(&self) -> std::io::Result<usize> {
+        let Some(log_dir) = &self.log_dir else {
+            return Ok(0);
+        };
+
+        let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+        let mut deleted = 0;
+
+        for entry in std::fs::read_dir(log_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "jsonl" || ext == "log") {
+                if let Ok(metadata) = path.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified < cutoff {
+                            if std::fs::remove_file(&path).is_ok() {
+                                deleted += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(deleted)
+    }
+
+    /// Delete all log files (manual cleanup)
+    /// Returns the number of files deleted
+    pub fn delete_all_logs(&mut self) -> std::io::Result<usize> {
+        let Some(log_dir) = &self.log_dir else {
+            return Ok(0);
+        };
+
+        let mut deleted = 0;
+        for entry in std::fs::read_dir(log_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "jsonl" || ext == "log") {
+                if std::fs::remove_file(&path).is_ok() {
+                    deleted += 1;
+                }
+            }
+        }
+
+        // Clear current state
+        self.sessions.clear();
+        self.current_logs.clear();
+        self.selected_log_file = None;
+        self.session_list_state.select(None);
+
+        Ok(deleted)
     }
 }
 
@@ -634,9 +715,24 @@ impl LogHistoryViewerComponent {
         let is_focused = state.focus == LogViewerFocus::SessionList;
         let border_color = if is_focused { CORNFLOWER_BLUE } else { SUBDUED_BORDER };
 
+        // Build title with directory path (replace $HOME with ~)
+        let dir_display = state
+            .log_dir
+            .as_ref()
+            .map(|p| {
+                let path_str = p.display().to_string();
+                if let Ok(home) = std::env::var("HOME") {
+                    path_str.replace(&home, "~")
+                } else {
+                    path_str
+                }
+            })
+            .unwrap_or_else(|| "Not configured".to_string());
+
         let block = Block::default()
             .title(Line::from(vec![
-                Span::styled("Log Files", Style::default().fg(if is_focused { GOLD } else { MUTED_GRAY })),
+                Span::styled("📁 ", Style::default().fg(GOLD)),
+                Span::styled(dir_display, Style::default().fg(MUTED_GRAY)),
             ]))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -755,7 +851,7 @@ impl LogHistoryViewerComponent {
 
         let paragraph = Paragraph::new(log_lines)
             .block(block)
-            .scroll((state.scroll_offset as u16, 0)); // Enable vertical scrolling
+            .scroll((state.scroll_offset as u16, state.horizontal_scroll as u16)); // Enable vertical and horizontal scrolling
 
         frame.render_widget(paragraph, area);
     }
@@ -838,14 +934,17 @@ impl LogHistoryViewerComponent {
                 ("Tab", "logs"),
                 ("f", "filter"),
                 ("r", "refresh"),
+                ("C", "clean"),
                 ("Esc", "back"),
             ],
             LogViewerFocus::LogEntries => vec![
-                ("↑↓/🖱", "scroll"),
+                ("↑↓", "scroll"),
+                ("←→", "pan"),
                 ("drag", "select"),
                 ("y/^C", "copy"),
                 ("Tab", "files"),
                 ("f", "filter"),
+                ("C", "clean"),
                 ("Esc", "back"),
             ],
         };

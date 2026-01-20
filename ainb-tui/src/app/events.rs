@@ -261,6 +261,10 @@ pub enum AppEvent {
     LogHistoryCycleFilter,       // Cycle through filter levels (f)
     LogHistoryRefresh,           // Refresh session list (r)
     LogHistoryCopySelection,     // Copy selected text to clipboard (y or Ctrl+c)
+    LogHistoryScrollLeft,        // Scroll log content left (←)
+    LogHistoryScrollRight,       // Scroll log content right (→)
+    LogHistoryScrollHome,        // Reset horizontal scroll to start (Home)
+    LogHistoryCleanup,           // Delete all log files (C)
     // Onboarding wizard events
     OnboardingNext,              // Go to next step (Enter/Right Arrow)
     OnboardingBack,              // Go to previous step (Backspace/Left Arrow)
@@ -1325,7 +1329,9 @@ impl EventHandler {
             KeyCode::Char('c') if key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
                 return Some(AppEvent::LogHistoryCopySelection);
             }
+            KeyCode::Char('c') | KeyCode::Char('C') => return Some(AppEvent::LogHistoryCleanup),
             KeyCode::Tab => return Some(AppEvent::LogHistoryToggleFocus),
+            KeyCode::Home => return Some(AppEvent::LogHistoryScrollHome),
             _ => {}
         }
 
@@ -1345,6 +1351,8 @@ impl EventHandler {
                     KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::LogHistoryScrollDown),
                     KeyCode::PageUp => Some(AppEvent::LogHistoryPageUp),
                     KeyCode::PageDown => Some(AppEvent::LogHistoryPageDown),
+                    KeyCode::Left | KeyCode::Char('h') => Some(AppEvent::LogHistoryScrollLeft),
+                    KeyCode::Right | KeyCode::Char('l') => Some(AppEvent::LogHistoryScrollRight),
                     _ => None,
                 }
             }
@@ -3071,6 +3079,30 @@ impl EventHandler {
                     tracing::warn!("Failed to copy to clipboard: {}", e);
                 } else {
                     tracing::info!("Copied selection to clipboard");
+                }
+            }
+            AppEvent::LogHistoryScrollLeft => {
+                tracing::debug!("Log history scroll left");
+                state.log_history_state.scroll_left(4);
+            }
+            AppEvent::LogHistoryScrollRight => {
+                tracing::debug!("Log history scroll right");
+                state.log_history_state.scroll_right(4);
+            }
+            AppEvent::LogHistoryScrollHome => {
+                tracing::debug!("Log history scroll home");
+                state.log_history_state.scroll_home();
+            }
+            AppEvent::LogHistoryCleanup => {
+                tracing::info!("Log history cleanup requested");
+                match state.log_history_state.delete_all_logs() {
+                    Ok(count) => {
+                        tracing::info!("Deleted {} log files", count);
+                        state.log_history_state.refresh_sessions();
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to delete log files: {}", e);
+                    }
                 }
             }
             // Changelog viewer events
