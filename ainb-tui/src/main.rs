@@ -453,10 +453,21 @@ async fn run_tui_loop(
                                 }
                             } else if app.state.current_view == View::LogHistory {
                                 // Scroll log history viewer
-                                if is_down {
-                                    app.state.log_history_state.scroll_down_by(SCROLL_LINES);
+                                // Shift+Scroll = horizontal, normal scroll = vertical
+                                if mouse_event.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                                    // Horizontal scroll
+                                    if is_down {
+                                        app.state.log_history_state.scroll_right(SCROLL_LINES * 4);
+                                    } else {
+                                        app.state.log_history_state.scroll_left(SCROLL_LINES * 4);
+                                    }
                                 } else {
-                                    app.state.log_history_state.scroll_up_by(SCROLL_LINES);
+                                    // Vertical scroll
+                                    if is_down {
+                                        app.state.log_history_state.scroll_down_by(SCROLL_LINES);
+                                    } else {
+                                        app.state.log_history_state.scroll_up_by(SCROLL_LINES);
+                                    }
                                 }
                             } else {
                                 // Default: scroll live logs

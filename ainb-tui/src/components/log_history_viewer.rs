@@ -939,7 +939,7 @@ impl LogHistoryViewerComponent {
             ],
             LogViewerFocus::LogEntries => vec![
                 ("↑↓", "scroll"),
-                ("←→", "pan"),
+                ("←→/⇧🖱", "pan"),
                 ("drag", "select"),
                 ("y/^C", "copy"),
                 ("Tab", "files"),
