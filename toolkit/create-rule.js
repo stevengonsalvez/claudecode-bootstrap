@@ -298,19 +298,30 @@ function createCodexPromptsFromCommands(commandsDir, promptsDir) {
         const destPath = path.join(promptsDir, file);
         const content = fs.readFileSync(sourcePath, 'utf8');
 
-        if (content.startsWith('---')) {
-            fs.writeFileSync(destPath, content);
-            created++;
-            continue;
+        let frontmatter = '';
+        let body = content;
+
+        const frontmatterMatch = content.match(/^---\s*\n[\s\S]*?\n---\s*\n/);
+        if (frontmatterMatch) {
+            frontmatter = frontmatterMatch[0]
+                .split('\n')
+                .filter((line) => !/^argument-hint\s*:/.test(line) && !/^args\s*:/.test(line))
+                .join('\n');
+            if (!frontmatter.endsWith('\n')) {
+                frontmatter += '\n';
+            }
+            body = content.slice(frontmatterMatch[0].length);
+        } else {
+            const baseName = path.basename(file, '.md');
+            const description = getPromptDescription(content, baseName);
+            frontmatter = buildPromptFrontmatter(description);
         }
 
-        const baseName = path.basename(file, '.md');
-        const description = getPromptDescription(content, baseName);
-        const frontmatter = buildPromptFrontmatter(description);
-        const sanitized = content
-            .replace(/\$\{?ARGUMENTS\}?/g, '<USER_INPUT>')
-            .replace(/\$\{?ARG\}?/g, '<ARG>')
+        const sanitized = body
+            .replace(/\$\{?ARGUMENTS\}?/g, 'the user request (ask in chat if missing)')
+            .replace(/\$\{?ARG\}?/g, 'a user-provided value (ask in chat if missing)')
             .replace(/\$[A-Z_][A-Z0-9_]*/g, '<VAR>');
+
         const preamble = [
             'IMPORTANT:',
             '- Do not rely on slash-command arguments for this prompt.',

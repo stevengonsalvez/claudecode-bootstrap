@@ -1,11 +1,11 @@
-Work on GitHub issues systematically with proper development workflow: $ARGUMENTS
+Work on GitHub issues systematically with proper development workflow. If the user specifies an issue number, focus on that; otherwise ask which issue to work on.
 
 Follow these steps:
 
 1. **Review available GitHub issues**:
    - Use `gh issue list` to see all open issues
    - Choose a small, manageable task to complete
-   - If $ARGUMENTS specifies an issue number, work on that specific issue
+   - If the user specifies an issue number, work on that specific issue
 
 2. **Plan your approach**:
    - Use `gh issue view` to get detailed issue information

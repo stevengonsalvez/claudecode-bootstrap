@@ -1,4 +1,4 @@
-Generate a comprehensive session summary: $ARGUMENTS
+Generate a comprehensive session summary. If the user provides a specific filename or slug, use it; otherwise propose a default and confirm in chat.
 
 Follow these steps:
 
@@ -6,7 +6,7 @@ Follow these steps:
    - Generate filename as `session_{slug}_{timestamp}.md` where:
      - `{slug}` is a short description of the session topic
      - `{timestamp}` is current date/time in YYYY-MM-DD-HHMMSS format
-   - If $ARGUMENTS provides a specific filename or slug, use that instead
+   - If the user provides a specific filename or slug, use that instead
 
 2. **Gather session information**:
    - Review the conversation history and actions taken

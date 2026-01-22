@@ -1,4 +1,4 @@
-Develop a thorough, step-by-step specification for the provided idea: $ARGUMENTS
+Develop a thorough, step-by-step specification for the provided idea. If the idea is not specified, ask the user for it in chat.
 
 Follow these steps:
 

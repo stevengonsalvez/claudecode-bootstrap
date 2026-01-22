@@ -6,14 +6,13 @@ Analyze the current conversation for corrections, success patterns, and learning
 
 ## Usage
 
-```bash
-/reflect                    # Analyze current conversation
-/reflect [agent-name]       # Focus on learnings for specific agent
-/reflect on                 # Enable auto-reflection at session end
-/reflect off                # Disable auto-reflection
-/reflect status             # Show toggle state and metrics
-/reflect review             # Review pending low-confidence learnings
-```
+Invoke `/reflect` with no arguments, then ask in chat what to focus on:
+
+- Standard reflection (default)
+- Targeted reflection (agent or file)
+- Auto-reflection toggle (on/off)
+- Status
+- Review low-confidence learnings
 
 ## Modes
 
@@ -25,58 +24,35 @@ Scan entire conversation for:
 - **Low confidence**: Observations (patterns that worked, not explicitly validated)
 - **New Skills**: Reusable techniques, workarounds, debugging patterns worth preserving
 
-### Targeted Reflection (`/reflect [agent-name]`)
+### Targeted Reflection (ask in chat)
 
 Focus analysis on learnings relevant to a specific agent:
-```bash
-/reflect code-reviewer      # Focus on code review learnings
-/reflect backend-developer  # Focus on backend learnings
-/reflect CLAUDE.md          # Focus on global preferences
-```
+Examples of targets:
+- `code-reviewer`
+- `backend-developer`
+- `CLAUDE.md` (global preferences)
 
-### Toggle Auto-Reflection
+### Toggle Auto-Reflection (ask in chat)
 
-```bash
-/reflect on                 # Auto-reflect at session end
-/reflect off                # Manual reflection only
-/reflect status             # Check current state
-```
+Ask the user if they want auto-reflection enabled, disabled, or to view status.
 
 ## Implementation
 
 When this command is invoked:
 
-### 1. Check for Toggle Commands
+### 1. Determine Intent (no args)
 
-```bash
-ARG="${1:-}"
+Ask the user which mode to run:
+- Standard reflection
+- Targeted reflection (which agent/file?)
+- Auto-reflection toggle (on/off)
+- Status
+- Review low-confidence learnings
 
-case "$ARG" in
-  "on")
-    # Enable auto-reflection
-    echo "Setting auto_reflect: true in {{HOME_TOOL_DIR}}/session/reflect-state.yaml"
-    echo "Auto-reflection enabled. Will analyze session before handover."
-    exit 0
-    ;;
-  "off")
-    # Disable auto-reflection
-    echo "Setting auto_reflect: false in {{HOME_TOOL_DIR}}/session/reflect-state.yaml"
-    echo "Auto-reflection disabled. Use /reflect manually when needed."
-    exit 0
-    ;;
-  "status")
-    # Show current state
-    cat {{HOME_TOOL_DIR}}/session/reflect-state.yaml 2>/dev/null || echo "No state file found"
-    cat {{HOME_TOOL_DIR}}/session/reflect-metrics.yaml 2>/dev/null || echo "No metrics found"
-    exit 0
-    ;;
-  "review")
-    # Review low-confidence learnings
-    echo "Reviewing pending low-confidence learnings..."
-    # Continue to reflection with filter
-    ;;
-esac
-```
+If the user chooses:
+- **on/off**: update `{{HOME_TOOL_DIR}}/session/reflect-state.yaml`
+- **status**: read `{{HOME_TOOL_DIR}}/session/reflect-state.yaml` and `{{HOME_TOOL_DIR}}/session/reflect-metrics.yaml`
+- **review**: run reflection filtered to low-confidence learnings
 
 ### 2. Scan Conversation for Signals
 

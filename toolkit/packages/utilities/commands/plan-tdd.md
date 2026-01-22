@@ -1,9 +1,9 @@
-Create a test-driven development plan for the project: $ARGUMENTS
+Create a test-driven development plan for the project. If the project or spec isn’t specified, ask the user for it in chat.
 
 Follow these steps:
 
 1. **Read the specification**:
-   - Look for the spec file specified in $ARGUMENTS
+   - If the user named a spec file, use that
    - If no file specified, look for `spec.md` or ask for the specification file path
    - Understand the project requirements, acceptance criteria, and expected behavior
 
