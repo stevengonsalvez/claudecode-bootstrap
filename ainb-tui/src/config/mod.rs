@@ -215,6 +215,10 @@ pub struct WorkspaceDefaults {
     /// Maximum number of repositories to show in search results (default: 500)
     #[serde(default = "default_max_repositories")]
     pub max_repositories: usize,
+
+    /// Behavior when a target worktree path already exists
+    #[serde(default)]
+    pub worktree_collision_behavior: WorktreeCollisionBehavior,
 }
 
 impl Default for WorkspaceDefaults {
@@ -224,7 +228,21 @@ impl Default for WorkspaceDefaults {
             exclude_paths: Vec::new(),
             workspace_scan_paths: Vec::new(),
             max_repositories: default_max_repositories(),
+            worktree_collision_behavior: WorktreeCollisionBehavior::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeCollisionBehavior {
+    AutoRename,
+    Error,
+}
+
+impl Default for WorktreeCollisionBehavior {
+    fn default() -> Self {
+        WorktreeCollisionBehavior::AutoRename
     }
 }
 
@@ -433,6 +451,12 @@ impl AppConfig {
         }
         // Always take max_repositories from config if loaded from file
         self.workspace_defaults.max_repositories = other.workspace_defaults.max_repositories;
+        if other.workspace_defaults.worktree_collision_behavior
+            != WorktreeCollisionBehavior::default()
+        {
+            self.workspace_defaults.worktree_collision_behavior =
+                other.workspace_defaults.worktree_collision_behavior;
+        }
 
         // Override UI preferences
         // Check if this is an old config (empty theme indicates pre-v0.4 config)
@@ -627,6 +651,7 @@ mod tests {
         config.workspace_defaults.branch_prefix = "custom/".to_string();
         config.workspace_defaults.exclude_paths = vec!["vendor".to_string(), "dist".to_string()];
         config.workspace_defaults.max_repositories = 1000;
+        config.workspace_defaults.worktree_collision_behavior = WorktreeCollisionBehavior::Error;
 
         // Set Docker settings
         config.docker.host = Some("tcp://localhost:2376".to_string());
@@ -645,6 +670,10 @@ mod tests {
         assert!(toml_str.contains("branch_prefix = \"custom/\""), "branch_prefix not in TOML");
         assert!(toml_str.contains("vendor"), "exclude_paths not in TOML");
         assert!(toml_str.contains("max_repositories = 1000"), "max_repositories not in TOML");
+        assert!(
+            toml_str.contains("worktree_collision_behavior = \"error\""),
+            "worktree_collision_behavior not in TOML"
+        );
         assert!(toml_str.contains("tcp://localhost:2376"), "docker.host not in TOML");
         assert!(toml_str.contains("timeout = 120"), "docker.timeout not in TOML");
         assert!(toml_str.contains("theme = \"light\""), "theme not in TOML");
@@ -659,6 +688,10 @@ mod tests {
         assert_eq!(loaded.workspace_defaults.branch_prefix, "custom/");
         assert_eq!(loaded.workspace_defaults.exclude_paths, vec!["vendor", "dist"]);
         assert_eq!(loaded.workspace_defaults.max_repositories, 1000);
+        assert_eq!(
+            loaded.workspace_defaults.worktree_collision_behavior,
+            WorktreeCollisionBehavior::Error
+        );
         assert_eq!(loaded.docker.host, Some("tcp://localhost:2376".to_string()));
         assert_eq!(loaded.docker.timeout, 120);
         assert_eq!(loaded.ui_preferences.theme, "light");

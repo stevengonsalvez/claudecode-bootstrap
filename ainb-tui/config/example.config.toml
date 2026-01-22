@@ -81,6 +81,10 @@ exclude_paths = [
 # Maximum number of repositories to show in search results
 max_repositories = 500
 
+# Behavior when a target worktree path already exists
+# Options: "auto_rename" | "error"
+worktree_collision_behavior = "auto_rename"
+
 # =============================================================================
 # UI Preferences
 # =============================================================================

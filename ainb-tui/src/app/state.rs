@@ -10,7 +10,7 @@ use crate::claude::{ClaudeApiClient, ClaudeMessage};
 use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::components::home_screen_v2::HomeScreenV2State;
 use crate::components::live_logs_stream::LogEntry;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, WorktreeCollisionBehavior};
 use crate::credentials;
 use crate::editors;
 use crate::docker::LogStreamingCoordinator;
@@ -4165,7 +4165,7 @@ impl AppState {
 
     /// Validate the repo input (URL or path) and proceed accordingly
     pub async fn validate_repo_source(&mut self) {
-        use crate::git::{RemoteRepoManager, RepoSource, WorkspaceScanner};
+        use crate::git::RepoSource;
 
         let input = if let Some(ref state) = self.new_session_state {
             state.repo_input.trim().to_string()
@@ -4176,7 +4176,8 @@ impl AppState {
 
         if input.is_empty() {
             if let Some(ref mut state) = self.new_session_state {
-                state.repo_validation_error = Some("Please enter a repository URL or path".to_string());
+                state.repo_validation_error =
+                    Some("Please enter a repository URL or path".to_string());
             }
             return;
         }
@@ -5354,6 +5355,7 @@ impl AppState {
             agent_type,
             session_model,
             existing_worktree,
+            deferred_notice,
         ) = {
             if let Some(ref mut state) = self.new_session_state {
                 tracing::info!("new_session_create called with step: {:?}", state.step);
@@ -5375,7 +5377,8 @@ impl AppState {
                     // Check if this is a remote repo flow (cached_repo_path is set)
                     // For remote repos, we create worktree here and pass it to session creation
                     // For local repos, session creation will create the worktree
-                    let (repo_path, existing_worktree) = if let Some(ref cached_path) = state.cached_repo_path {
+                    let (repo_path, existing_worktree, worktree_notice) =
+                        if let Some(ref cached_path) = state.cached_repo_path {
                         // Remote repo flow - create worktree from bare cache
                         use crate::git::RemoteRepoManager;
 
@@ -5398,7 +5401,49 @@ impl AppState {
                             .as_ref()
                             .map(|s| s.display_name().replace('/', "_"))
                             .unwrap_or_else(|| "unknown".to_string());
-                        let worktree_path = worktree_base.join(format!("{}_{}", repo_name, branch_name.replace('/', "_")));
+                        let base_worktree_name =
+                            format!("{}_{}", repo_name, branch_name.replace('/', "_"));
+                        let mut worktree_path = worktree_base.join(&base_worktree_name);
+                        let mut worktree_notice: Option<String> = None;
+
+                        if worktree_path.exists() {
+                            match self.app_config.workspace_defaults.worktree_collision_behavior {
+                                WorktreeCollisionBehavior::AutoRename => {
+                                    let mut suffix = Uuid::new_v4().to_string();
+                                    suffix.truncate(8);
+                                    let mut candidate =
+                                        worktree_base.join(format!("{}-{}", base_worktree_name, suffix));
+                                    while candidate.exists() {
+                                        let mut next_suffix = Uuid::new_v4().to_string();
+                                        next_suffix.truncate(8);
+                                        candidate = worktree_base.join(format!(
+                                            "{}-{}",
+                                            base_worktree_name, next_suffix
+                                        ));
+                                    }
+                                    worktree_notice = Some(format!(
+                                        "⚠️ Worktree already exists. Creating new worktree at {}",
+                                        candidate.display()
+                                    ));
+                                    tracing::info!(
+                                        "Worktree path exists, auto-renaming: {} -> {}",
+                                        worktree_path.display(),
+                                        candidate.display()
+                                    );
+                                    worktree_path = candidate;
+                                }
+                                WorktreeCollisionBehavior::Error => {
+                                    let message = format!(
+                                        "Worktree path already exists: {}",
+                                        worktree_path.display()
+                                    );
+                                    tracing::error!("{}", message);
+                                    state.repo_validation_error = Some(message);
+                                    state.step = NewSessionStep::InputRepoSource;
+                                    return;
+                                }
+                            }
+                        }
 
                         let manager = match RemoteRepoManager::new() {
                             Ok(m) => m,
@@ -5446,11 +5491,15 @@ impl AppState {
 
                         tracing::info!("Created worktree at: {}", worktree_path.display());
                         // Return worktree path and the existing worktree info (worktree_path, source_repo)
-                        (worktree_path.clone(), Some((worktree_path, cached_path.clone())))
+                        (
+                            worktree_path.clone(),
+                            Some((worktree_path, cached_path.clone())),
+                            worktree_notice,
+                        )
                     } else if let Some(repo_index) = state.selected_repo_index {
                         // Local repo flow - no existing worktree, session creation will create it
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
-                            (repo_path.clone(), None)
+                            (repo_path.clone(), None, None)
                         } else {
                             tracing::error!(
                                 "Failed to get repository path from filtered_repos at index: {}",
@@ -5490,6 +5539,7 @@ impl AppState {
                         state.selected_agent,     // Agent type for session
                         state.get_session_model(), // Model (only for Claude agent)
                         existing_worktree,        // Existing worktree for remote repos
+                        worktree_notice,
                     )
                 } else {
                     tracing::warn!(
@@ -5504,6 +5554,10 @@ impl AppState {
                 return;
             }
         };
+
+        if let Some(notice) = deferred_notice {
+            self.add_info_notification(notice);
+        }
 
         // Create the session with log streaming
         tracing::info!(
