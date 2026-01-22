@@ -102,6 +102,17 @@ lazy_static! {
     static ref CLAUDE_COMMANDS: Regex = Regex::new(
         r"claude-(ask|print|script|start|interactive|help)"
     ).unwrap();
+
+    // Metadata extraction patterns (moved from extract_metadata() for performance)
+    static ref CONTAINER_ID_REGEX: Regex = Regex::new(r"container: ([a-f0-9]{12})").unwrap();
+    static ref PORT_REGEX: Regex = Regex::new(r"port[: ]+(\d+)").unwrap();
+    static ref FILE_PATH_REGEX: Regex = Regex::new(r"(/[\w/.-]+)").unwrap();
+
+    // Message cleanup patterns (moved from clean_message_for_display() for performance)
+    static ref TIMESTAMP_CLEANUP_REGEX: Regex = Regex::new(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*"
+    ).unwrap();
+    static ref SESSION_CLEANUP_REGEX: Regex = Regex::new(r"\[claude/[a-f0-9-]+\]\s*").unwrap();
 }
 
 pub struct LogParser {
@@ -245,18 +256,18 @@ impl LogParser {
     fn extract_metadata(&self, message: &str) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
 
-        // Extract container ID if present
-        if let Some(caps) = Regex::new(r"container: ([a-f0-9]{12})").unwrap().captures(message) {
+        // Extract container ID if present (uses static regex for performance)
+        if let Some(caps) = CONTAINER_ID_REGEX.captures(message) {
             metadata.insert("container_id".to_string(), caps[1].to_string());
         }
 
-        // Extract port numbers
-        if let Some(caps) = Regex::new(r"port[: ]+(\d+)").unwrap().captures(message) {
+        // Extract port numbers (uses static regex for performance)
+        if let Some(caps) = PORT_REGEX.captures(message) {
             metadata.insert("port".to_string(), caps[1].to_string());
         }
 
-        // Extract file paths
-        if let Some(caps) = Regex::new(r"(/[\w/.-]+)").unwrap().captures(message) {
+        // Extract file paths (uses static regex for performance)
+        if let Some(caps) = FILE_PATH_REGEX.captures(message) {
             metadata.insert("path".to_string(), caps[1].to_string());
         }
 
@@ -265,24 +276,14 @@ impl LogParser {
 
     /// Clean message for display (remove redundant tags and timestamps)
     fn clean_message_for_display(&self, message: &str) -> String {
-        let mut clean = message.to_string();
+        // Remove redundant timestamps that might be embedded (uses static regex for performance)
+        let clean = TIMESTAMP_CLEANUP_REGEX.replace_all(message, "");
 
-        // Remove redundant timestamps that might be embedded
-        clean = Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*")
-            .unwrap()
-            .replace_all(&clean, "")
-            .to_string();
-
-        // Remove duplicate container/session references
-        clean = Regex::new(r"\[claude/[a-f0-9-]+\]\s*")
-            .unwrap()
-            .replace_all(&clean, "")
-            .to_string();
+        // Remove duplicate container/session references (uses static regex for performance)
+        let clean = SESSION_CLEANUP_REGEX.replace_all(&clean, "");
 
         // Remove excessive whitespace
-        clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-
-        clean
+        clean.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     /// Process multiline logs (like stack traces)
