@@ -578,7 +578,7 @@ impl NewSessionComponent {
             .margin(1)
             .constraints(vec![
                 Constraint::Length(2), // Repo info
-                Constraint::Length(3), // Mode toggle box (prominent)
+                Constraint::Length(4), // Mode toggle box (radio options)
                 Constraint::Length(3), // Filter input
                 Constraint::Min(0),    // Branch list
                 Constraint::Length(2), // Footer
@@ -599,39 +599,59 @@ impl NewSessionComponent {
         .alignment(Alignment::Center);
         frame.render_widget(repo_info, chunks[0]);
 
-        // Mode toggle - prominent box showing current mode with Tab hint
-        let (mode_icon, mode_text, mode_desc, mode_color, border_color) = match session_state.branch_checkout_mode {
-            BranchCheckoutMode::CreateNew => (
-                "🌱",
-                "CREATE NEW BRANCH",
-                "Will create ainb/{uuid} from selected",
-                selection_green,
-                selection_green,
-            ),
-            BranchCheckoutMode::CheckoutExisting => (
-                "📥",
-                "CHECKOUT EXISTING",
-                "Will use the branch name as-is",
-                cornflower_blue,
-                cornflower_blue,
-            ),
+        // Mode toggle - radio-style options (both visible)
+        let create_selected = matches!(session_state.branch_checkout_mode, BranchCheckoutMode::CreateNew);
+        let existing_selected = !create_selected;
+
+        let create_indicator = if create_selected { "◉" } else { "○" };
+        let existing_indicator = if existing_selected { "◉" } else { "○" };
+
+        let create_style = if create_selected {
+            Style::default().fg(selection_green).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(soft_white)
         };
-        let mode_content = Line::from(vec![
-            Span::styled(format!(" {} ", mode_icon), Style::default().fg(mode_color)),
-            Span::styled(mode_text, Style::default().fg(mode_color).add_modifier(Modifier::BOLD)),
-            Span::styled("  │  ", Style::default().fg(subdued_border)),
-            Span::styled(mode_desc, Style::default().fg(muted_gray)),
-            Span::styled("  │  ", Style::default().fg(subdued_border)),
-            Span::styled("Tab", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
-            Span::styled(" to switch", Style::default().fg(muted_gray)),
+        let existing_style = if existing_selected {
+            Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(soft_white)
+        };
+
+        let mode_lines = vec![
+            Line::from(vec![
+                Span::styled(format!(" {} ", create_indicator), Style::default().fg(if create_selected { selection_green } else { muted_gray })),
+                Span::styled("🌱 ", Style::default().fg(selection_green)),
+                Span::styled("Create new branch", create_style),
+                Span::styled(" — ", Style::default().fg(muted_gray)),
+                Span::styled("create worktree from base", Style::default().fg(muted_gray)),
+            ]),
+            Line::from(vec![
+                Span::styled(format!(" {} ", existing_indicator), Style::default().fg(if existing_selected { cornflower_blue } else { muted_gray })),
+                Span::styled("📥 ", Style::default().fg(cornflower_blue)),
+                Span::styled("Checkout existing", existing_style),
+                Span::styled(" — ", Style::default().fg(muted_gray)),
+                Span::styled("use remote branch as-is", Style::default().fg(muted_gray)),
+            ]),
+            Line::from(vec![
+                Span::styled("Tab", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" to switch mode", Style::default().fg(muted_gray)),
+            ]),
+        ];
+
+        let mode_title = Line::from(vec![
+            Span::styled(" 🔀 ", Style::default().fg(gold)),
+            Span::styled("Branch Checkout Mode", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
         ]);
-        let mode_widget = Paragraph::new(mode_content)
-            .alignment(Alignment::Center)
+
+        let mode_widget = Paragraph::new(mode_lines)
+            .alignment(Alignment::Left)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(border_color))
+                    .border_style(Style::default().fg(subdued_border))
+                    .title(mode_title)
                     .style(Style::default().bg(dark_bg)),
             );
         frame.render_widget(mode_widget, chunks[1]);
@@ -1736,7 +1756,7 @@ impl NewSessionComponent {
 
         // Subtitle
         let subtitle = Paragraph::new(Line::from(vec![
-            Span::styled("Configure how Claude handles command execution", Style::default().fg(muted_gray)),
+            Span::styled("Configure how agents handle command execution", Style::default().fg(muted_gray)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(subtitle, chunks[0]);
@@ -1751,12 +1771,12 @@ impl NewSessionComponent {
             Line::from(vec![
                 Span::styled("  • ", Style::default().fg(muted_gray)),
                 Span::styled("With prompts: ", Style::default().fg(soft_white)),
-                Span::styled("Claude will ask before running commands", Style::default().fg(muted_gray)),
+                Span::styled("Agents will ask before running commands", Style::default().fg(muted_gray)),
             ]),
             Line::from(vec![
                 Span::styled("  • ", Style::default().fg(muted_gray)),
                 Span::styled("Without prompts: ", Style::default().fg(soft_white)),
-                Span::styled("Claude runs commands immediately (faster)", Style::default().fg(muted_gray)),
+                Span::styled("Agents run commands immediately (faster)", Style::default().fg(muted_gray)),
             ]),
         ];
 
@@ -1776,7 +1796,7 @@ impl NewSessionComponent {
                 "🚀",
                 warning_orange,
                 "Skip Permission Prompts",
-                "Claude will execute commands without asking",
+                "Agents will execute commands without asking",
                 "--dangerously-skip-permissions",
             )
         } else {
@@ -1784,7 +1804,7 @@ impl NewSessionComponent {
                 "🛡️",
                 selection_green,
                 "Keep Permission Prompts",
-                "Claude will ask before executing commands",
+                "Agents will ask before executing commands",
                 "default",
             )
         };
@@ -1973,8 +1993,9 @@ impl NewSessionComponent {
             ])
             .split(inner);
 
-        let is_interactive = session_state.mode == SessionMode::Interactive;
-        let is_boss = session_state.mode == SessionMode::Boss;
+        let boss_enabled = session_state.selected_agent == crate::models::SessionAgentType::Claude;
+        let is_boss = boss_enabled && session_state.mode == SessionMode::Boss;
+        let is_interactive = session_state.mode == SessionMode::Interactive || !boss_enabled;
 
         // Interactive mode card
         let interactive_border_color = if is_interactive {
@@ -2037,29 +2058,41 @@ impl NewSessionComponent {
         frame.render_widget(interactive_para, chunks[0]);
 
         // Boss mode card
-        let boss_border_color = if is_boss {
+        let boss_border_color = if !boss_enabled {
+            Color::Rgb(60, 60, 80) // Disabled
+        } else if is_boss {
             Color::Rgb(255, 165, 0) // Orange when selected
         } else {
             Color::Rgb(70, 70, 90) // Gray when not
         };
 
-        let boss_bg = if is_boss {
+        let boss_bg = if !boss_enabled {
+            Color::Rgb(30, 30, 40)
+        } else if is_boss {
             Color::Rgb(45, 40, 30) // Slightly orange tint
         } else {
             Color::Rgb(30, 30, 40)
+        };
+
+        let boss_title_color = if !boss_enabled {
+            Color::Rgb(140, 140, 160)
+        } else if is_boss {
+            Color::Rgb(255, 165, 0)
+        } else {
+            Color::Rgb(200, 200, 200)
         };
 
         let boss_text = vec![
             Line::from(vec![
                 Span::styled(
                     if is_boss { "  ▶ " } else { "    " },
-                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                    Style::default().fg(if boss_enabled { Color::Rgb(255, 165, 0) } else { Color::Rgb(80, 80, 100) }),
                 ),
                 Span::styled("🤖 ", Style::default()),
                 Span::styled(
                     "Boss Mode",
                     Style::default()
-                        .fg(if is_boss { Color::Rgb(255, 165, 0) } else { Color::Rgb(200, 200, 200) })
+                        .fg(boss_title_color)
                         .add_modifier(Modifier::BOLD),
                 ),
                 if is_boss {
@@ -2067,22 +2100,42 @@ impl NewSessionComponent {
                 } else {
                     Span::raw("")
                 },
+                Span::styled(
+                    "  [ALPHA]",
+                    Style::default()
+                        .fg(Color::Rgb(255, 165, 0))
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
                 Span::styled("      ", Style::default()),
-                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
-                Span::styled(" Non-interactive task execution", Style::default().fg(Color::Rgb(180, 180, 180))),
+                Span::styled("ALPHA stage", Style::default().fg(Color::Rgb(255, 165, 0)).add_modifier(Modifier::BOLD)),
+                Span::styled(" — works only for Claude", Style::default().fg(Color::Rgb(150, 150, 170)).add_modifier(Modifier::ITALIC)),
             ]),
             Line::from(vec![
                 Span::styled("      ", Style::default()),
-                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
-                Span::styled(" Direct prompt execution with text output", Style::default().fg(Color::Rgb(180, 180, 180))),
+                Span::styled("•", Style::default().fg(if boss_enabled { Color::Rgb(255, 165, 0) } else { Color::Rgb(80, 80, 100) })),
+                Span::styled(
+                    " Non-interactive task execution",
+                    Style::default().fg(if boss_enabled { Color::Rgb(180, 180, 180) } else { Color::Rgb(130, 130, 150) }),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("      ", Style::default()),
-                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
-                Span::styled(" Results streamed to TUI logs", Style::default().fg(Color::Rgb(180, 180, 180))),
+                Span::styled("•", Style::default().fg(if boss_enabled { Color::Rgb(255, 165, 0) } else { Color::Rgb(80, 80, 100) })),
+                Span::styled(
+                    " Direct prompt execution with text output",
+                    Style::default().fg(if boss_enabled { Color::Rgb(180, 180, 180) } else { Color::Rgb(130, 130, 150) }),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(if boss_enabled { Color::Rgb(255, 165, 0) } else { Color::Rgb(80, 80, 100) })),
+                Span::styled(
+                    " Results streamed to TUI logs",
+                    Style::default().fg(if boss_enabled { Color::Rgb(180, 180, 180) } else { Color::Rgb(130, 130, 150) }),
+                ),
             ]),
         ];
 

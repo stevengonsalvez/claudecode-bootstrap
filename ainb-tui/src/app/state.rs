@@ -2103,6 +2103,7 @@ impl NewSessionState {
             self.selected_agent_index = (self.selected_agent_index + 1) % self.agent_options.len();
             // Also update selected_agent to keep in sync
             self.selected_agent = self.current_agent_type();
+            self.enforce_mode_constraints();
         }
     }
 
@@ -2115,6 +2116,7 @@ impl NewSessionState {
             };
             // Also update selected_agent to keep in sync
             self.selected_agent = self.current_agent_type();
+            self.enforce_mode_constraints();
         }
     }
 
@@ -2132,9 +2134,20 @@ impl NewSessionState {
         self.current_agent_type().is_available()
     }
 
+    pub fn is_boss_mode_available(&self) -> bool {
+        self.selected_agent == SessionAgentType::Claude
+    }
+
+    pub fn enforce_mode_constraints(&mut self) {
+        if !self.is_boss_mode_available() && self.mode == crate::models::SessionMode::Boss {
+            self.mode = crate::models::SessionMode::Interactive;
+        }
+    }
+
     /// Select the current agent and update selected_agent field
     pub fn confirm_agent_selection(&mut self) {
         self.selected_agent = self.current_agent_type();
+        self.enforce_mode_constraints();
     }
 
     /// Get the selected repo path
@@ -4968,6 +4981,7 @@ impl AppState {
     pub fn new_session_proceed_from_mode(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::SelectMode {
+                state.enforce_mode_constraints();
                 tracing::info!(
                     "Proceeding from SelectMode to next step with mode: {:?}",
                     state.mode
@@ -5067,6 +5081,10 @@ impl AppState {
     pub fn new_session_toggle_mode(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::SelectMode {
+                if !state.is_boss_mode_available() {
+                    state.mode = crate::models::SessionMode::Interactive;
+                    return;
+                }
                 state.mode = match state.mode {
                     crate::models::SessionMode::Interactive => crate::models::SessionMode::Boss,
                     crate::models::SessionMode::Boss => crate::models::SessionMode::Interactive,
