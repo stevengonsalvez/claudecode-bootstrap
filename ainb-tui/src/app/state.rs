@@ -423,6 +423,7 @@ pub struct ConfirmationDialog {
     pub message: String,
     pub confirm_action: ConfirmAction,
     pub selected_option: bool, // true = Yes, false = No
+    pub warning: Option<String>, // Optional warning (e.g., uncommitted files in worktree)
 }
 
 #[derive(Debug, Clone)]
@@ -3765,12 +3766,42 @@ impl AppState {
 
     pub fn show_delete_confirmation(&mut self, session_id: Uuid) {
         info!("!!! SHOWING DELETE CONFIRMATION DIALOG for session: {}", session_id);
+
+        // Check for uncommitted changes in worktree (only for non-Shell sessions)
+        let warning = self.check_session_uncommitted_warning(session_id);
+
         self.confirmation_dialog = Some(ConfirmationDialog {
             title: "Delete Session".to_string(),
             message: "Are you sure you want to delete this session? This will stop the container and remove the git worktree.".to_string(),
             confirm_action: ConfirmAction::DeleteSession(session_id),
             selected_option: false, // Default to "No"
+            warning,
         });
+    }
+
+    /// Check if a session's worktree has uncommitted changes.
+    /// Returns None for Shell sessions (no dedicated worktree) or if no uncommitted changes.
+    fn check_session_uncommitted_warning(&self, session_id: Uuid) -> Option<String> {
+        use crate::git::WorktreeManager;
+        use crate::models::SessionAgentType;
+
+        // Find the session to check its type
+        let session = self.find_session(session_id)?;
+
+        // Skip for Shell sessions - they don't have dedicated worktrees
+        if matches!(session.agent_type, SessionAgentType::Shell) {
+            return None;
+        }
+
+        // Try to check worktree status
+        let worktree_manager = WorktreeManager::new().ok()?;
+        let count = worktree_manager.uncommitted_file_count(session_id).ok()?;
+
+        if count > 0 {
+            Some(format!("⚠️ {} uncommitted file(s) in worktree", count))
+        } else {
+            None
+        }
     }
 
     /// Show confirmation dialog for killing an "other" tmux session
@@ -3781,6 +3812,7 @@ impl AppState {
             message: format!("Are you sure you want to kill tmux session '{}'?", session_name),
             confirm_action: ConfirmAction::KillOtherTmux(session_name),
             selected_option: false, // Default to "No"
+            warning: None,
         });
     }
 
@@ -3803,6 +3835,7 @@ impl AppState {
             message: format!("Are you sure you want to kill shell '{}' in workspace '{}'?", shell_name, workspace_name),
             confirm_action: ConfirmAction::KillWorkspaceShell(workspace_index),
             selected_option: false, // Default to "No"
+            warning: None,
         });
     }
 

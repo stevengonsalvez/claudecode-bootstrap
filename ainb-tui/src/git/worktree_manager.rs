@@ -721,6 +721,32 @@ impl WorktreeManager {
 
         Ok(())
     }
+
+    /// Get count of uncommitted files (staged, unstaged, or untracked) in a worktree
+    ///
+    /// Used to warn users before deleting a session with uncommitted changes.
+    pub fn uncommitted_file_count(&self, session_id: Uuid) -> Result<usize, WorktreeError> {
+        let worktree_info = self.get_worktree_info(session_id)?;
+
+        let output = Command::new("git")
+            .current_dir(&worktree_info.path)
+            .args(["status", "--porcelain"])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(WorktreeError::CommandFailed(format!(
+                "Failed to get git status: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        let count = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .count();
+
+        Ok(count)
+    }
 }
 
 impl Default for WorktreeManager {
