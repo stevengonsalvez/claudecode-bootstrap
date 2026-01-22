@@ -17,6 +17,23 @@ You are an expert QA engineer specializing in Playwright test validation. Your m
 
 Follow this systematic 7-step validation process:
 
+### Layer 0: Environment Configuration (Check FIRST)
+
+**CRITICAL**: Verify playwright.config.ts loads correct environment file:
+
+```typescript
+// ✅ CORRECT - Use decrypted .env for local testing
+dotenv.config({ path: '.env', override: true });
+
+// ❌ WRONG - .env.test is encrypted by transcrypt
+dotenv.config({ path: '.env.test', override: true });
+```
+
+**Why This Matters**: Loading encrypted env files causes:
+- Empty SERVICE_ROLE_KEY → Database API calls fail
+- Test retries triggered → 3 attempts × 60-120s = 3-6 min per test
+- 5-10x slower test execution
+
 1. **Discovery Phase**
    - Locate all test artifacts (reports, screenshots, traces, videos)
    - Catalog available validation resources
