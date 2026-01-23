@@ -34,43 +34,43 @@ To test local web applications, write native Python Playwright scripts.
 
 ## Browser Tools (Direct Chrome DevTools Control)
 
-The `bin/browser-tools` utility provides lightweight, context-rot-proof browser automation using the Chrome DevTools Protocol directly (no MCP overhead).
+The `~/.claude/skills/webapp-testing/bin/browser-tools` utility provides lightweight, context-rot-proof browser automation using the Chrome DevTools Protocol directly (no MCP overhead).
 
 **Available Commands**:
 
 ```bash
 # Launch browser and get connection details
-bin/browser-tools start [--port PORT] [--headless]
+~/.claude/skills/webapp-testing/bin/browser-tools start [--port PORT] [--headless]
 
 # Navigate to URL
-bin/browser-tools nav <url> [--wait-for {load|networkidle|domcontentloaded}]
+~/.claude/skills/webapp-testing/bin/browser-tools nav <url> [--wait-for {load|networkidle|domcontentloaded}]
 
 # Evaluate JavaScript
-bin/browser-tools eval "<javascript code>"
+~/.claude/skills/webapp-testing/bin/browser-tools eval "<javascript code>"
 
 # Take screenshot
-bin/browser-tools screenshot <output.png> [--full-page] [--selector CSS_SELECTOR]
+~/.claude/skills/webapp-testing/bin/browser-tools screenshot <output.png> [--full-page] [--selector CSS_SELECTOR]
 
 # Interactive element picker (returns selectors)
-bin/browser-tools pick
+~/.claude/skills/webapp-testing/bin/browser-tools pick
 
 # Get console logs
-bin/browser-tools console [--level {log|warn|error|all}]
+~/.claude/skills/webapp-testing/bin/browser-tools console [--level {log|warn|error|all}]
 
 # Search page content
-bin/browser-tools search "<query>" [--case-sensitive]
+~/.claude/skills/webapp-testing/bin/browser-tools search "<query>" [--case-sensitive]
 
 # Extract page content (markdown, links, text)
-bin/browser-tools content [--format {markdown|links|text}]
+~/.claude/skills/webapp-testing/bin/browser-tools content [--format {markdown|links|text}]
 
 # Get/set cookies
-bin/browser-tools cookies [--set NAME=VALUE] [--domain DOMAIN]
+~/.claude/skills/webapp-testing/bin/browser-tools cookies [--set NAME=VALUE] [--domain DOMAIN]
 
 # Inspect element details
-bin/browser-tools inspect <css-selector>
+~/.claude/skills/webapp-testing/bin/browser-tools inspect <css-selector>
 
 # Terminate browser session
-bin/browser-tools kill
+~/.claude/skills/webapp-testing/bin/browser-tools kill
 ```
 
 **When to Use Browser-Tools vs Playwright**:
@@ -95,26 +95,26 @@ bin/browser-tools kill
 
 ```bash
 # 1. Start browser pointed at your app
-bin/browser-tools start --port 9222
+~/.claude/skills/webapp-testing/bin/browser-tools start --port 9222
 
 # 2. Navigate to the page
-bin/browser-tools nav http://localhost:3000
+~/.claude/skills/webapp-testing/bin/browser-tools nav http://localhost:3000
 
 # 3. Use interactive picker to find selectors
-bin/browser-tools pick
+~/.claude/skills/webapp-testing/bin/browser-tools pick
 # Click on elements in the browser, get their selectors
 
 # 4. Inspect specific elements
-bin/browser-tools inspect "button.submit"
+~/.claude/skills/webapp-testing/bin/browser-tools inspect "button.submit"
 
 # 5. Take screenshot for documentation
-bin/browser-tools screenshot /tmp/page.png --full-page
+~/.claude/skills/webapp-testing/bin/browser-tools screenshot /tmp/page.png --full-page
 
 # 6. Check console for errors
-bin/browser-tools console --level error
+~/.claude/skills/webapp-testing/bin/browser-tools console --level error
 
 # 7. Clean up
-bin/browser-tools kill
+~/.claude/skills/webapp-testing/bin/browser-tools kill
 ```
 
 **Benefits**:
