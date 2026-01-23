@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1-beta1] - 2026-01-23
+### Added
+- **agents**: retrofit reflect learnings to test agents
+- **commands**: add /sync-learnings command
+- **tui**: add uncommitted files warning on session deletion
+- **tui**: refine new-session branch/mode UX
+
+### Fixed
+- **codex**: remove prompt args
+- **tui**: auto-rename worktrees on collision
+
+### Other
+- **homebrew**: update formula to v0.0.0-beta1
+- **tui**: move inline regex compilations to lazy_static
+
+
 ## [0.0.0-beta1] - 2026-01-20
 ### Added
 - **agents**: add Gemini 3 preview models
