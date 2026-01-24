@@ -76,6 +76,72 @@ dotenv.config({ path: '.env.test', override: true });
    - Generate actionable recommendations
    - Highlight critical issues requiring immediate attention
 
+## Proactive Investigation Protocol
+
+When tests fail, don't just report - INVESTIGATE the root cause:
+
+### 1. Check Screenshots First
+- Read actual PNG files to see UI state
+- Look for error modals, 404 pages, loading spinners
+- Compare expected vs actual visual state
+
+### 2. Check Backend State Directly
+Query Supabase (or relevant backend) to verify data:
+```bash
+# Check if auth users were created
+curl -s "${SUPABASE_URL}/auth/v1/admin/users" \
+  -H "apikey: ${SERVICE_ROLE_KEY}" \
+  -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" | jq '.users | length'
+
+# Check database tables
+curl -s "${SUPABASE_URL}/rest/v1/profiles?select=id,email&order=created_at.desc&limit=5" \
+  -H "apikey: ${SERVICE_ROLE_KEY}" \
+  -H "Authorization: Bearer ${SERVICE_ROLE_KEY}"
+```
+
+### 3. Test API Endpoints Directly
+Reproduce the failing operation in isolation:
+```bash
+# Test signup with specific email
+curl -X POST "${SUPABASE_URL}/auth/v1/signup" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@domain.com", "password": "testpass123"}'
+```
+
+### 4. Email Domain Validation (Common Issue)
+**Supabase validates MX records for email domains:**
+| Domain | Status | Reason |
+|--------|--------|--------|
+| `@shotclubhouse.com` | ✅ Works | Real domain with MX records |
+| `@gmail.com` | ✅ Works | Real email provider |
+| `@yopmail.com` | ✅ Works | Disposable email with MX |
+| `@example.com` | ❌ Rejected | Reserved domain, no MX |
+| `@test.shot` | ❌ Rejected | Fake TLD, no MX records |
+
+Verify MX records: `dig +short MX domain.com`
+
+### 5. Check Logs for Detailed Errors
+```bash
+# Check app logs
+cat app-*.log | grep -i error | tail -20
+
+# Check test output for stack traces
+cat test-results/*.log 2>/dev/null | grep -A5 "Error:"
+```
+
+### 6. Verify Infrastructure
+- Test Supabase connectivity: `curl ${SUPABASE_URL}/rest/v1/`
+- Check required headers (both `apikey` AND `Authorization: Bearer`)
+- Verify environment variables are set correctly
+
+### Investigation Output Format
+After investigation, report findings with:
+1. **Root Cause**: What actually caused the failure
+2. **Evidence**: Specific data that confirms the cause
+3. **Fix Required**: Exact changes needed
+4. **Verification**: How to confirm the fix works
+
 ## Output Contract
 
 Your validation report MUST include:
@@ -154,6 +220,101 @@ Your validation report MUST include:
 - Timeout errors = timing or performance problem
 - Selector not found = DOM stability issue
 - Screenshot mismatches = visual regression
+
+## Build & Dependency Error Detection
+
+When tests fail before even loading the app, investigate build issues:
+
+### Vite Build Errors
+
+**Detection Pattern**:
+```typescript
+// Check for Vite error overlay in screenshots
+const viteError = page.locator('.vite-error-overlay, [data-vite-error]');
+if (await viteError.isVisible({ timeout: 2000 })) {
+  throw new Error('Build error - check for missing dependencies');
+}
+```
+
+**Common Causes**:
+| Error Pattern | Cause | Fix |
+|--------------|-------|-----|
+| `Failed to resolve import "X"` | Missing npm package | `npm install X` |
+| `Could not resolve "X"` | Missing dependency | Check package.json |
+| `TypeScript error` | Type errors in code | `npx tsc --noEmit` |
+
+**Investigation Steps**:
+```bash
+# Check for missing package
+npm ls package-name
+
+# Check if in package.json
+grep "package-name" package.json
+
+# Run build to see all errors
+npm run build 2>&1 | head -50
+```
+
+### Example: canvas-confetti Missing
+```
+[plugin:vite:import-analysis] Failed to resolve import "canvas-confetti"
+from "src/components/registration/SportHeadIdSelector.tsx"
+```
+**Fix**: `npm install canvas-confetti`
+
+---
+
+## UI Flow Change Detection
+
+When UI flows change (new steps, moved fields), tests fail unexpectedly:
+
+### New Required Steps Detection
+
+**Symptoms**:
+- Test stuck on validation message
+- Form won't submit despite fields filled
+- Screenshot shows unexpected UI elements
+
+**Example - Sport Head ID Selection**:
+Registration flow added new step requiring Sport Head ID selection.
+
+**Detection Pattern**:
+```typescript
+// Check for new/unexpected UI elements
+const newUIPatterns = [
+  'text=Choose any Sport Head ID below',
+  'text=Please select',
+  '[data-testid="sport-head-id-selector"]',
+];
+
+for (const pattern of newUIPatterns) {
+  if (await page.locator(pattern).isVisible({ timeout: 1000 }).catch(() => false)) {
+    console.log('⚠️ New UI element detected:', pattern);
+    // Investigate and handle
+  }
+}
+```
+
+### Changed Form Structure
+
+**Investigation**:
+```bash
+# Check recent UI commits
+git log --oneline -20 -- 'src/components/**' 'src/pages/**'
+
+# Look for new required fields
+grep -r "required" src/components/registration/
+
+# Check form step structure
+grep -r "Step.*of" src/components/
+```
+
+### Key Files to Monitor
+- `src/components/registration/*.tsx` - Registration components
+- `src/pages/auth/*.tsx` - Auth pages
+- `playwright/utils/page-actions.ts` - Test helpers (may need updates)
+
+---
 
 ## Intelligence Features
 
