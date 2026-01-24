@@ -178,6 +178,7 @@ Located at `~/.claude/orchestration/state/config.json`:
 - `/merge-agent-work` - Merge agent branch to main
 - `/cleanup-agent-worktree` - Remove worktree after merge
 - `/list-agent-worktrees` - List all active worktrees
+- `/recover-sessions` - Recover orphaned sessions after crash/shutdown
 
 ## Utility Scripts
 
@@ -187,7 +188,8 @@ Located in `utils/`:
 - `orchestrator-dag.sh` - DAG parsing and wave extraction
 - `orchestrator-state.sh` - State management functions
 - `orchestrator-agent.sh` - Agent spawning and monitoring
-- `spawn-agent-lib.sh` - Shared agent spawning library
+- `spawn-agent-lib.sh` - Shared agent spawning library (with recovery support)
+- `session-registry.sh` - Session registry management and orphan detection
 - `git-worktree-utils.sh` - Git worktree management
 
 ## Example Usage
@@ -236,3 +238,71 @@ Recovery Options:
 2. Resume workflow: /m-implement {SESSION_ID} --resume
 3. Restart from wave: /m-implement {SESSION_ID} --from-wave 2
 ```
+
+## Session Persistence and Recovery
+
+When tmux sessions are killed externally (system shutdown, network disconnect, crash):
+
+1. **Worktrees remain** on disk in `worktrees/agent-{ID}-{SLUG}/`
+2. **Agent metadata** persists at `~/.claude/agents/{SESSION}.json`
+3. **Transcript path** stored for `claude --resume` capability
+4. **Registry log** at `~/.claude/agents/registry.jsonl` tracks all events
+
+### Recovery Workflow
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  System Crash   │────▶│  Worktrees Stay  │────▶│  User Restarts  │
+│  (tmux dies)    │     │  Metadata Stays  │     │  Claude Code    │
+└─────────────────┘     └──────────────────┘     └────────┬────────┘
+                                                          │
+                                                          ▼
+                                               ┌──────────────────┐
+                                               │ Session startup  │
+                                               │ detects orphans  │
+                                               │ (auto-warning)   │
+                                               └────────┬─────────┘
+                                                        │
+                                                        ▼
+                                               ┌──────────────────┐
+                                               │/recover-sessions │
+                                               │  list | resume   │
+                                               │    | cleanup     │
+                                               └──────────────────┘
+```
+
+### Recovery Commands
+
+```bash
+# List orphaned sessions
+/recover-sessions list
+
+# Resume session with transcript (continues conversation)
+/recover-sessions resume agent-1234567890
+
+# Archive session metadata
+/recover-sessions cleanup agent-1234567890
+
+# Archive all orphaned sessions
+/recover-sessions cleanup-all
+```
+
+### Session Metadata
+
+Each agent session stores enhanced metadata at `~/.claude/agents/{session}.json`:
+
+```json
+{
+  "session": "agent-1234567890",
+  "task": "Implement feature X",
+  "directory": "/path/to/worktree",
+  "created": "2025-01-24T10:00:00+00:00",
+  "status": "running",
+  "transcript_path": "~/.claude/projects/{encoded}/session.jsonl",
+  "tmux_pid": "12345",
+  "with_worktree": true,
+  "worktree_branch": "agent/agent-1234567890"
+}
+```
+
+Archived sessions are moved to `~/.claude/agents/archived/`.

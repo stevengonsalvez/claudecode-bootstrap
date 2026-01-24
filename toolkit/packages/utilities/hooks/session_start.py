@@ -13,12 +13,128 @@ import sys
 import subprocess
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, List, Dict
 
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass  # dotenv is optional
+
+
+def check_orphaned_agent_sessions() -> List[Dict]:
+    """
+    Check for orphaned agent sessions on startup.
+
+    An orphaned session is one where:
+    - Metadata file exists in ~/.claude/agents/
+    - Status is not 'completed' or 'archived'
+    - tmux session no longer exists
+    - Worktree directory still exists
+
+    Returns list of orphaned session info dicts.
+    """
+    agents_dir = Path.home() / ".claude" / "agents"
+    orphaned = []
+
+    if not agents_dir.exists():
+        return orphaned
+
+    for meta_file in agents_dir.glob("*.json"):
+        if meta_file.name == "registry.jsonl":
+            continue
+
+        try:
+            meta = json.loads(meta_file.read_text())
+        except (json.JSONDecodeError, IOError):
+            continue
+
+        session = meta.get("session", "")
+        status = meta.get("status", "unknown")
+
+        # Skip completed/archived sessions
+        if status in ("completed", "archived"):
+            continue
+
+        # Check if tmux session exists
+        try:
+            result = subprocess.run(
+                ["tmux", "has-session", "-t", session],
+                capture_output=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                continue  # Session is alive, not orphaned
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # tmux not available or timed out - can't check
+            continue
+
+        # tmux session dead - check if worktree exists
+        worktree = meta.get("directory", "")
+        if worktree and Path(worktree).exists():
+            # Check for transcript (determines if resumable)
+            transcript = meta.get("transcript_path", "")
+            can_resume = transcript and Path(transcript).exists()
+
+            # Calculate time since creation
+            created = meta.get("created", "")
+            time_ago = ""
+            if created:
+                try:
+                    created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                    delta = datetime.now(created_dt.tzinfo) - created_dt
+                    hours = delta.total_seconds() / 3600
+                    if hours < 1:
+                        time_ago = f"{int(delta.total_seconds() / 60)}m ago"
+                    elif hours < 24:
+                        time_ago = f"{int(hours)}h ago"
+                    else:
+                        time_ago = f"{int(hours / 24)}d ago"
+                except (ValueError, TypeError):
+                    pass
+
+            orphaned.append({
+                "session": session,
+                "task": meta.get("task", "Unknown task")[:50],
+                "worktree": worktree,
+                "created": created,
+                "time_ago": time_ago,
+                "can_resume": can_resume,
+                "branch": meta.get("worktree_branch", "")
+            })
+
+    return orphaned
+
+
+def format_orphan_warning(orphaned: List[Dict]) -> Optional[str]:
+    """Format orphaned sessions warning for display."""
+    if not orphaned:
+        return None
+
+    lines = [
+        "",
+        "WARNING: Found orphaned agent sessions",
+        "=" * 60,
+    ]
+
+    for sess in orphaned[:5]:  # Limit to 5 to avoid spam
+        task_preview = sess["task"].replace("\n", " ")[:40]
+        resume_status = "[RESUMABLE]" if sess["can_resume"] else "[NO TRANSCRIPT]"
+        time_info = f" ({sess['time_ago']})" if sess["time_ago"] else ""
+
+        lines.append(f"  - {sess['session']}: '{task_preview}'{time_info} {resume_status}")
+
+    if len(orphaned) > 5:
+        lines.append(f"  ... and {len(orphaned) - 5} more")
+
+    lines.extend([
+        "",
+        "Run '/recover-sessions' to resume or cleanup",
+        "=" * 60,
+        ""
+    ])
+
+    return "\n".join(lines)
 
 
 def log_session_start(input_data):
@@ -269,13 +385,21 @@ def main():
         # Always load tmux sessions
         tmux_sessions = load_tmux_sessions()
 
-        # Combine git status (if requested) with tmux sessions
+        # Check for orphaned agent sessions
+        orphaned_sessions = check_orphaned_agent_sessions()
+        orphan_warning = format_orphan_warning(orphaned_sessions)
+
+        # Combine git status (if requested) with tmux sessions and orphan warning
         context_parts = []
         if args.git_status and git_status_info:
             context_parts.extend(git_status_info)
 
         if tmux_sessions:
             context_parts.append(tmux_sessions)
+
+        # Add orphan warning if any found
+        if orphan_warning:
+            context_parts.append(orphan_warning)
 
         # If we have any context to display, output it
         if context_parts:

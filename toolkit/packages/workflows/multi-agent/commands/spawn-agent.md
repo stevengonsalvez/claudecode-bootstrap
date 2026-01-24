@@ -239,9 +239,20 @@ echo "To kill session:"
 echo "  tmux kill-session -t $SESSION"
 echo ""
 
-# Save metadata
-mkdir -p ~/.claude/agents
-cat > ~/.claude/agents/${SESSION}.json <<EOF
+# Source spawn-agent-lib for enhanced metadata functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../utils/spawn-agent-lib.sh" ]; then
+    source "$SCRIPT_DIR/../utils/spawn-agent-lib.sh"
+
+    # Save enhanced metadata with transcript path support
+    save_agent_metadata "$SESSION" "$TASK" "$WORK_DIR" "$WITH_HANDOVER" "$WITH_WORKTREE" "$AGENT_BRANCH"
+
+    # Try to update transcript path after a brief delay (transcript may not exist immediately)
+    (sleep 5 && update_agent_transcript "$SESSION" "$WORK_DIR" 2>/dev/null) &
+else
+    # Fallback: save basic metadata if library not found
+    mkdir -p ~/.claude/agents
+    cat > ~/.claude/agents/${SESSION}.json <<EOF
 {
   "session": "$SESSION",
   "task": "$TASK",
@@ -253,6 +264,7 @@ cat > ~/.claude/agents/${SESSION}.json <<EOF
   "worktree_branch": "$AGENT_BRANCH"
 }
 EOF
+fi
 
 exit 0
 ```
@@ -264,10 +276,13 @@ exit 0
 - Use `tmux attach -t agent-{timestamp}` to monitor
 - Use `tmux send-keys` to send additional prompts
 - Metadata saved to `~/.claude/agents/agent-{timestamp}.json`
-- **NEW**: Robust readiness detection with 30s timeout
-- **NEW**: Multi-line input handled correctly via line-by-line sending
-- **NEW**: Verification that task was received and processing started
-- **NEW**: Debug logs saved to `/tmp/spawn-agent-{session}-failure.log` on failures
+- **Session Recovery**: If tmux dies (crash/shutdown), use `/recover-sessions` to resume
+- Transcript path tracked for `--resume` capability
+- Session events logged to `~/.claude/agents/registry.jsonl`
+- Robust readiness detection with 30s timeout
+- Multi-line input handled correctly via line-by-line sending
+- Verification that task was received and processing started
+- Debug logs saved to `/tmp/spawn-agent-{session}-failure.log` on failures
 
 ## Worktree Isolation
 
