@@ -4,18 +4,20 @@ description: Sync user-level Claude config changes back to toolkit repository
 
 # Sync Learnings
 
-Detect and sync changes made at user-level (`~/.claude/`) back to the toolkit repository.
+Bidirectional sync between `~/.claude/` (user-level) and toolkit repository.
 
 ## Purpose
 
-When working on projects, learnings get captured in user-level agent files via `/reflect`. This command syncs those improvements back to the toolkit for version control and sharing.
+When working on projects, learnings get captured in user-level agent files via `/reflect`. This command syncs improvements bidirectionally:
+- **TO_REPO**: New/updated files in ~/.claude that should be version controlled
+- **TO_HOME**: Newer files in repo that should update ~/.claude
 
 ## Workflow
 
-1. **Detect Changes**: Compare `~/.claude/` with `toolkit/claude-code-4.5/`
-2. **Show Diff**: Display what's different (user-level vs toolkit)
-3. **Selective Sync**: Allow choosing which changes to sync
-4. **Apply & Commit**: Copy changes to toolkit and prepare for commit
+1. **Assess**: Compare directories and categorize differences
+2. **Plan**: Generate sync plan table with actions and rationale
+3. **Execute**: Copy files in parallel where possible
+4. **Commit**: Single commit for TO_REPO changes
 
 ## Directories to Sync
 
@@ -23,102 +25,177 @@ When working on projects, learnings get captured in user-level agent files via `
 |---------------------|------------------|
 | `~/.claude/agents/` | `toolkit/claude-code-4.5/agents/` |
 | `~/.claude/commands/` | `toolkit/claude-code-4.5/commands/` |
-| `~/.claude/hooks/` | `toolkit/claude-code-4.5/hooks/` |
 | `~/.claude/templates/` | `toolkit/claude-code-4.5/templates/` |
 
-## Exclusions (never sync back)
+## Exclusion Categories (Never Sync)
 
-These directories contain ephemeral or user-specific content:
+### Category 1: Personal Instrumentation
+Files with personal/optional integrations that others may not have:
+- `hooks/*.py` with Langfuse, telemetry, or personal API integrations
+- Keep separate - don't pollute shared repo with personal tooling
 
-- `session/` - Session state (ephemeral)
-- `reflections/` - Reflection logs (stay at user-level)
-- `plans/` - Plan files (temporary)
+### Category 2: Project-Specific Commands
+Commands that only make sense for specific private projects:
+- `commands/data-setup-*.md` - Project-specific data setup
+- `commands/load-frameworks.md` - Project-specific framework loading
+- Keep in ~/.claude only if private, or in project `.claude/` if shareable
+
+### Category 3: Session/Ephemeral Data
+Runtime state that shouldn't be versioned:
+- `session/` - Session state files
+- `reflections/` - Reflection logs
+- `plans/` - Temporary plan files
+- `*.json` session files (agent-*.json, webapp-testing.yaml, etc.)
+
+### Category 4: User Settings
+Personal configuration:
 - `settings.json` - User-specific settings
 - `settings.local.json` - Local overrides
 
-## Execution Steps
+## Assessment Phase
 
-### Step 1: Find Differences
+Before syncing, generate an assessment table:
+
+```markdown
+# Sync Assessment: ~/.claude ↔ toolkit/claude-code-4.5
+
+## Summary
+
+| Action | Files | Reason |
+|--------|-------|--------|
+| **SYNC TO REPO** | N files | Useful generic additions |
+| **SYNC TO ~/.claude** | N files | Repo has newer versions |
+| **DON'T SYNC** | Multiple | Project-specific or session data |
+
+---
+
+## ✅ SYNC TO REPO (from ~/.claude)
+
+### 1. `path/to/file.md` (NEW|UPDATED)
+- **Purpose**: [what this file does]
+- **Why sync**: [why it's generic/useful]
+- **Assessment**: ✅ Valuable addition
+
+---
+
+## ⬇️ SYNC TO ~/.claude (from repo)
+
+### 1. `path/to/file.md`
+- **Status**: Exists in repo but NOT in ~/.claude | Repo version is NEWER
+- **What's new**: [description of changes]
+- **Assessment**: ✅ Copy to ~/.claude
+
+---
+
+## ❌ DON'T SYNC
+
+### [Category Name]
+- `file1.md` - [reason]
+- `file2.md` - [reason]
+```
+
+## Execution
+
+### Shell Alias Workaround
+
+Many shells alias `cp` to `cp -i` (interactive mode). Always use `\cp` to bypass:
 
 ```bash
-# Compare agents
-diff -rq ~/.claude/agents/ toolkit/claude-code-4.5/agents/ 2>/dev/null | grep -v "^Only in"
+# ❌ WRONG - Will prompt for confirmation and fail in automation
+cp source dest
 
-# Compare commands
-diff -rq ~/.claude/commands/ toolkit/claude-code-4.5/commands/ 2>/dev/null | grep -v "^Only in"
-
-# Compare hooks
-diff -rq ~/.claude/hooks/ toolkit/claude-code-4.5/hooks/ 2>/dev/null | grep -v "^Only in"
+# ✅ CORRECT - Bypasses alias, forces overwrite
+\cp source dest
 ```
 
-### Step 2: For Each Difference
+### Parallel Execution
 
-1. Show unified diff between user-level and toolkit version
-2. Highlight what changed (additions, removals, modifications)
-3. Ask: "Sync this change to toolkit? [y/n/s(kip all)/v(iew full)]"
-
-### Step 3: Apply Approved Changes
+All file copies are independent - execute in parallel:
 
 ```bash
-# Copy approved file from user-level to toolkit
-cp ~/.claude/agents/engineering/example.md toolkit/claude-code-4.5/agents/engineering/example.md
-
-# Stage for commit
-git add toolkit/claude-code-4.5/agents/engineering/example.md
+# Execute all copies simultaneously
+\cp ~/.claude/agents/engineering/new-agent.md toolkit/claude-code-4.5/agents/engineering/ &
+\cp ~/.claude/commands/new-command.md toolkit/claude-code-4.5/commands/ &
+\cp toolkit/claude-code-4.5/commands/updated.md ~/.claude/commands/ &
+wait
 ```
 
-### Step 4: Generate Commit
+### Commit Format
 
-Create a commit with summary of synced changes:
+Single commit for all TO_REPO changes:
 
 ```
-feat(agents): sync learnings from reflect sessions
+chore: sync claude commands and agents
 
-Synced changes:
-- agents/engineering/test-writer-fixer.md: Added Multi-Layer Verification
-- agents/engineering/playwright-test-validator.md: Added Layer 0 env check
+- Add [new-file]: [brief description]
+- Update [updated-file]: [what changed]
 ```
 
-## New Files Handling
+## Quick Diff Commands
 
-For files that exist in `~/.claude/` but not in toolkit:
+```bash
+# Find all differences (both directions)
+diff -rq ~/.claude/agents/ toolkit/claude-code-4.5/agents/ 2>/dev/null
+diff -rq ~/.claude/commands/ toolkit/claude-code-4.5/commands/ 2>/dev/null
 
-1. Show the new file content
-2. Ask: "This is a NEW file. Add to toolkit? [y/n]"
-3. If yes, copy and stage
+# Find files only in ~/.claude (candidates for TO_REPO)
+diff -rq ~/.claude/agents/ toolkit/claude-code-4.5/agents/ 2>/dev/null | grep "Only in /Users"
+
+# Find files only in repo (candidates for TO_HOME)
+diff -rq ~/.claude/agents/ toolkit/claude-code-4.5/agents/ 2>/dev/null | grep "Only in toolkit"
+
+# Show actual diff for a specific file
+diff ~/.claude/agents/engineering/example.md toolkit/claude-code-4.5/agents/engineering/example.md
+```
 
 ## Safety Checks
 
-- **Never overwrite** without showing diff first
-- **Warn** if toolkit version is newer (modified after user-level)
+- **Never overwrite** without assessment first
+- **Check modification times** when both versions exist - sync newer to older
 - **Skip binaries** and non-text files
 - **Validate** markdown frontmatter before copying agent files
+- **Exclude** files matching exclusion categories
 
 ## Example Session
 
 ```
-$ /sync-learnings
+User: /sync-learnings
 
-Scanning for differences...
+Claude: # Sync Assessment: ~/.claude ↔ toolkit/claude-code-4.5
 
-Found 2 files with changes:
+## Summary
 
-1. agents/engineering/test-writer-fixer.md
-   + Added "Test Verification Strategy" section (17 lines)
-   Sync? [y/n/v]: y
-   ✓ Synced
+| Action | Files | Reason |
+|--------|-------|--------|
+| **SYNC TO REPO** | 4 files | Useful generic additions |
+| **SYNC TO ~/.claude** | 2 files | Repo has newer versions |
+| **DON'T SYNC** | Multiple | Project-specific or session data |
 
-2. agents/engineering/playwright-test-validator.md
-   + Added "Layer 0: Environment Configuration" section (16 lines)
-   Sync? [y/n/v]: y
-   ✓ Synced
+## ✅ SYNC TO REPO
 
-Summary:
-- 2 files synced
-- 0 files skipped
+### 1. `agents/engineering/focused-repository-analyzer.md` (NEW)
+- **Purpose**: Targeted analysis of external repos
+- **Assessment**: ✅ Generic utility
 
-Ready to commit? [y/n]: y
-Created commit: feat(agents): sync learnings from reflect sessions
+[... more files ...]
+
+## ⬇️ SYNC TO ~/.claude
+
+### 1. `commands/research.md`
+- **Status**: Repo version is NEWER with External Repository Discovery section
+- **Assessment**: ✅ Copy to ~/.claude
+
+Proceed with sync? [Y/n]
+
+User: Y
+
+Claude: Executing sync...
+
+✅ focused-repository-analyzer.md → repo
+✅ session-info.md → repo
+✅ research.md → ~/.claude
+
+Committed: chore: sync claude commands and agents
 ```
 
 ## Automation Tip
