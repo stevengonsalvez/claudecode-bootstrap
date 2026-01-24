@@ -3,7 +3,7 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use crate::app::{
@@ -267,6 +267,8 @@ impl NewSessionComponent {
         // Inner area for content
         let inner = block.inner(area);
 
+        // Use taller box when showing error to accommodate wrapped text
+        let hints_height = if session_state.repo_validation_error.is_some() { 8 } else { 6 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -275,7 +277,7 @@ impl NewSessionComponent {
                 Constraint::Length(1), // Spacer
                 Constraint::Length(3), // Input field
                 Constraint::Length(1), // Spacer
-                Constraint::Length(6), // Examples/hints
+                Constraint::Length(hints_height), // Examples/hints (taller for errors)
                 Constraint::Length(1), // Spacer
                 Constraint::Min(0),    // Recent repos (if any)
                 Constraint::Length(2), // Footer
@@ -377,7 +379,8 @@ impl NewSessionComponent {
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(subdued_border))
                     .style(Style::default().bg(dark_bg)),
-            );
+            )
+            .wrap(Wrap { trim: false });
         frame.render_widget(examples, chunks[4]);
 
         // Recent repos section (if any)

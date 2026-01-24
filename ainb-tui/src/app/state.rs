@@ -5464,36 +5464,60 @@ impl AppState {
                             checkout_mode
                         );
 
-                        let worktree_result = match checkout_mode {
+                        // Handle worktree creation based on checkout mode
+                        let final_worktree_path = match checkout_mode {
                             BranchCheckoutMode::CreateNew => {
-                                manager.create_worktree_from_cache(
+                                match manager.create_worktree_from_cache(
                                     cached_path,
                                     &worktree_path,
                                     branch_name,
                                     base_branch,
-                                )
+                                ) {
+                                    Ok(()) => worktree_path.clone(),
+                                    Err(e) => {
+                                        tracing::error!("Failed to create worktree: {}", e);
+                                        state.repo_validation_error = Some(format!("Failed to create worktree: {}", e));
+                                        state.step = NewSessionStep::InputRepoSource;
+                                        return;
+                                    }
+                                }
                             }
                             BranchCheckoutMode::CheckoutExisting => {
-                                manager.checkout_existing_branch_worktree(
+                                match manager.checkout_existing_branch_worktree(
                                     cached_path,
                                     &worktree_path,
-                                    base_branch, // Use the selected remote branch directly
-                                )
+                                    base_branch,
+                                ) {
+                                    Ok(None) => worktree_path.clone(),
+                                    Ok(Some((suffixed_path, suffixed_branch))) => {
+                                        // Created worktree with suffixed branch due to collision
+                                        tracing::info!(
+                                            "Created suffixed worktree '{}' at: {}",
+                                            suffixed_branch,
+                                            suffixed_path.display()
+                                        );
+                                        worktree_notice = Some(format!(
+                                            "⚠️ Branch already has worktree. Created '{}' at {}",
+                                            suffixed_branch,
+                                            suffixed_path.display()
+                                        ));
+                                        suffixed_path
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to create worktree: {}", e);
+                                        state.repo_validation_error = Some(format!("Failed to create worktree: {}", e));
+                                        state.step = NewSessionStep::InputRepoSource;
+                                        return;
+                                    }
+                                }
                             }
                         };
 
-                        if let Err(e) = worktree_result {
-                            tracing::error!("Failed to create worktree: {}", e);
-                            state.repo_validation_error = Some(format!("Failed to create worktree: {}", e));
-                            state.step = NewSessionStep::InputRepoSource;
-                            return;
-                        }
-
-                        tracing::info!("Created worktree at: {}", worktree_path.display());
+                        tracing::info!("Using worktree at: {}", final_worktree_path.display());
                         // Return worktree path and the existing worktree info (worktree_path, source_repo)
                         (
-                            worktree_path.clone(),
-                            Some((worktree_path, cached_path.clone())),
+                            final_worktree_path.clone(),
+                            Some((final_worktree_path, cached_path.clone())),
                             worktree_notice,
                         )
                     } else if let Some(repo_index) = state.selected_repo_index {

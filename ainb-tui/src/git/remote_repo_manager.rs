@@ -414,12 +414,14 @@ impl RemoteRepoManager {
     /// this creates a local tracking branch for an existing remote branch.
     /// Uses -B flag to handle the case where the branch is already checked
     /// out in the cache (standard clone has default branch checked out).
+    /// Returns `Ok(None)` if worktree was created at the provided path,
+    /// or `Ok(Some((path, branch)))` if a new suffixed branch was created due to collision.
     pub fn checkout_existing_branch_worktree(
         &self,
         cache_path: &Path,
         worktree_path: &Path,
         remote_branch: &str,
-    ) -> Result<(), RemoteRepoError> {
+    ) -> Result<Option<(PathBuf, String)>, RemoteRepoError> {
         info!(
             "Checking out existing branch '{}' to worktree at {}",
             remote_branch,
@@ -512,17 +514,57 @@ impl RemoteRepoManager {
                     worktree_path.display()
                 );
             } else if stderr.contains("is already used by worktree at") {
-                // Extract the path from error like: fatal: 'branch' is already used by worktree at '/path/to/worktree'
-                let path = stderr
-                    .split("worktree at '")
-                    .nth(1)
-                    .and_then(|s| s.split('\'').next())
-                    .unwrap_or("unknown")
-                    .to_string();
-                return Err(RemoteRepoError::WorktreeExists {
-                    branch: remote_branch.to_string(),
-                    path,
-                });
+                // Branch already has a worktree - create a new branch with suffix
+                info!(
+                    "Branch '{}' already has a worktree, creating suffixed branch",
+                    remote_branch
+                );
+
+                // Generate suffix and new branch/path names
+                let suffix: String = uuid::Uuid::new_v4().to_string().chars().take(8).collect();
+                let suffixed_branch = format!("{}-{}", remote_branch, suffix);
+
+                // Generate suffixed worktree path
+                let worktree_dir = worktree_path.file_name()
+                    .map(|n| format!("{}-{}", n.to_string_lossy(), suffix))
+                    .unwrap_or_else(|| format!("worktree-{}", suffix));
+                let suffixed_worktree_path = worktree_path.parent()
+                    .map(|p| p.join(&worktree_dir))
+                    .unwrap_or_else(|| PathBuf::from(&worktree_dir));
+
+                // Create worktree with the new suffixed branch
+                let retry_output = Command::new("git")
+                    .args([
+                        "worktree",
+                        "add",
+                        "-b",
+                        &suffixed_branch,
+                        suffixed_worktree_path.to_string_lossy().as_ref(),
+                        &remote_ref,
+                    ])
+                    .current_dir(cache_path)
+                    .output()?;
+
+                if !retry_output.status.success() {
+                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
+                    return Err(RemoteRepoError::CloneFailed(format!(
+                        "Failed to create worktree with suffixed branch: {}",
+                        retry_stderr
+                    )));
+                }
+
+                // Set up tracking for the suffixed branch
+                let _ = Command::new("git")
+                    .args(["branch", "--set-upstream-to", &remote_ref, &suffixed_branch])
+                    .current_dir(&suffixed_worktree_path)
+                    .output();
+
+                info!(
+                    "Created worktree with suffixed branch '{}' at {}",
+                    suffixed_branch,
+                    suffixed_worktree_path.display()
+                );
+                return Ok(Some((suffixed_worktree_path, suffixed_branch)));
             } else {
                 return Err(RemoteRepoError::CloneFailed(format!(
                     "Failed to create worktree for existing branch: {}",
@@ -541,7 +583,7 @@ impl RemoteRepoManager {
             "Successfully checked out existing branch '{}' to worktree",
             remote_branch
         );
-        Ok(())
+        Ok(None)
     }
 
     /// Get list of cached repositories for recent repos feature
