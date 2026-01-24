@@ -395,26 +395,27 @@ pub enum FocusedPane {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
-    HomeScreen,      // Default landing page with tile navigation
-    AgentSelection,  // Choose agent provider and model
-    Config,          // Settings and configuration
-    Catalog,         // Browse marketplace/catalog
-    Analytics,       // Usage statistics and cost tracking
+    HomeScreen,       // Default landing page with tile navigation
+    AgentSelection,   // Choose agent provider and model
+    Config,           // Settings and configuration
+    Catalog,          // Browse marketplace/catalog
+    Analytics,        // Usage statistics and cost tracking
     SessionList,
     Logs,
-    LogHistory,      // Historical JSONL log viewer
+    LogHistory,       // Historical JSONL log viewer
     Terminal,
     Help,
     NewSession,
     SearchWorkspace,
     NonGitNotification,
     AttachedTerminal,
-    AuthSetup,  // New view for authentication setup
-    ClaudeChat, // Claude chat popup overlay
-    GitView,    // Git status and diff view
-    Onboarding, // First-time setup wizard
-    SetupMenu,  // Setup menu with factory reset option
-    Changelog,  // Version history viewer
+    AuthSetup,        // New view for authentication setup
+    ClaudeChat,       // Claude chat popup overlay
+    GitView,          // Git status and diff view
+    Onboarding,       // First-time setup wizard
+    SetupMenu,        // Setup menu with factory reset option
+    Changelog,        // Version history viewer
+    SessionRecovery,  // Recover orphaned agent sessions after crash/shutdown
 }
 
 #[derive(Debug, Clone)]
@@ -443,6 +444,7 @@ pub enum HomeTile {
     Catalog,   // Browse catalog/marketplace
     Config,    // Settings & presets
     Sessions,  // Session manager
+    Recovery,  // Recover orphaned sessions
     Stats,     // Analytics & usage
     Help,      // Docs & guides
 }
@@ -454,6 +456,7 @@ impl HomeTile {
             HomeTile::Catalog,
             HomeTile::Config,
             HomeTile::Sessions,
+            HomeTile::Recovery,
             HomeTile::Stats,
             HomeTile::Help,
         ]
@@ -465,6 +468,7 @@ impl HomeTile {
             HomeTile::Catalog => "Catalog",
             HomeTile::Config => "Config",
             HomeTile::Sessions => "Sessions",
+            HomeTile::Recovery => "Recovery",
             HomeTile::Stats => "Stats",
             HomeTile::Help => "Help",
         }
@@ -476,6 +480,7 @@ impl HomeTile {
             HomeTile::Catalog => "Browse & Bootstrap",
             HomeTile::Config => "Settings & Presets",
             HomeTile::Sessions => "Manage Active",
+            HomeTile::Recovery => "Resume Orphaned",
             HomeTile::Stats => "Usage & Analytics",
             HomeTile::Help => "Docs & Guides",
         }
@@ -487,6 +492,7 @@ impl HomeTile {
             HomeTile::Catalog => "📦",
             HomeTile::Config => "⚙️",
             HomeTile::Sessions => "🚀",
+            HomeTile::Recovery => "🔄",
             HomeTile::Stats => "📊",
             HomeTile::Help => "❓",
         }
@@ -1875,6 +1881,9 @@ pub struct AppState {
     // Changelog viewer state
     pub changelog_state: crate::components::ChangelogState,
 
+    // Session recovery state (for orphaned agent sessions)
+    pub session_recovery_state: crate::components::SessionRecoveryState,
+
     // Background workspace loading state
     pub is_loading_workspaces: bool,
     pub workspace_load_error: Option<String>,
@@ -2359,6 +2368,9 @@ impl Default for AppState {
 
             // Changelog viewer state
             changelog_state: crate::components::ChangelogState::new(),
+
+            // Session recovery state (lazy-load when entering view)
+            session_recovery_state: crate::components::SessionRecoveryState::default(),
 
             // Background workspace loading state
             is_loading_workspaces: false,

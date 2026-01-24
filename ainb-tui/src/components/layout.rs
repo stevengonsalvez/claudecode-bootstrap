@@ -190,6 +190,18 @@ impl LayoutComponent {
             return;
         }
 
+        // Session recovery view (full screen)
+        if state.current_view == View::SessionRecovery {
+            tracing::debug!("Rendering SessionRecovery view");
+            crate::components::SessionRecovery::render(frame, frame.size(), &mut state.session_recovery_state);
+            // Render help overlay on top if visible
+            if state.help_visible {
+                tracing::debug!("Rendering help overlay on SessionRecovery");
+                self.help.render(frame, frame.size());
+            }
+            return;
+        }
+
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([

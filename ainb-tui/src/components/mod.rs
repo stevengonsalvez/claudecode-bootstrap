@@ -28,6 +28,7 @@ pub mod mascot;
 pub mod new_session;
 pub mod onboarding;
 pub mod session_list;
+pub mod session_recovery;
 pub mod setup_menu;
 pub mod sidebar;
 pub mod tmux_preview;
@@ -57,6 +58,7 @@ pub use mascot::{MascotAnimation, render_mascot, render_mascot_centered};
 pub use new_session::NewSessionComponent;
 pub use onboarding::{OnboardingComponent, OnboardingState, OnboardingStep};
 pub use session_list::SessionListComponent;
+pub use session_recovery::{SessionRecovery, SessionRecoveryState, OrphanedSession};
 pub use setup_menu::{SetupMenuComponent, SetupMenuItem, SetupMenuState};
 pub use sidebar::{SidebarComponent, SidebarItem, SidebarState};
 #[allow(unused_imports)]

@@ -297,6 +297,13 @@ pub enum AppEvent {
     ChangelogPageDown,           // Page down
     ChangelogToTop,              // Jump to top (g)
     ChangelogToBottom,           // Jump to bottom (G)
+    // Session recovery events
+    SessionRecoveryBack,         // Return to home screen (Esc)
+    SessionRecoveryNext,         // Navigate to next session (Down/j)
+    SessionRecoveryPrev,         // Navigate to previous session (Up/k)
+    SessionRecoveryResume,       // Resume selected session (r)
+    SessionRecoveryArchive,      // Archive selected session (d)
+    SessionRecoveryRefresh,      // Refresh session list (R)
 }
 
 pub struct EventHandler;
@@ -510,6 +517,12 @@ impl EventHandler {
         if state.current_view == View::Changelog {
             tracing::debug!("In changelog view, handling changelog keys");
             return Self::handle_changelog_keys(key_event, state);
+        }
+
+        // Handle session recovery view
+        if state.current_view == View::SessionRecovery {
+            tracing::debug!("In session recovery view, handling session recovery keys");
+            return Self::handle_session_recovery_keys(key_event, state);
         }
 
         // Handle key events based on focused pane
@@ -1371,6 +1384,21 @@ impl EventHandler {
             KeyCode::PageDown => Some(AppEvent::ChangelogPageDown),
             KeyCode::Char('g') => Some(AppEvent::ChangelogToTop),
             KeyCode::Char('G') => Some(AppEvent::ChangelogToBottom),
+            _ => None,
+        }
+    }
+
+    // Session recovery key handling
+    fn handle_session_recovery_keys(key_event: KeyEvent, _state: &AppState) -> Option<AppEvent> {
+        tracing::debug!("Session recovery key handler: {:?}", key_event.code);
+
+        match key_event.code {
+            KeyCode::Esc => Some(AppEvent::SessionRecoveryBack),
+            KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::SessionRecoveryPrev),
+            KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::SessionRecoveryNext),
+            KeyCode::Char('r') => Some(AppEvent::SessionRecoveryResume),
+            KeyCode::Char('d') => Some(AppEvent::SessionRecoveryArchive),
+            KeyCode::Char('R') => Some(AppEvent::SessionRecoveryRefresh),
             _ => None,
         }
     }
@@ -2404,6 +2432,10 @@ impl EventHandler {
                             tracing::info!("Navigating to Config view");
                             state.current_view = View::Config;
                         }
+                        HomeTile::Recovery => {
+                            tracing::info!("Navigating to SessionRecovery view");
+                            state.current_view = View::SessionRecovery;
+                        }
                         HomeTile::Catalog | HomeTile::Stats => {
                             tracing::info!("Tile {:?} - Coming Soon", tile);
                             // Coming soon - show notification
@@ -3138,6 +3170,48 @@ impl EventHandler {
             AppEvent::ChangelogToBottom => {
                 tracing::debug!("Changelog scroll to bottom");
                 state.changelog_state.scroll_to_bottom(30);
+            }
+            // Session recovery events
+            AppEvent::SessionRecoveryBack => {
+                tracing::debug!("Session recovery back");
+                state.current_view = View::HomeScreen;
+            }
+            AppEvent::SessionRecoveryNext => {
+                tracing::debug!("Session recovery next");
+                state.session_recovery_state.next();
+            }
+            AppEvent::SessionRecoveryPrev => {
+                tracing::debug!("Session recovery prev");
+                state.session_recovery_state.previous();
+            }
+            AppEvent::SessionRecoveryResume => {
+                tracing::debug!("Session recovery resume");
+                match state.session_recovery_state.resume_selected() {
+                    Ok(new_session) => {
+                        state.add_info_notification(format!(
+                            "Session resumed: {}. Use 'tmux attach -t {}' to connect.",
+                            new_session, new_session
+                        ));
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to resume: {}", e));
+                    }
+                }
+            }
+            AppEvent::SessionRecoveryArchive => {
+                tracing::debug!("Session recovery archive");
+                match state.session_recovery_state.archive_selected() {
+                    Ok(()) => {
+                        state.add_info_notification("Session archived".to_string());
+                    }
+                    Err(e) => {
+                        state.add_error_notification(format!("Failed to archive: {}", e));
+                    }
+                }
+            }
+            AppEvent::SessionRecoveryRefresh => {
+                tracing::debug!("Session recovery refresh");
+                state.session_recovery_state.refresh();
             }
             // Onboarding wizard events
             AppEvent::OnboardingNext => {

@@ -76,14 +76,16 @@ impl HomeScreenComponent {
     fn render_tiles(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let home_state = &state.home_screen_state;
 
-        // Create a 2x3 grid layout
+        // Create a 3-row grid layout for 7 tiles
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),  // Top padding
-                Constraint::Length(7),  // Row 1
+                Constraint::Length(6),  // Row 1
                 Constraint::Length(1),  // Middle padding
-                Constraint::Length(7),  // Row 2
+                Constraint::Length(6),  // Row 2
+                Constraint::Length(1),  // Middle padding
+                Constraint::Length(6),  // Row 3
                 Constraint::Min(0),     // Bottom padding
             ])
             .split(area);
@@ -107,22 +109,34 @@ impl HomeScreenComponent {
                 Constraint::Percentage(5),  // Left padding
                 Constraint::Percentage(28), // Tile 4
                 Constraint::Percentage(2),  // Spacer
-                Constraint::Percentage(28), // Tile 5
+                Constraint::Percentage(28), // Tile 5 (Recovery)
                 Constraint::Percentage(2),  // Spacer
                 Constraint::Percentage(28), // Tile 6
                 Constraint::Percentage(7),  // Right padding
             ])
             .split(rows[3]);
 
+        let row3_cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(36), // Left padding
+                Constraint::Percentage(28), // Tile 7 (Help - centered)
+                Constraint::Percentage(36), // Right padding
+            ])
+            .split(rows[5]);
+
         // Render tiles: Agents, Catalog, Config (row 1)
         self.render_tile(frame, row1_cols[1], &HomeTile::Agents, home_state.selected_tile == 0);
         self.render_tile(frame, row1_cols[3], &HomeTile::Catalog, home_state.selected_tile == 1);
         self.render_tile(frame, row1_cols[5], &HomeTile::Config, home_state.selected_tile == 2);
 
-        // Render tiles: Sessions, Stats, Help (row 2)
+        // Render tiles: Sessions, Recovery, Stats (row 2)
         self.render_tile(frame, row2_cols[1], &HomeTile::Sessions, home_state.selected_tile == 3);
-        self.render_tile(frame, row2_cols[3], &HomeTile::Stats, home_state.selected_tile == 4);
-        self.render_tile(frame, row2_cols[5], &HomeTile::Help, home_state.selected_tile == 5);
+        self.render_tile(frame, row2_cols[3], &HomeTile::Recovery, home_state.selected_tile == 4);
+        self.render_tile(frame, row2_cols[5], &HomeTile::Stats, home_state.selected_tile == 5);
+
+        // Render tiles: Help (row 3 - centered)
+        self.render_tile(frame, row3_cols[1], &HomeTile::Help, home_state.selected_tile == 6);
     }
 
     fn render_tile(&self, frame: &mut Frame, area: Rect, tile: &HomeTile, is_selected: bool) {
