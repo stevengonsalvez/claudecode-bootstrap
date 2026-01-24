@@ -297,6 +297,202 @@ const ALWAYS_COPY_RULES = [
     'rulestyle-rule.md',
 ];
 
+// Discover available packages for interactive selection
+function discoverPackages(packagesDir) {
+    const packages = {
+        skills: [],
+        agentCategories: [],
+        commandGroups: [],
+        utilities: [],
+        externalPlugins: [],
+        npxSkills: []
+    };
+
+    // Read external dependencies manifest
+    const manifestPath = path.join(path.dirname(packagesDir), 'external-dependencies.yaml');
+    if (fs.existsSync(manifestPath)) {
+        try {
+            const manifestContent = fs.readFileSync(manifestPath, 'utf8');
+            const manifest = yaml.load(manifestContent);
+
+            // Claude plugins
+            if (manifest['claude-plugins'] && Array.isArray(manifest['claude-plugins'])) {
+                for (const plugin of manifest['claude-plugins']) {
+                    packages.externalPlugins.push({
+                        name: plugin.name,
+                        marketplace: plugin.marketplace,
+                        version: plugin.version || 'latest',
+                        purpose: plugin.purpose || plugin.name,
+                        install: plugin.install
+                    });
+                }
+            }
+
+            // npx skills
+            if (manifest['npx-skills'] && Array.isArray(manifest['npx-skills']) && manifest['npx-skills'].length > 0) {
+                for (const skill of manifest['npx-skills']) {
+                    packages.npxSkills.push({
+                        name: skill.name,
+                        repo: skill.repo,
+                        purpose: skill.purpose || skill.name,
+                        install: skill.install
+                    });
+                }
+            }
+        } catch (err) {
+            // Silently ignore manifest parse errors
+        }
+    }
+
+    // Discover skills (each skill is individually selectable)
+    const skillsDir = path.join(packagesDir, 'skills');
+    if (fs.existsSync(skillsDir)) {
+        const skillDirs = readdirSync(skillsDir).filter(f =>
+            statSync(path.join(skillsDir, f)).isDirectory()
+        );
+        for (const skill of skillDirs) {
+            const skillPath = path.join(skillsDir, skill);
+            const skillMd = path.join(skillPath, 'SKILL.md');
+            let description = skill;
+            if (fs.existsSync(skillMd)) {
+                const content = fs.readFileSync(skillMd, 'utf8');
+                const descMatch = content.match(/description:\s*["']?([^"'\n]+)/);
+                if (descMatch) description = descMatch[1].trim();
+            }
+            packages.skills.push({ name: skill, path: `skills/${skill}`, description });
+        }
+    }
+
+    // Discover agent categories
+    const agentsDir = path.join(packagesDir, 'agents');
+    if (fs.existsSync(agentsDir)) {
+        const categories = readdirSync(agentsDir).filter(f =>
+            statSync(path.join(agentsDir, f)).isDirectory()
+        );
+        for (const cat of categories) {
+            const catPath = path.join(agentsDir, cat);
+            const agentFiles = readdirSync(catPath).filter(f => f.endsWith('.md'));
+            packages.agentCategories.push({
+                name: cat,
+                path: `agents/${cat}`,
+                count: agentFiles.length,
+                agents: agentFiles.map(f => f.replace('.md', ''))
+            });
+        }
+    }
+
+    // Discover command groups
+    const commandLocations = [
+        { name: 'utilities', path: 'utilities/commands', label: 'Utility Commands' },
+        { name: 'single-agent', path: 'workflows/single-agent/commands', label: 'Single-Agent Workflow Commands' },
+        { name: 'multi-agent', path: 'workflows/multi-agent/commands', label: 'Multi-Agent Workflow Commands' }
+    ];
+    for (const loc of commandLocations) {
+        const cmdDir = path.join(packagesDir, loc.path);
+        if (fs.existsSync(cmdDir)) {
+            const cmdFiles = readdirSync(cmdDir).filter(f => f.endsWith('.md'));
+            packages.commandGroups.push({
+                name: loc.name,
+                path: loc.path,
+                label: loc.label,
+                count: cmdFiles.length,
+                commands: cmdFiles.map(f => f.replace('.md', ''))
+            });
+        }
+    }
+
+    // Discover other utilities
+    const utilityDirs = ['hooks', 'templates', 'output-styles', 'reflections'];
+    for (const util of utilityDirs) {
+        const utilDir = path.join(packagesDir, 'utilities', util);
+        if (fs.existsSync(utilDir)) {
+            const files = readdirSync(utilDir);
+            packages.utilities.push({ name: util, path: `utilities/${util}`, count: files.length });
+        }
+    }
+
+    return packages;
+}
+
+// Build choices for interactive selection
+function buildPackageChoices(packages) {
+    const choices = [];
+
+    // Skills section
+    if (packages.skills.length > 0) {
+        choices.push(new inquirer.Separator('─── Skills ───'));
+        for (const skill of packages.skills) {
+            choices.push({
+                name: `${skill.name} - ${skill.description}`,
+                value: { type: 'skill', name: skill.name, path: skill.path },
+                checked: true
+            });
+        }
+    }
+
+    // Agent categories section
+    if (packages.agentCategories.length > 0) {
+        choices.push(new inquirer.Separator('─── Agents ───'));
+        for (const cat of packages.agentCategories) {
+            choices.push({
+                name: `${cat.name} (${cat.count} agents: ${cat.agents.slice(0, 3).join(', ')}${cat.count > 3 ? '...' : ''})`,
+                value: { type: 'agents', name: cat.name, path: cat.path },
+                checked: true
+            });
+        }
+    }
+
+    // Command groups section
+    if (packages.commandGroups.length > 0) {
+        choices.push(new inquirer.Separator('─── Commands ───'));
+        for (const grp of packages.commandGroups) {
+            choices.push({
+                name: `${grp.label} (${grp.count} commands)`,
+                value: { type: 'commands', name: grp.name, path: grp.path },
+                checked: true
+            });
+        }
+    }
+
+    // Utilities section
+    if (packages.utilities.length > 0) {
+        choices.push(new inquirer.Separator('─── Utilities ───'));
+        for (const util of packages.utilities) {
+            choices.push({
+                name: `${util.name} (${util.count} files)`,
+                value: { type: 'utility', name: util.name, path: util.path },
+                checked: true
+            });
+        }
+    }
+
+    // External Claude plugins section
+    if (packages.externalPlugins.length > 0) {
+        choices.push(new inquirer.Separator('─── External Plugins (claude plugin) ───'));
+        for (const plugin of packages.externalPlugins) {
+            choices.push({
+                name: `${plugin.name} - ${plugin.purpose} [${plugin.marketplace}]`,
+                value: { type: 'external-plugin', name: plugin.name, marketplace: plugin.marketplace, install: plugin.install },
+                checked: false  // External deps unchecked by default
+            });
+        }
+    }
+
+    // npx skills section
+    if (packages.npxSkills.length > 0) {
+        choices.push(new inquirer.Separator('─── npx Skills ───'));
+        for (const skill of packages.npxSkills) {
+            choices.push({
+                name: `${skill.name} - ${skill.purpose} [${skill.repo}]`,
+                value: { type: 'npx-skill', name: skill.name, repo: skill.repo, install: skill.install },
+                checked: false  // External deps unchecked by default
+            });
+        }
+    }
+
+    return choices;
+}
+
 function getGeneralRuleFiles() {
     return readdirSync(GENERAL_RULES_DIR)
         .filter(f => f.endsWith('.md'))
@@ -671,7 +867,7 @@ async function handleSharedContentCopy(tool, config, targetFolder) {
     console.log(`Files copied to: ${destDir}`);
 }
 
-async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null, targetFolder = null) {
+async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null, targetFolder = null, isNonInteractive = false, specifiedPackages = null) {
     let destDir;
     let displayPath;
 
@@ -685,6 +881,120 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
         displayPath = `~/${config.targetSubdir}`;
     }
 
+    const packagesDir = path.join(__dirname, 'packages');
+    let totalFilesCopied = 0;
+
+    // Package selection for project installations (not home directory)
+    let selectedPackagePaths = null;
+
+    // If packages specified via CLI, use those
+    if (!shouldUseHome && specifiedPackages) {
+        selectedPackagePaths = new Set(specifiedPackages);
+        console.log(`\n📦 Installing specified packages: ${specifiedPackages.join(', ')}\n`);
+    }
+    // Interactive package selection for project installations
+    else if (!shouldUseHome && !isNonInteractive) {
+        const availablePackages = discoverPackages(packagesDir);
+        const choices = buildPackageChoices(availablePackages);
+
+        console.log('\n📦 Select packages to install in your project:\n');
+        const { selectedPackages } = await inquirer.prompt([
+            {
+                type: 'checkbox',
+                name: 'selectedPackages',
+                message: 'Use space to toggle, enter to confirm:',
+                choices: choices,
+                pageSize: 20
+            }
+        ]);
+
+        // Build list of selected paths and external deps
+        selectedPackagePaths = new Set();
+        const selectedExternalDeps = [];
+
+        for (const pkg of selectedPackages) {
+            if (pkg.type === 'skill') {
+                selectedPackagePaths.add(pkg.path);
+            } else if (pkg.type === 'agents') {
+                selectedPackagePaths.add(pkg.path);
+            } else if (pkg.type === 'commands') {
+                selectedPackagePaths.add(pkg.path);
+            } else if (pkg.type === 'utility') {
+                selectedPackagePaths.add(pkg.path);
+            } else if (pkg.type === 'external-plugin' || pkg.type === 'npx-skill') {
+                selectedExternalDeps.push(pkg);
+            }
+        }
+
+        // Generate setup-external.sh if external deps were selected
+        if (selectedExternalDeps.length > 0) {
+            const scriptLines = [
+                '#!/bin/bash',
+                '# External dependencies for this project',
+                '# Generated by create-rule.js',
+                `# Run from project root: bash ${config.targetSubdir}/setup-external.sh`,
+                '#',
+                '# Plugins are installed at PROJECT scope (not user scope)',
+                '# This avoids conflicts with user-level plugin installations',
+                '',
+                'set -e',
+                '',
+                '# Ensure we are in the project directory',
+                'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+                'PROJECT_DIR="$(dirname "$SCRIPT_DIR")"',
+                'cd "$PROJECT_DIR"',
+                ''
+            ];
+
+            const plugins = selectedExternalDeps.filter(d => d.type === 'external-plugin');
+            const npxSkills = selectedExternalDeps.filter(d => d.type === 'npx-skill');
+
+            if (plugins.length > 0) {
+                scriptLines.push('echo "Installing Claude plugins (project scope)..."');
+                scriptLines.push('');
+
+                // Collect unique marketplaces
+                const marketplaces = new Set();
+                for (const plugin of plugins) {
+                    if (plugin.marketplace) {
+                        marketplaces.add(plugin.marketplace);
+                    }
+                }
+
+                // Add marketplaces first (skip if already exists)
+                for (const marketplace of marketplaces) {
+                    scriptLines.push(`claude plugin marketplace add ${marketplace} 2>/dev/null || true`);
+                }
+                scriptLines.push('');
+
+                // Install plugins at project scope
+                for (const plugin of plugins) {
+                    scriptLines.push(`claude plugin install ${plugin.name} --scope project`);
+                }
+                scriptLines.push('');
+            }
+
+            if (npxSkills.length > 0) {
+                scriptLines.push('echo "Installing npx skills..."');
+                scriptLines.push('');
+                for (const skill of npxSkills) {
+                    scriptLines.push(skill.install || `npx skills add ${skill.repo}`);
+                }
+                scriptLines.push('');
+            }
+
+            scriptLines.push('echo "✓ External dependencies installed!"');
+
+            // Store for later writing (after destDir is created)
+            config._externalDepsScript = scriptLines.join('\n');
+            config._externalDepsCount = selectedExternalDeps.length;
+        }
+
+        if (selectedPackagePaths.size === 0 && selectedExternalDeps.length === 0) {
+            console.log('\n⚠️  No packages selected. Only copying core files.\n');
+        }
+    }
+
     showProgress(`Checking ${displayPath} directory`);
     if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
@@ -692,9 +1002,6 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
     } else {
         completeProgress(`Found ${displayPath} directory`);
     }
-
-    const packagesDir = path.join(__dirname, 'packages');
-    let totalFilesCopied = 0;
 
     if (config.validateSkillFrontmatter !== false && config.packageMappings && Object.prototype.hasOwnProperty.call(config.packageMappings, 'skills')) {
         showProgress('Validating SKILL.md frontmatter');
@@ -707,8 +1014,61 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
         }
     }
 
-    // Copy using package mappings
+    // Copy using package mappings (filtered by selection if project install)
     for (const [source, target] of Object.entries(config.packageMappings)) {
+        // If we have a selection, check if this source is selected
+        if (selectedPackagePaths !== null) {
+            // Check if this exact path or a parent path is selected
+            const isSelected = [...selectedPackagePaths].some(sel => {
+                // Exact match or source starts with selected path
+                return source === sel || source.startsWith(sel + '/') || sel.startsWith(source + '/') || sel === source;
+            });
+
+            // Special handling for skills - copy individual skills
+            if (source === 'skills') {
+                const skillsSelected = [...selectedPackagePaths].filter(p => p.startsWith('skills/'));
+                if (skillsSelected.length > 0) {
+                    for (const skillPath of skillsSelected) {
+                        const sourceDir = path.join(packagesDir, skillPath);
+                        const skillName = skillPath.split('/')[1];
+                        const targetDir = path.join(destDir, 'skills', skillName);
+                        if (fs.existsSync(sourceDir)) {
+                            showProgress(`Copying skill: ${skillName}`);
+                            fs.mkdirSync(targetDir, { recursive: true });
+                            const filesCopied = copyDirectoryRecursive(sourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+                            totalFilesCopied += filesCopied;
+                            completeProgress(`Copied ${filesCopied} files from ${skillName}`);
+                        }
+                    }
+                }
+                continue; // Skip the default skills copy
+            }
+
+            // Special handling for agents - copy individual agent categories
+            if (source === 'agents') {
+                const agentsSelected = [...selectedPackagePaths].filter(p => p.startsWith('agents/'));
+                if (agentsSelected.length > 0) {
+                    for (const agentPath of agentsSelected) {
+                        const sourceDir = path.join(packagesDir, agentPath);
+                        const categoryName = agentPath.split('/')[1];
+                        const targetDir = path.join(destDir, 'agents', categoryName);
+                        if (fs.existsSync(sourceDir)) {
+                            showProgress(`Copying agents: ${categoryName}`);
+                            fs.mkdirSync(targetDir, { recursive: true });
+                            const filesCopied = copyDirectoryRecursive(sourceDir, targetDir, config.excludeFiles || [], config.templateSubstitutions || {});
+                            totalFilesCopied += filesCopied;
+                            completeProgress(`Copied ${filesCopied} files from agents/${categoryName}`);
+                        }
+                    }
+                }
+                continue; // Skip the default agents copy
+            }
+
+            if (!isSelected) {
+                continue; // Skip unselected packages
+            }
+        }
+
         const sourceDir = path.join(packagesDir, source);
         const targetDir = path.join(destDir, target);
 
@@ -731,7 +1091,8 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
     }
 
     // Copy CLAUDE.md from claude-code-4.5 if it exists
-    if (config.copyClaudeMd !== false) {
+    // Skip for project folder installations to avoid overwriting project-specific CLAUDE.md
+    if (config.copyClaudeMd !== false && shouldUseHome) {
         const claudeMdSource = path.join(__dirname, 'claude-code-4.5', 'CLAUDE.md');
         if (fs.existsSync(claudeMdSource)) {
             showProgress('Copying CLAUDE.md');
@@ -743,10 +1104,13 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
             totalFilesCopied++;
             completeProgress('Copied CLAUDE.md');
         }
+    } else if (!shouldUseHome) {
+        console.log('\x1b[33m⚠\x1b[0m  Skipping CLAUDE.md (project folder - won\'t overwrite existing)');
     }
 
     // Copy settings.json from claude-code-4.5 if it exists
-    if (config.copySettings !== false) {
+    // Skip for project folder installations to avoid overwriting project-specific settings
+    if (config.copySettings !== false && shouldUseHome) {
         const settingsSource = path.join(__dirname, 'claude-code-4.5', 'settings.json');
         if (fs.existsSync(settingsSource)) {
             showProgress('Copying settings.json');
@@ -812,6 +1176,15 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
         completeProgress(`Copied ${rootFilesCopied} project root files`);
     }
 
+    // Write setup-external.sh if external deps were selected
+    if (config._externalDepsScript) {
+        const scriptPath = path.join(destDir, 'setup-external.sh');
+        showProgress('Generating setup-external.sh');
+        fs.writeFileSync(scriptPath, config._externalDepsScript);
+        fs.chmodSync(scriptPath, 0o755);
+        completeProgress(`Generated setup-external.sh (${config._externalDepsCount} external deps)`);
+    }
+
     console.log(`\n\x1b[32m🎉 packages setup complete!\x1b[0m`);
     console.log(`Files copied to: ${destDir} (${totalFilesCopied} files)`);
     console.log(`\nPackages structure installed. Components available:`);
@@ -820,6 +1193,12 @@ async function handlePackagesStructureCopy(tool, config, overrideHomeDir = null,
     console.log(`  - Commands: ${destDir}/commands/`);
     console.log(`  - Hooks: ${destDir}/hooks/`);
     console.log(`  - Utils: ${destDir}/utils/`);
+
+    // Show external deps instructions if script was generated
+    if (config._externalDepsScript) {
+        console.log(`\n\x1b[33m📦 External dependencies:\x1b[0m`);
+        console.log(`  Run: bash ${destDir}/setup-external.sh`);
+    }
 }
 
 async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, targetFolder = null) {
@@ -974,12 +1353,21 @@ async function main() {
     const toolArg = args.find(arg => arg.startsWith('--tool='));
     const targetFolderArg = args.find(arg => arg.startsWith('--targetFolder='));
     const homeDirArg = args.find(arg => arg.startsWith('--homeDir='));
+    const packagesArg = args.find(arg => arg.startsWith('--packages='));
+    const selectPackagesFlag = args.includes('--selectPackages');
     const sddShortcut = args.includes('--sdd');
-    const isNonInteractive = !!toolArg || sddShortcut;
+    // If --selectPackages is passed, we want interactive package selection
+    const isNonInteractive = (!!toolArg || sddShortcut) && !selectPackagesFlag;
 
     let tool = toolArg ? toolArg.split('=')[1] : null;
     let targetFolder = targetFolderArg ? targetFolderArg.split('=')[1] : null;
     let overrideHomeDir = homeDirArg ? homeDirArg.split('=')[1] : null;
+
+    // Parse --packages=skills/webapp-testing,agents/engineering,...
+    let specifiedPackages = null;
+    if (packagesArg) {
+        specifiedPackages = packagesArg.split('=')[1].split(',').map(p => p.trim());
+    }
 
     // Convenience: allow --sdd without specifying a tool
     if (!tool && sddShortcut) {
@@ -1014,7 +1402,7 @@ async function main() {
 
     // Handle packages structure (new catalog-based structure)
     if (config.usePackagesStructure) {
-        await handlePackagesStructureCopy(tool, config, overrideHomeDir, targetFolder);
+        await handlePackagesStructureCopy(tool, config, overrideHomeDir, targetFolder, isNonInteractive, specifiedPackages);
         return;
     }
 
