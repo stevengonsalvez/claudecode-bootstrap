@@ -2492,6 +2492,10 @@ impl EventHandler {
                     SidebarItem::Sessions => {
                         state.current_view = View::SessionList;
                     }
+                    SidebarItem::Recovery => {
+                        state.session_recovery_state.refresh();
+                        state.current_view = View::SessionRecovery;
+                    }
                     SidebarItem::Logs => {
                         // Initialize log history viewer with log directory
                         if let Some(log_dir) = state.log_dir() {

@@ -31,6 +31,7 @@ pub enum SidebarItem {
     Catalog,   // Browse catalog/marketplace
     Config,    // Settings & presets
     Sessions,  // Session manager
+    Recovery,  // Recover orphaned sessions
     Logs,      // Log history viewer
     Stats,     // Analytics & usage
     Changelog, // Version history
@@ -46,6 +47,7 @@ impl SidebarItem {
             Self::Catalog => "📦",
             Self::Config => "⚙️",
             Self::Sessions => "🚀",
+            Self::Recovery => "🔄",
             Self::Logs => "📋",
             Self::Stats => "📊",
             Self::Changelog => "📝",
@@ -61,6 +63,7 @@ impl SidebarItem {
             Self::Catalog => "Catalog",
             Self::Config => "Config",
             Self::Sessions => "Sessions",
+            Self::Recovery => "Recovery",
             Self::Logs => "Logs",
             Self::Stats => "Stats",
             Self::Changelog => "Changelog",
@@ -76,6 +79,7 @@ impl SidebarItem {
             Self::Catalog => "Browse & Bootstrap",
             Self::Config => "Settings & Presets",
             Self::Sessions => "Manage Active",
+            Self::Recovery => "Resume Orphaned",
             Self::Logs => "View Log History",
             Self::Stats => "Usage & Analytics",
             Self::Changelog => "Version History",
@@ -91,6 +95,7 @@ impl SidebarItem {
             Self::Catalog => "c",
             Self::Config => "C",
             Self::Sessions => "s",
+            Self::Recovery => "R",
             Self::Logs => "l",
             Self::Stats => "i",
             Self::Changelog => "v",
@@ -106,6 +111,7 @@ impl SidebarItem {
             Self::Catalog,
             Self::Config,
             Self::Sessions,
+            Self::Recovery,
             Self::Logs,
             Self::Stats,
             Self::Changelog,
