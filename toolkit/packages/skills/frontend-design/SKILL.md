@@ -1,25 +1,10 @@
 ---
 name: frontend-design
-version: 1.0.0
 description: Frontend design skill for UI/UX implementation - generates distinctive, production-grade interfaces
-license: Apache-2.0
-
-metadata:
-  authors:
-    - Prithvi Rajasekaran <prithvi@anthropic.com>
-    - Alexander Bricken <alex@anthropic.com>
-  repository: https://github.com/stevengonsalvez/ai-coder-rules
-  category: design
-  keywords: [frontend, ui, ux, design, css, aesthetics, typography]
-
-compatibility: Works with HTML/CSS, React, Vue, and other frontend frameworks
-
-allowed-tools:
-  - Write
-  - Read
-  - MultiEdit
-  - WebSearch
-  - WebFetch
+version: 1.0.0
+authors:
+  - Prithvi Rajasekaran <prithvi@anthropic.com>
+  - Alexander Bricken <alex@anthropic.com>
 ---
 
 # Frontend Design Skill

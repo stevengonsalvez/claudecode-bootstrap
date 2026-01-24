@@ -1,9 +1,9 @@
-Analyze the codebase and identify missing test cases, then create GitHub issues for each gap. If the user specifies files/directories, focus there; otherwise scan broadly.
+Analyze codebase and identify missing test cases, then create GitHub issues for each gap: $ARGUMENTS
 
 Follow these steps:
 
 1. **Analyze the codebase**:
-   - If the user specifies files/directories, focus on those areas
+   - If $ARGUMENTS specifies files/directories, focus on those areas
    - Otherwise, scan the entire codebase for test coverage gaps
    - Look for functions, classes, and modules without corresponding tests
    - Identify edge cases and error conditions that aren't tested

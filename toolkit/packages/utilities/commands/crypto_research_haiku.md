@@ -1,5 +1,6 @@
 ---
 allowed-tools: Bash(date:*), Bash(mkdir:*), Task, Write
+argument-hint: [crypto_ticker_symbol]
 description: Execute lightweight cryptocurrency research using haiku agents
 ---
 
@@ -9,7 +10,7 @@ Execute lightweight cryptocurrency research by calling only haiku versions of cr
 
 ## Variables
 
-- **TICKER**: Ask the user for a ticker symbol; default to "BTC" if not specified
+- **TICKER**: $ARGUMENTS
   - The cryptocurrency ticker symbol to analyze (e.g., BTC, ETH, SOL)
   - Used by: crypto-coin-analyzer-haiku agent
 

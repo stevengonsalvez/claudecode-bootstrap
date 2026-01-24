@@ -1,17 +1,6 @@
 ---
 name: crypto-research
-version: 1.0.0
-description: Comprehensive cryptocurrency market research and analysis using specialized AI agents. Analyzes market data, price trends, news sentiment, technical indicators, macro correlations, and investment opportunities.
-license: Apache-2.0
-
-metadata:
-  author: stevengonsalvez
-  repository: https://github.com/stevengonsalvez/ai-coder-rules
-  category: research
-  keywords: [cryptocurrency, bitcoin, ethereum, market-analysis, trading, blockchain]
-
-compatibility: Requires internet access for web searches and API calls
-
+description: Comprehensive cryptocurrency market research and analysis using specialized AI agents. Analyzes market data, price trends, news sentiment, technical indicators, macro correlations, and investment opportunities. Use when researching cryptocurrencies, analyzing crypto markets, evaluating digital assets, or investigating blockchain projects like Bitcoin, Ethereum, Solana, etc.
 allowed-tools:
   - Task
   - Bash

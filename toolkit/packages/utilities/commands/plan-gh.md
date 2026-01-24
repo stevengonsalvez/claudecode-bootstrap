@@ -1,9 +1,9 @@
-Create a detailed development plan and corresponding GitHub issues for the project. If the project or spec isn’t specified, ask the user for it in chat.
+Create a detailed development plan and corresponding GitHub issues for the project: $ARGUMENTS
 
 Follow these steps:
 
 1. **Read the specification**:
-   - If the user named a spec file, use that
+   - Look for the spec file specified in $ARGUMENTS
    - If no file specified, look for `spec.md` or ask for the specification file path
    - Understand the project requirements, goals, and technical constraints
 

@@ -47,6 +47,24 @@ Your primary responsibilities:
    - Run tests multiple times to ensure fixes aren't flaky
    - Document any significant changes to test behavior
 
+## Test Verification Strategy
+
+### Multi-Layer Verification (Critical)
+
+Tests MUST verify behavior through multiple layers, not rely solely on visual validation:
+
+1. **Database/API Verification**: Use service role keys or admin APIs to verify data persistence
+   - Example: `const userId = await findUserByEmail(email); expect(userId).toBeTruthy();`
+   - Example: `const teamId = await createTestTeam(config); expect(teamId).toBeDefined();`
+
+2. **UI Assertions**: Verify visible elements and navigation state
+   - Example: `await expect(page.locator('text=Success')).toBeVisible();`
+   - Example: `await expect(page).toHaveURL(/.*\/dashboard/);`
+
+3. **Screenshots**: Additional layer for visual regression, NOT primary verification
+
+* Write tests that verify behavior, not implementation details
+
 6. **Communication Protocol**: You will:
    - Clearly report which tests were run and their results
    - Explain the nature of any failures found

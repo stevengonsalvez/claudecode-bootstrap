@@ -1,9 +1,9 @@
-Review the codebase and create GitHub issues for identified problems. If the user specifies a focus area, use it; otherwise ask in chat or review broadly.
+Review codebase and create GitHub issues for identified problems: $ARGUMENTS
 
 Follow these steps:
 
 1. **Analyze the codebase**:
-   - If the user specifies files/directories, focus on those areas
+   - If $ARGUMENTS specifies files/directories, focus on those areas
    - Otherwise, perform a comprehensive codebase review
    - Look for bugs, design issues, code quality problems, and technical debt
    - Don't hallucinate - only report real, observable issues

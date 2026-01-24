@@ -6,13 +6,14 @@ Analyze the current conversation for corrections, success patterns, and learning
 
 ## Usage
 
-Invoke `/reflect` with no arguments, then ask in chat what to focus on:
-
-- Standard reflection (default)
-- Targeted reflection (agent or file)
-- Auto-reflection toggle (on/off)
-- Status
-- Review low-confidence learnings
+```bash
+/reflect                    # Analyze current conversation
+/reflect [agent-name]       # Focus on learnings for specific agent
+/reflect on                 # Enable auto-reflection at session end
+/reflect off                # Disable auto-reflection
+/reflect status             # Show toggle state and metrics
+/reflect review             # Review pending low-confidence learnings
+```
 
 ## Modes
 
@@ -24,35 +25,58 @@ Scan entire conversation for:
 - **Low confidence**: Observations (patterns that worked, not explicitly validated)
 - **New Skills**: Reusable techniques, workarounds, debugging patterns worth preserving
 
-### Targeted Reflection (ask in chat)
+### Targeted Reflection (`/reflect [agent-name]`)
 
 Focus analysis on learnings relevant to a specific agent:
-Examples of targets:
-- `code-reviewer`
-- `backend-developer`
-- `CLAUDE.md` (global preferences)
+```bash
+/reflect code-reviewer      # Focus on code review learnings
+/reflect backend-developer  # Focus on backend learnings
+/reflect CLAUDE.md          # Focus on global preferences
+```
 
-### Toggle Auto-Reflection (ask in chat)
+### Toggle Auto-Reflection
 
-Ask the user if they want auto-reflection enabled, disabled, or to view status.
+```bash
+/reflect on                 # Auto-reflect at session end
+/reflect off                # Manual reflection only
+/reflect status             # Check current state
+```
 
 ## Implementation
 
 When this command is invoked:
 
-### 1. Determine Intent (no args)
+### 1. Check for Toggle Commands
 
-Ask the user which mode to run:
-- Standard reflection
-- Targeted reflection (which agent/file?)
-- Auto-reflection toggle (on/off)
-- Status
-- Review low-confidence learnings
+```bash
+ARG="${1:-}"
 
-If the user chooses:
-- **on/off**: update `{{HOME_TOOL_DIR}}/session/reflect-state.yaml`
-- **status**: read `{{HOME_TOOL_DIR}}/session/reflect-state.yaml` and `{{HOME_TOOL_DIR}}/session/reflect-metrics.yaml`
-- **review**: run reflection filtered to low-confidence learnings
+case "$ARG" in
+  "on")
+    # Enable auto-reflection
+    echo "Setting auto_reflect: true in ~/.claude/session/reflect-state.yaml"
+    echo "Auto-reflection enabled. Will analyze session before handover."
+    exit 0
+    ;;
+  "off")
+    # Disable auto-reflection
+    echo "Setting auto_reflect: false in ~/.claude/session/reflect-state.yaml"
+    echo "Auto-reflection disabled. Use /reflect manually when needed."
+    exit 0
+    ;;
+  "status")
+    # Show current state
+    cat ~/.claude/session/reflect-state.yaml 2>/dev/null || echo "No state file found"
+    cat ~/.claude/session/reflect-metrics.yaml 2>/dev/null || echo "No metrics found"
+    exit 0
+    ;;
+  "review")
+    # Review low-confidence learnings
+    echo "Reviewing pending low-confidence learnings..."
+    # Continue to reflection with filter
+    ;;
+esac
+```
 
 ### 2. Scan Conversation for Signals
 
@@ -78,7 +102,7 @@ Look for these patterns in the conversation:
 For each signal detected:
 
 1. **Determine category**: Code Style, Architecture, Process, Domain, Tools, **New Skill**
-2. **For agent updates**: Match to `{{HOME_TOOL_DIR}}/agents/*/` file, identify section, draft addition
+2. **For agent updates**: Match to `~/.claude/agents/*/` file, identify section, draft addition
 3. **For new skills**: Check quality gates, generate skill using template
 
 **Skill-Worthy Signals** (create new skill instead of updating agent):
@@ -119,14 +143,14 @@ Produce this exact output format:
 
 ### Change 1: Update code-reviewer
 
-**Target**: `{{HOME_TOOL_DIR}}/agents/engineering/code-reviewer.md`
+**Target**: `~/.claude/agents/engineering/code-reviewer.md`
 **Section**: Review Heuristics
 **Confidence**: HIGH
 **Rationale**: User explicitly stated this rule
 
 ```diff
---- a/{{HOME_TOOL_DIR}}/agents/engineering/code-reviewer.md
-+++ b/{{HOME_TOOL_DIR}}/agents/engineering/code-reviewer.md
+--- a/~/.claude/agents/engineering/code-reviewer.md
++++ b/~/.claude/agents/engineering/code-reviewer.md
 @@ -82,6 +82,7 @@
  ## Review Heuristics
 
@@ -145,7 +169,7 @@ Produce this exact output format:
 - [x] Verified: [how verified]
 - [x] No duplication: [checked against]
 
-**Will create**: `{{TOOL_DIR}}/skills/[skill-name]/SKILL.md`
+**Will create**: `.claude/skills/[skill-name]/SKILL.md`
 
 **Preview**:
 ```yaml
@@ -194,8 +218,8 @@ Apply these changes?
 1. Apply each change using Edit tool
 2. Run `git add` on modified files
 3. Commit with generated message
-4. Update `{{HOME_TOOL_DIR}}/session/learnings.yaml` log
-5. Update `{{HOME_TOOL_DIR}}/session/reflect-metrics.yaml`
+4. Update `~/.claude/session/learnings.yaml` log
+5. Update `~/.claude/session/reflect-metrics.yaml`
 6. Report success
 
 **On `N` (reject)**:
@@ -215,7 +239,7 @@ Apply these changes?
 
 ### 6. Update Metrics
 
-After each reflection, update `{{HOME_TOOL_DIR}}/session/reflect-metrics.yaml`:
+After each reflection, update `~/.claude/session/reflect-metrics.yaml`:
 
 ```yaml
 last_reflection: [timestamp]
@@ -256,7 +280,7 @@ Claude: # Reflection Analysis
 
 ### Change 1: Update ui-designer
 
-**Target**: `{{HOME_TOOL_DIR}}/agents/design/ui-designer.md`
+**Target**: `~/.claude/agents/design/ui-designer.md`
 **Section**: Heuristics
 **Confidence**: HIGH
 **Rationale**: Explicit correction from user
@@ -265,7 +289,7 @@ Claude: # Reflection Analysis
 
 ### Change 2: Update api-architect
 
-**Target**: `{{HOME_TOOL_DIR}}/agents/engineering/api-architect.md`
+**Target**: `~/.claude/agents/engineering/api-architect.md`
 **Section**: Design Patterns
 **Confidence**: MEDIUM
 **Rationale**: User approved this approach for pagination
@@ -274,7 +298,7 @@ Claude: # Reflection Analysis
 
 ### Change 3: Update backend-developer
 
-**Target**: `{{HOME_TOOL_DIR}}/agents/universal/backend-developer.md`
+**Target**: `~/.claude/agents/universal/backend-developer.md`
 **Section**: Code Style
 **Confidence**: HIGH
 **Rationale**: Explicit style rule from user
@@ -301,9 +325,9 @@ Apply these changes? (Y/N/modify/1,2,3)
 User: Y
 
 Claude: Applied 3 changes:
-- {{HOME_TOOL_DIR}}/agents/design/ui-designer.md
-- {{HOME_TOOL_DIR}}/agents/engineering/api-architect.md
-- {{HOME_TOOL_DIR}}/agents/universal/backend-developer.md
+- ~/.claude/agents/design/ui-designer.md
+- ~/.claude/agents/engineering/api-architect.md
+- ~/.claude/agents/universal/backend-developer.md
 
 Committed: abc123f "reflect: add style and pagination learnings"
 
@@ -318,26 +342,26 @@ Metrics updated:
 When triggered by hooks (PreCompact), reflection runs as a background subagent:
 
 1. Spawns via Task tool with `run_in_background: true`
-2. Outputs to project `{{TOOL_DIR}}/reflections/YYYY-MM-DD_HH-MM-SS.md`
-3. Updates global index at `{{HOME_TOOL_DIR}}/reflections/index.md`
+2. Outputs to project `.claude/reflections/YYYY-MM-DD_HH-MM-SS.md`
+3. Updates global index at `~/.claude/reflections/index.md`
 4. Does NOT block the session
 5. Changes are queued for review (not auto-applied)
 
 ### Output Locations
 
 **Project-level** (auto-created, versioned with repo):
-- `{{TOOL_DIR}}/reflections/YYYY-MM-DD_HH-MM-SS.md` - Full reflection
-- `{{TOOL_DIR}}/reflections/index.md` - Project reflection summary
-- `{{TOOL_DIR}}/skills/{skill-name}/SKILL.md` - New skills (project-level for review)
+- `.claude/reflections/YYYY-MM-DD_HH-MM-SS.md` - Full reflection
+- `.claude/reflections/index.md` - Project reflection summary
+- `.claude/skills/{skill-name}/SKILL.md` - New skills (project-level for review)
 
 **Global** (auto-created):
-- `{{HOME_TOOL_DIR}}/reflections/by-project/{project}/` - Cross-project aggregation
-- `{{HOME_TOOL_DIR}}/reflections/by-agent/{agent}/learnings.md` - Per-agent learnings
-- `{{HOME_TOOL_DIR}}/reflections/index.md` - Global summary
+- `~/.claude/reflections/by-project/{project}/` - Cross-project aggregation
+- `~/.claude/reflections/by-agent/{agent}/learnings.md` - Per-agent learnings
+- `~/.claude/reflections/index.md` - Global summary
 
-**Note**: Skills are created in PROJECT `{{TOOL_DIR}}/skills/` so you can:
+**Note**: Skills are created in PROJECT `.claude/skills/` so you can:
 - Review before committing
-- Move to global `{{HOME_TOOL_DIR}}/skills/` if broadly applicable
+- Move to global `~/.claude/skills/` if broadly applicable
 - Keep project-specific if only relevant to this repo
 
 ### Reflection Output File Format
@@ -380,13 +404,13 @@ At 🟡 (approaching limit) health status (70%+ context), the UserPromptSubmit h
 
 | File | Purpose |
 |------|---------|
-| `{{HOME_TOOL_DIR}}/session/reflect-state.yaml` | Toggle state, pending reviews |
-| `{{HOME_TOOL_DIR}}/session/learnings.yaml` | Log of all applied learnings |
-| `{{HOME_TOOL_DIR}}/session/reflect-metrics.yaml` | Aggregate metrics |
-| `{{TOOL_DIR}}/reflections/` | Project reflection outputs |
-| `{{TOOL_DIR}}/skills/{name}/SKILL.md` | New skills (project-level) |
-| `{{HOME_TOOL_DIR}}/reflections/` | Global reflection index |
-| `{{HOME_TOOL_DIR}}/skills/{name}/SKILL.md` | Global skills (moved manually) |
+| `~/.claude/session/reflect-state.yaml` | Toggle state, pending reviews |
+| `~/.claude/session/learnings.yaml` | Log of all applied learnings |
+| `~/.claude/session/reflect-metrics.yaml` | Aggregate metrics |
+| `.claude/reflections/` | Project reflection outputs |
+| `.claude/skills/{name}/SKILL.md` | New skills (project-level) |
+| `~/.claude/reflections/` | Global reflection index |
+| `~/.claude/skills/{name}/SKILL.md` | Global skills (moved manually) |
 
 ## Safety Notes
 

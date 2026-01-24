@@ -1,10 +1,10 @@
-Analyze and fix the specified GitHub issue. Ask the user which issue to work on if none is provided.
+Analyze and fix the specified GitHub issue: $ARGUMENTS
 
 Follow these steps:
 
 1. **Get issue details**:
-   - Use `gh issue view <issue-number>` to get the complete issue information
-   - If no issue number is provided, list issues with `gh issue list` and ask which to work on
+   - Use `gh issue view $ARGUMENTS` to get the complete issue information
+   - If $ARGUMENTS is not provided, list issues with `gh issue list` and ask which to work on
    - Understand the problem description, expected behavior, and acceptance criteria
 
 2. **Understand the problem**:
@@ -19,11 +19,11 @@ Follow these steps:
 
 4. **Plan and comment your approach**:
    - Post a detailed implementation plan as a comment on the issue
-   - Use `gh issue comment <issue-number> --body "Implementation plan: ..."`
+   - Use `gh issue comment $ARGUMENTS --body "Implementation plan: ..."`
    - Include what files will be changed and the general approach
 
 5. **Create a development branch**:
-   - Create a new branch: `git checkout -b fix/issue-<issue-number>-{description}`
+   - Create a new branch: `git checkout -b fix/issue-$ARGUMENTS-{description}`
    - Ensure you're working from the latest main branch
 
 6. **Implement the fix**:
@@ -41,7 +41,7 @@ Follow these steps:
 8. **Create a pull request**:
    - Commit changes with descriptive message referencing the issue
    - Push the branch to GitHub
-   - Use `gh pr create --title "Fix #<issue-number>: {description}" --body "Closes #<issue-number>"`
+   - Use `gh pr create --title "Fix #$ARGUMENTS: {description}" --body "Closes #$ARGUMENTS"`
    - Include details about the fix and testing performed
 
 9. **Keep the issue open** until the pull request is merged

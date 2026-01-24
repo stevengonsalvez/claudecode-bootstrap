@@ -92,7 +92,7 @@ get_dev_metadata() {
 
 get_agent_metadata() {
     local SESSION_NAME=$1
-    local METADATA_FILE="$HOME/{{TOOL_DIR}}/agents/${SESSION_NAME}.json"
+    local METADATA_FILE="$HOME/.claude/agents/${SESSION_NAME}.json"
 
     if [ -f "$METADATA_FILE" ]; then
         echo "$METADATA_FILE"

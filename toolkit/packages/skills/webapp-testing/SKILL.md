@@ -1,26 +1,7 @@
 ---
 name: webapp-testing
-version: 1.2.0
 description: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.
-license: Apache-2.0
-
-metadata:
-  author: stevengonsalvez
-  repository: https://github.com/stevengonsalvez/ai-coder-rules
-  category: testing
-  keywords: [playwright, testing, automation, web, browser, e2e]
-
-compatibility: Requires Python 3.11+, Playwright installed, Chromium browser
-
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-
-dependencies:
-  python: ">=3.11"
-  playwright: "*"
+license: Complete terms in LICENSE.txt
 ---
 
 # Web Application Testing
@@ -30,7 +11,7 @@ To test local web applications, write native Python Playwright scripts.
 **Helper Scripts Available**:
 - `scripts/with_server.py` - Manages server lifecycle (supports multiple servers)
 
-**Always run scripts with `--help` first** to see usage. DO NOT read the source until you try running the script first and find that a customized solution is absolutely necessary. These scripts can be very large and thus pollute your context window. They exist to be called directly as black-box scripts rather than ingested into your context window.
+**Always run scripts with `--help` first** to see usage. DO NOT read the source until you try running the script first and find that a customized solution is abslutely necessary. These scripts can be very large and thus pollute your context window. They exist to be called directly as black-box scripts rather than ingested into your context window.
 
 ## Browser Tools (Direct Chrome DevTools Control)
 

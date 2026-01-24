@@ -1,5 +1,6 @@
 ---
 allowed-tools: Bash(date:*), Bash(mkdir:*), Task, Write
+argument-hint: [crypto_ticker_symbol]
 description: Execute comprehensive cryptocurrency research using all crypto agents
 ---
 
@@ -9,7 +10,7 @@ Think hard and execute comprehensive cryptocurrency research by calling all cryp
 
 ## Variables
 
-- **TICKER**: Ask the user for a ticker symbol; default to "BTC" if not specified
+- **TICKER**: $ARGUMENTS or "BTC" if not specified
   - The cryptocurrency ticker symbol to analyze (e.g., BTC, ETH, SOL)
   - Used by: crypto-coin-analyzer agents
 

@@ -33,16 +33,62 @@ const TOOL_CONFIG = {
         targetSubdir: '.claude/rules',
     },
     'claude-code-4.5': {
-        ruleDir: 'claude-code-4.5',
+        ruleDir: 'packages',
         targetSubdir: '.claude',
-        copyEntireFolder: true,
-        excludeFiles: ['settings.local.json', 'skills'],
+        usePackagesStructure: true,
+        packageMappings: {
+            'skills': 'skills',
+            'agents': 'agents',
+            'workflows/single-agent/commands': 'commands',
+            'workflows/multi-agent/commands': 'commands',
+            'workflows/multi-agent/utils': 'utils',
+            'workflows/multi-agent/orchestration': 'orchestration',
+            'utilities/commands': 'commands',
+            'utilities/hooks': 'hooks',
+            'utilities/templates': 'templates',
+            'utilities/output-styles': 'output-styles',
+            'utilities/reflections': 'reflections'
+        },
+        // Tool-specific files still come from claude-code-4.5/
+        toolSpecificFiles: [
+            'claude-code-4.5/CLAUDE.md',
+            'claude-code-4.5/settings.json'
+        ],
+        excludeFiles: ['settings.local.json'],
         templateSubstitutions: {
-            'CLAUDE.md': {
+            '**/*.md': {
                 'TOOL_DIR': '.claude',
                 'HOME_TOOL_DIR': '~/.claude'
             },
-            '**/*.md': {
+            '**/*.sh': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.py': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.js': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.ts': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.json': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.yaml': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.yml': {
+                'TOOL_DIR': '.claude',
+                'HOME_TOOL_DIR': '~/.claude'
+            },
+            '**/*.toml': {
                 'TOOL_DIR': '.claude',
                 'HOME_TOOL_DIR': '~/.claude'
             }
@@ -167,12 +213,30 @@ const TOOL_CONFIG = {
         ruleGlob: 'GEMINI.md',
         ruleDir: 'gemini',
         targetSubdir: '.gemini',
-        sharedContentDir: 'claude-code-4.5',
-        copySharedContent: true,
-        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
-        settingsFile: 'gemini/settings.json',
+        usePackagesStructure: true,
+        packageMappings: {
+            'skills': 'skills',
+            'agents': 'agents',
+            'workflows/single-agent/commands': 'commands',
+            'workflows/multi-agent/commands': 'commands',
+            'utilities/commands': 'commands',
+            'utilities/hooks': 'hooks',
+            'utilities/templates': 'templates',
+            'utilities/output-styles': 'output-styles',
+            'utilities/reflections': 'reflections'
+        },
+        toolSpecificFiles: ['gemini/GEMINI.md', 'gemini/settings.json'],
+        excludeFiles: ['settings.local.json'],
         templateSubstitutions: {
-            'GEMINI.md': {
+            '**/*.md': {
+                'TOOL_DIR': '.gemini',
+                'HOME_TOOL_DIR': '.gemini'
+            },
+            '**/*.sh': {
+                'TOOL_DIR': '.gemini',
+                'HOME_TOOL_DIR': '.gemini'
+            },
+            '**/*.py': {
                 'TOOL_DIR': '.gemini',
                 'HOME_TOOL_DIR': '.gemini'
             }
@@ -184,7 +248,19 @@ const TOOL_CONFIG = {
         targetSubdir: '.amazonq/rules',
         mcpFile: 'amazonq/mcp.json',
         mcpTarget: '.amazonq/mcp.json',
-        sharedContentDir: 'claude-code-4.5',
+        usePackagesStructure: true,
+        packageMappings: {
+            'skills': 'skills',
+            'agents': 'agents',
+            'workflows/single-agent/commands': 'commands',
+            'workflows/multi-agent/commands': 'commands',
+            'utilities/commands': 'commands',
+            'utilities/hooks': 'hooks',
+            'utilities/templates': 'templates',
+            'utilities/output-styles': 'output-styles',
+            'utilities/reflections': 'reflections'
+        },
+        toolSpecificFiles: ['amazonq/AmazonQ.md'],
         specialCopies: [
             {
                 source: 'amazonq/AmazonQ.md',
@@ -197,10 +273,17 @@ const TOOL_CONFIG = {
                 linkName: 'AmazonQ.md'
             }
         ],
-        copySharedContent: true,
-        excludeFiles: ['CLAUDE.md', 'settings.local.json'],
+        excludeFiles: ['settings.local.json'],
         templateSubstitutions: {
-            'AmazonQ.md': {
+            '**/*.md': {
+                'TOOL_DIR': '.amazonq',
+                'HOME_TOOL_DIR': '.amazonq'
+            },
+            '**/*.sh': {
+                'TOOL_DIR': '.amazonq',
+                'HOME_TOOL_DIR': '.amazonq'
+            },
+            '**/*.py': {
                 'TOOL_DIR': '.amazonq',
                 'HOME_TOOL_DIR': '.amazonq'
             }

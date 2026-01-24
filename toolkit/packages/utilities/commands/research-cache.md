@@ -6,11 +6,11 @@ Manage the global repository analysis cache used by the `/research` command.
 
 The research cache stores analysis results from external repositories discovered during web research. This prevents re-analyzing the same repositories and speeds up research workflows.
 
-**Cache Location**: `{{HOME_TOOL_DIR}}/research-cache/`
+**Cache Location**: `~/.claude/research-cache/`
 
 **Cache Structure**:
 ```
-{{HOME_TOOL_DIR}}/research-cache/
+~/.claude/research-cache/
   <owner>-<repo>-<commit-short>/
     analysis.md          # Focused analysis document
     metadata.json        # Cache metadata (timestamps, query hash)
@@ -46,7 +46,7 @@ bash toolkit/claude-code-4.5/utils/repo-analysis-cache.sh stats
 ```
 📊 Cache Statistics
 
-Directory: {{HOME_TOOL_DIR}}/research-cache
+Directory: ~/.claude/research-cache
 
 Entries:
   Total:   15
@@ -74,7 +74,7 @@ bash toolkit/claude-code-4.5/utils/repo-analysis-cache.sh list --expired
 
 **Output**:
 ```
-Cache Directory: {{HOME_TOOL_DIR}}/research-cache
+Cache Directory: ~/.claude/research-cache
 
 CACHE KEY                      STATUS          CREATED              QUERY HASH
 ----------                     ------          -------              ----------
@@ -210,7 +210,7 @@ bash toolkit/claude-code-4.5/utils/repo-analysis-cache.sh purge --force
 # Override cache directory
 export CLAUDE_RESEARCH_CACHE="/custom/cache/path"
 
-# Default: {{HOME_TOOL_DIR}}/research-cache
+# Default: ~/.claude/research-cache
 ```
 
 ### Cache Settings
@@ -271,7 +271,7 @@ bash toolkit/claude-code-4.5/utils/repo-analysis-cache.sh purge --force
 **Fix**:
 ```bash
 # Manually remove corrupted entry
-rm -rf {{HOME_TOOL_DIR}}/research-cache/<cache-key>
+rm -rf ~/.claude/research-cache/<cache-key>
 
 # Reinitialize cache
 bash toolkit/claude-code-4.5/utils/repo-analysis-cache.sh init
@@ -308,7 +308,7 @@ No manual intervention required for normal research workflows.
 
 ```bash
 # Get all valid cache keys
-for cache_dir in {{HOME_TOOL_DIR}}/research-cache/*; do
+for cache_dir in ~/.claude/research-cache/*; do
     if [ -f "$cache_dir/metadata.json" ]; then
         CACHE_KEY=$(basename "$cache_dir")
         AGE=$(jq -r '.created_at' "$cache_dir/metadata.json")
@@ -331,10 +331,10 @@ grep "Total:" cache-stats.txt
 
 ```bash
 # Find all React-related analyses
-grep -r "React" {{HOME_TOOL_DIR}}/research-cache/*/analysis.md
+grep -r "React" ~/.claude/research-cache/*/analysis.md
 
 # Find analyses newer than N days
-find {{HOME_TOOL_DIR}}/research-cache -name "metadata.json" -mtime -7 -exec jq -r '.repo_url' {} \;
+find ~/.claude/research-cache -name "metadata.json" -mtime -7 -exec jq -r '.repo_url' {} \;
 ```
 
 ## See Also
