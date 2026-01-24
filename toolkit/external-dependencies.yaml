@@ -1,0 +1,210 @@
+# =============================================================================
+# Unified Extensions Manifest
+# =============================================================================
+#
+# Tracks ALL plugins, skills, and tools across the toolkit ecosystem.
+# This is the single source of truth for external dependencies.
+#
+# Usage:
+#   - Run `/plugins list` to see all installed extensions
+#   - Run `/plugins sync` to update this manifest from current state
+#   - Run `/plugins export` to generate reproducible install script
+#
+# =============================================================================
+
+version: "1.0.0"
+updated: "2026-01-24"
+
+# =============================================================================
+# BUNDLED SKILLS (included in toolkit/packages/skills/)
+# =============================================================================
+# These are built-in skills that come with the toolkit. No installation needed.
+# They are automatically available when the toolkit is installed.
+bundled-skills:
+  - name: webapp-testing
+    path: packages/skills/webapp-testing
+    purpose: "Playwright-based web app testing and browser automation"
+    features:
+      - Browser screenshot capture
+      - UI element interaction
+      - End-to-end testing workflows
+
+  - name: crypto-research
+    path: packages/skills/crypto-research
+    purpose: "Multi-agent cryptocurrency market analysis"
+    features:
+      - Market data analysis
+      - Price trends and technical indicators
+      - News sentiment analysis
+
+  - name: frontend-design
+    path: packages/skills/frontend-design
+    purpose: "Production-grade UI/UX generation"
+    features:
+      - Distinctive interface designs
+      - Responsive layouts
+      - Modern styling patterns
+
+  - name: tmux-monitor
+    path: packages/skills/tmux-monitor
+    purpose: "tmux session monitoring and management"
+    features:
+      - Session status reporting
+      - Process monitoring
+      - Development environment tracking
+
+  - name: retro-pdf
+    path: packages/skills/retro-pdf
+    purpose: "Markdown to LaTeX PDF conversion"
+    features:
+      - Professional PDF generation
+      - LaTeX template support
+      - Custom styling options
+
+# =============================================================================
+# EXTERNAL PLUGINS (Claude Code marketplace)
+# =============================================================================
+# Installed via `claude plugin install`. Tracked in ~/.claude/plugins/
+claude-plugins:
+  - name: beads
+    marketplace: steveyegge/beads
+    marketplace_id: beads-marketplace
+    version: "0.49.0"
+    install: |
+      claude plugin marketplace add steveyegge/beads
+      claude plugin install beads
+    purpose: "Git-backed issue tracking for multi-session work"
+    features:
+      - Persistent issue tracking across sessions
+      - Dependency management between issues
+      - Context recovery after conversation compaction
+
+  - name: debug-bridge
+    marketplace: stevengonsalvez/agent-bridge
+    marketplace_id: agent-bridge-marketplace
+    version: "0.2.0"
+    install: |
+      claude plugin marketplace add stevengonsalvez/agent-bridge
+      claude plugin install debug-bridge
+    purpose: "Browser automation and inspection via WebSocket"
+    features:
+      - Real-time browser control
+      - Element inspection
+      - Screenshot capture
+
+  - name: ralph-loop
+    marketplace: anthropics/claude-plugins-official
+    marketplace_id: claude-plugins-official
+    version: "e30768372b41"
+    install: |
+      claude plugin marketplace add anthropics/claude-plugins-official
+      claude plugin install ralph-loop
+    purpose: "Iterative refinement loop for continuous improvement"
+    features:
+      - Feedback-driven iteration
+      - Quality improvement cycles
+
+  - name: code-review
+    marketplace: anthropics/claude-plugins-official
+    marketplace_id: claude-plugins-official
+    version: "e30768372b41"
+    install: |
+      claude plugin marketplace add anthropics/claude-plugins-official
+      claude plugin install code-review
+    purpose: "Pull request code review automation"
+    features:
+      - Automated PR analysis
+      - Code quality checks
+      - Review comment generation
+
+  - name: dev-browser
+    marketplace: sawyerhood/dev-browser
+    marketplace_id: sawyerhood-dev-browser
+    install: |
+      claude plugin marketplace add sawyerhood/dev-browser
+      claude plugin install dev-browser@sawyerhood/dev-browser
+    purpose: "Browser DevTools integration for debugging and inspection"
+    features:
+      - DevTools access
+      - DOM inspection
+      - Network monitoring
+
+# =============================================================================
+# NPX SKILLS (agent skills from npm/GitHub)
+# =============================================================================
+# Installed via `npx skills add`. These follow the agentskills.io specification.
+# See: https://github.com/vercel-labs/add-skill
+npx-skills:
+  - name: agent-browser
+    repo: vercel-labs/agent-browser
+    install: "npx add-skill vercel-labs/agent-browser"
+    purpose: "Browser automation CLI for AI agents"
+    features:
+      - Navigate to URLs (agent-browser open <url>)
+      - Snapshot interactive elements with refs (@e1, @e2)
+      - Click and fill using refs
+      - Browserbase remote browser support
+    docs: "https://github.com/vercel-labs/agent-browser"
+
+  - name: agent-skills
+    repo: vercel-labs/agent-skills
+    install: "npx add-skill vercel-labs/agent-skills"
+    purpose: "React and Next.js optimization patterns (10+ years of best practices)"
+    features:
+      - React best practices
+      - Next.js optimization rules
+      - Performance patterns
+    docs: "https://github.com/vercel-labs/agent-skills"
+
+# =============================================================================
+# CODEX SKILLS (from developers.openai.com/codex/skills)
+# =============================================================================
+# Installed via $skill-installer in Codex. Stored in $CODEX_HOME/skills/
+codex-skills: []
+  # Example entry:
+  # - name: linear
+  #   source: ".experimental"
+  #   install: "Use $skill-installer in Codex"
+  #   purpose: "Linear issue management"
+
+# =============================================================================
+# MCP SERVERS
+# =============================================================================
+# Model Context Protocol servers configured in claude_desktop_config.json
+mcp-servers:
+  - name: context7
+    config_location: "claude_desktop_config.json"
+    purpose: "Documentation lookup for programming libraries"
+    features:
+      - Up-to-date library docs
+      - Code example retrieval
+      - API reference lookup
+
+# =============================================================================
+# KNOWN MARKETPLACES
+# =============================================================================
+# Claude plugin marketplaces that have been added
+marketplaces:
+  - id: claude-plugins-official
+    repo: anthropics/claude-plugins-official
+    description: "Official Anthropic plugins"
+
+  - id: anthropic-agent-skills
+    repo: anthropics/skills
+    description: "Official Anthropic agent skills"
+
+  - id: agent-bridge-marketplace
+    repo: stevengonsalvez/agent-bridge
+    description: "Browser automation tools"
+
+  - id: beads-marketplace
+    repo: steveyegge/beads
+    description: "Git-backed issue tracking"
+
+  - id: claude-code-plugins
+    repo: anthropics/claude-code
+    description: "Claude Code built-in plugins"
+
+  - id: sawyerhood-dev-browser
+    repo: sawyerhood/dev-browser
+    description: "Browser DevTools integration"
