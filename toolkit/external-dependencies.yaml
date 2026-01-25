@@ -13,7 +13,7 @@
 # =============================================================================
 
 version: "1.0.0"
-updated: "2026-01-24"
+updated: "2026-01-25"
 
 # =============================================================================
 # BUNDLED SKILLS (included in toolkit/packages/skills/)
@@ -129,6 +129,22 @@ claude-plugins:
       - DOM inspection
       - Network monitoring
 
+  - name: open-prose
+    marketplace: anthropics/prose
+    marketplace_id: prose
+    version: "0.8.1"
+    install: |
+      claude plugin marketplace add anthropics/prose
+      claude plugin install open-prose
+    purpose: "OpenProse programming language for AI sessions and multi-agent workflows"
+    features:
+      - Declarative AI workflow scripting
+      - Multi-agent orchestration via .prose files
+      - Variable binding and context passing
+      - Parallel and sequential execution blocks
+      - Skills and imports composition
+    docs: "https://github.com/anthropics/prose"
+
 # =============================================================================
 # NPX SKILLS (agent skills from npm/GitHub)
 # =============================================================================
@@ -208,3 +224,7 @@ marketplaces:
   - id: sawyerhood-dev-browser
     repo: sawyerhood/dev-browser
     description: "Browser DevTools integration"
+
+  - id: prose
+    repo: anthropics/prose
+    description: "OpenProse AI workflow language"
