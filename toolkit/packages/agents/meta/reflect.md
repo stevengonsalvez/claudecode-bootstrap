@@ -1,10 +1,19 @@
 ---
 name: reflect
-description: MUST BE USED to analyze conversations for corrections, success patterns, and learnings. Use PROACTIVELY at session end or when explicit corrections are made ("never do X", "always check Y"). Extracts learnings with confidence levels (high/medium/low) and proposes targeted updates to agent files. "Correct once, never again."
+description: |
+  DEPRECATED: Use the portable skill at toolkit/packages/skills/reflect/ instead.
+  This agent file is retained for backwards compatibility during transition.
+  See /reflect command for skill-based implementation.
 tools: Read, Grep, Glob, Edit, Write, Bash
+deprecated: true
+superseded_by: toolkit/packages/skills/reflect/SKILL.md
 ---
 
 # Reflect - Self-Improvement Agent
+
+> **DEPRECATED**: This agent has been consolidated into a portable skill.
+> Use the skill at `toolkit/packages/skills/reflect/SKILL.md` instead.
+> This file is retained for backwards compatibility during the transition period.
 
 ## Mission
 
