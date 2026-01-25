@@ -48,7 +48,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 clap = { version = "4.4", features = ["derive"] }
 tempfile = "3.8"
-nix = { version = "0.27", features = ["user"] }
+nix = { version = "0.27", features = ["user", "fs", "signal"] }
 arboard = "3.3"  # Cross-platform clipboard support
 keyring = { version = "3", features = ["apple-native", "linux-native"] }  # Secure credential storage
 regex = "1.10"

@@ -13,6 +13,7 @@ pub mod editors;
 pub mod docker;
 pub mod git;
 pub mod interactive;
+pub mod mcp_pool;
 pub mod models;
 pub mod tmux;
 pub mod widgets;

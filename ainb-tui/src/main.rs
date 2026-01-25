@@ -26,6 +26,7 @@ mod editors;
 mod docker;
 mod git;
 mod interactive;
+mod mcp_pool;
 mod models;
 mod tmux;
 mod widgets;

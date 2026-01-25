@@ -283,6 +283,304 @@ impl Default for McpInitStrategy {
     }
 }
 
+// =============================================================================
+// MCP Socket Pooling Types
+// =============================================================================
+
+/// MCP Definition for pooling configuration
+///
+/// This struct defines an MCP server that can be shared across sessions
+/// via socket pooling. It contains the command, args, and pooling settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpDefinition {
+    /// Command to execute (e.g., "npx", "node", "python")
+    pub command: String,
+
+    /// Arguments for the command
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// Environment variables to set
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+
+    /// Description of the MCP server
+    #[serde(default)]
+    pub description: String,
+
+    /// Whether this MCP is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Whether to use socket pooling for this MCP
+    /// If true, the MCP process is shared across sessions via Unix socket
+    #[serde(default = "default_true")]
+    pub pool: bool,
+
+    /// Required environment variables (validation)
+    #[serde(default)]
+    pub required_env: Vec<String>,
+}
+
+impl McpDefinition {
+    /// Create a new MCP definition
+    pub fn new(command: impl Into<String>, args: Vec<String>) -> Self {
+        Self {
+            command: command.into(),
+            args,
+            env: HashMap::new(),
+            description: String::new(),
+            enabled: true,
+            pool: true,
+            required_env: vec![],
+        }
+    }
+
+    /// Create with pooling disabled (stdio mode)
+    pub fn new_stdio(command: impl Into<String>, args: Vec<String>) -> Self {
+        Self {
+            command: command.into(),
+            args,
+            env: HashMap::new(),
+            description: String::new(),
+            enabled: true,
+            pool: false,
+            required_env: vec![],
+        }
+    }
+
+    /// Convert from Claude settings.json format
+    pub fn from_claude_settings(name: &str, config: &serde_json::Value) -> Option<Self> {
+        let command = config.get("command")?.as_str()?.to_string();
+        let args: Vec<String> = config
+            .get("args")
+            .and_then(|a| a.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        let env: HashMap<String, String> = config
+            .get("env")
+            .and_then(|e| e.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Some(Self {
+            command,
+            args,
+            env,
+            description: format!("Imported from Claude settings: {}", name),
+            enabled: true,
+            pool: true,
+            required_env: vec![],
+        })
+    }
+}
+
+/// MCP Importer - Auto-imports MCP definitions from Claude settings
+pub struct McpImporter;
+
+impl McpImporter {
+    /// Auto-import MCPs from Claude settings files
+    ///
+    /// Checks the following locations:
+    /// 1. ~/.claude/settings.json (Claude Code CLI)
+    /// 2. ~/Library/Application Support/Claude/claude_desktop_config.json (Claude Desktop - macOS)
+    /// 3. ~/.config/claude/claude_desktop_config.json (Claude Desktop - Linux)
+    pub fn auto_import() -> HashMap<String, McpDefinition> {
+        let mut mcps = HashMap::new();
+
+        if let Some(home) = dirs::home_dir() {
+            // Claude Code CLI settings
+            let claude_cli_settings = home.join(".claude").join("settings.json");
+            if claude_cli_settings.exists() {
+                if let Ok(imported) = Self::import_from_claude_settings(&claude_cli_settings) {
+                    mcps.extend(imported);
+                }
+            }
+
+            // Claude Desktop (macOS)
+            #[cfg(target_os = "macos")]
+            {
+                let claude_desktop = home
+                    .join("Library")
+                    .join("Application Support")
+                    .join("Claude")
+                    .join("claude_desktop_config.json");
+                if claude_desktop.exists() {
+                    if let Ok(imported) = Self::import_from_claude_desktop(&claude_desktop) {
+                        mcps.extend(imported);
+                    }
+                }
+            }
+
+            // Claude Desktop (Linux)
+            #[cfg(target_os = "linux")]
+            {
+                let claude_desktop = home
+                    .join(".config")
+                    .join("claude")
+                    .join("claude_desktop_config.json");
+                if claude_desktop.exists() {
+                    if let Ok(imported) = Self::import_from_claude_desktop(&claude_desktop) {
+                        mcps.extend(imported);
+                    }
+                }
+            }
+        }
+
+        mcps
+    }
+
+    /// Import MCPs from Claude CLI settings.json
+    fn import_from_claude_settings(path: &std::path::Path) -> std::io::Result<HashMap<String, McpDefinition>> {
+        let content = std::fs::read_to_string(path)?;
+        let settings: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let mut mcps = HashMap::new();
+
+        if let Some(mcp_servers) = settings.get("mcpServers").and_then(|s| s.as_object()) {
+            for (name, config) in mcp_servers {
+                if let Some(def) = McpDefinition::from_claude_settings(name, config) {
+                    mcps.insert(name.clone(), def);
+                }
+            }
+        }
+
+        Ok(mcps)
+    }
+
+    /// Import MCPs from Claude Desktop config
+    fn import_from_claude_desktop(path: &std::path::Path) -> std::io::Result<HashMap<String, McpDefinition>> {
+        let content = std::fs::read_to_string(path)?;
+        let config: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let mut mcps = HashMap::new();
+
+        if let Some(mcp_servers) = config.get("mcpServers").and_then(|s| s.as_object()) {
+            for (name, server_config) in mcp_servers {
+                if let Some(def) = McpDefinition::from_claude_settings(name, server_config) {
+                    mcps.insert(name.clone(), def);
+                }
+            }
+        }
+
+        Ok(mcps)
+    }
+}
+
+/// MCP Catalog - Generates session-specific .mcp.json files
+///
+/// When socket pooling is enabled, MCPs are accessed via Unix sockets
+/// instead of spawning new processes. This catalog generates the
+/// appropriate .mcp.json configuration for each session.
+pub struct McpCatalog;
+
+impl McpCatalog {
+    /// Generate session configuration for a worktree
+    ///
+    /// For pooled MCPs, generates `nc -U <socket_path>` commands.
+    /// For non-pooled MCPs, falls back to original stdio configuration.
+    pub fn generate_session_config(
+        mcps: &HashMap<String, McpDefinition>,
+        socket_dir: Option<&std::path::Path>,
+    ) -> serde_json::Value {
+        let mut mcp_servers = serde_json::Map::new();
+
+        for (name, def) in mcps {
+            if !def.enabled {
+                continue;
+            }
+
+            let config = if def.pool {
+                // Pooled MCP: use nc to connect to socket
+                if let Some(dir) = socket_dir {
+                    let socket_path = dir.join(format!("mcp-{}.sock", name));
+                    serde_json::json!({
+                        "command": "nc",
+                        "args": ["-U", socket_path.to_string_lossy()],
+                    })
+                } else {
+                    // No socket dir available, fall back to stdio
+                    Self::create_stdio_config(def)
+                }
+            } else {
+                // Non-pooled MCP: use stdio
+                Self::create_stdio_config(def)
+            };
+
+            mcp_servers.insert(name.clone(), config);
+        }
+
+        serde_json::json!({
+            "mcpServers": mcp_servers
+        })
+    }
+
+    /// Create stdio configuration for an MCP
+    fn create_stdio_config(def: &McpDefinition) -> serde_json::Value {
+        let mut config = serde_json::json!({
+            "command": def.command,
+            "args": def.args,
+        });
+
+        if !def.env.is_empty() {
+            config["env"] = serde_json::json!(def.env);
+        }
+
+        config
+    }
+
+    /// Write session configuration to a worktree
+    ///
+    /// Reads any existing .mcp.json and merges with the generated config,
+    /// preserving project-specific MCP configurations.
+    pub fn write_session_config(
+        worktree_path: &std::path::Path,
+        mcps: &HashMap<String, McpDefinition>,
+        socket_dir: Option<&std::path::Path>,
+    ) -> std::io::Result<()> {
+        let mcp_json_path = worktree_path.join(".mcp.json");
+
+        // Read existing config if present
+        let mut existing_config: serde_json::Value = if mcp_json_path.exists() {
+            let content = std::fs::read_to_string(&mcp_json_path)?;
+            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        // Generate pooled config
+        let generated = Self::generate_session_config(mcps, socket_dir);
+
+        // Merge: generated config takes precedence, but preserve project-specific MCPs
+        if let (Some(existing_servers), Some(generated_servers)) = (
+            existing_config.get_mut("mcpServers").and_then(|s| s.as_object_mut()),
+            generated.get("mcpServers").and_then(|s| s.as_object()),
+        ) {
+            // Add generated servers, overwriting any with same name
+            for (name, config) in generated_servers {
+                existing_servers.insert(name.clone(), config.clone());
+            }
+        } else if let Some(generated_servers) = generated.get("mcpServers") {
+            existing_config["mcpServers"] = generated_servers.clone();
+        }
+
+        // Write merged config
+        let content = serde_json::to_string_pretty(&existing_config)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&mcp_json_path, content)?;
+
+        tracing::info!("Wrote MCP session config to {}", mcp_json_path.display());
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

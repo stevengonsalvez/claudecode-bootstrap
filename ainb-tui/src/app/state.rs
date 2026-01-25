@@ -804,6 +804,7 @@ pub enum ConfigCategory {
     Authentication,
     Workspace,
     Docker,
+    McpPool,
     AgentDefaults,
     Editor,
     Plugins,
@@ -818,6 +819,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication,
             ConfigCategory::Workspace,
             ConfigCategory::Docker,
+            ConfigCategory::McpPool,
             ConfigCategory::AgentDefaults,
             ConfigCategory::Editor,
             ConfigCategory::Plugins,
@@ -832,6 +834,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "Authentication",
             ConfigCategory::Workspace => "Workspace",
             ConfigCategory::Docker => "Docker",
+            ConfigCategory::McpPool => "MCP Pool",
             ConfigCategory::AgentDefaults => "Agent Defaults",
             ConfigCategory::Editor => "Editor",
             ConfigCategory::Plugins => "Plugins",
@@ -846,6 +849,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "🔐",
             ConfigCategory::Workspace => "📁",
             ConfigCategory::Docker => "🐳",
+            ConfigCategory::McpPool => "🔗",
             ConfigCategory::AgentDefaults => "🤖",
             ConfigCategory::Editor => "📝",
             ConfigCategory::Plugins => "🔌",
@@ -860,6 +864,7 @@ impl ConfigCategory {
             ConfigCategory::Authentication => "API keys, OAuth, GitHub credentials",
             ConfigCategory::Workspace => "Default paths, git settings, branch prefix",
             ConfigCategory::Docker => "Container host, timeouts",
+            ConfigCategory::McpPool => "MCP socket pooling, server sharing",
             ConfigCategory::AgentDefaults => "Model, temperature, max tokens",
             ConfigCategory::Editor => "Preferred code editor for sessions",
             ConfigCategory::Plugins => "Installed plugins, enable/disable",
@@ -1003,6 +1008,56 @@ impl Default for ConfigScreenState {
                 label: "Connection Timeout".to_string(),
                 value: ConfigValue::Number(60),
                 description: "Docker connection timeout in seconds".to_string(),
+            },
+        ]);
+
+        // MCP Pool settings
+        // Check if socket pooling is supported on this platform
+        let pool_supported = crate::mcp_pool::PoolConfig::is_platform_supported();
+        let platform_status = if pool_supported {
+            "Supported".to_string()
+        } else {
+            "Not Supported (Unix sockets required)".to_string()
+        };
+
+        // Auto-detect imported MCPs
+        let imported_mcps = crate::config::McpImporter::auto_import();
+        let mcp_count = imported_mcps.len();
+        let mcp_list = if mcp_count == 0 {
+            "None detected".to_string()
+        } else {
+            let names: Vec<String> = imported_mcps.keys().take(5).cloned().collect();
+            if mcp_count > 5 {
+                format!("{} (+{} more)", names.join(", "), mcp_count - 5)
+            } else {
+                names.join(", ")
+            }
+        };
+
+        settings.insert(ConfigCategory::McpPool, vec![
+            ConfigSetting {
+                key: "pool_enabled".to_string(),
+                label: "Socket Pooling".to_string(),
+                value: ConfigValue::Bool(pool_supported),
+                description: "Share MCP servers across sessions via Unix sockets".to_string(),
+            },
+            ConfigSetting {
+                key: "platform_status".to_string(),
+                label: "Platform Status".to_string(),
+                value: ConfigValue::Text(platform_status),
+                description: "Whether socket pooling is supported on this system".to_string(),
+            },
+            ConfigSetting {
+                key: "imported_mcps".to_string(),
+                label: "Detected MCPs".to_string(),
+                value: ConfigValue::Text(mcp_list),
+                description: "MCP servers auto-imported from Claude settings".to_string(),
+            },
+            ConfigSetting {
+                key: "mcp_count".to_string(),
+                label: "MCP Server Count".to_string(),
+                value: ConfigValue::Number(mcp_count as i64),
+                description: "Number of MCP servers available for pooling".to_string(),
             },
         ]);
 
@@ -1890,6 +1945,10 @@ pub struct AppState {
     pub workspace_load_started: Option<Instant>,
     /// Channel receiver for background workspace loading results
     pub workspace_load_receiver: Option<mpsc::UnboundedReceiver<WorkspaceLoadResult>>,
+
+    /// MCP socket pool for sharing MCP servers across sessions
+    /// None if socket pooling is not enabled or not supported on this platform
+    pub mcp_pool: Option<crate::mcp_pool::McpSocketPool>,
 }
 
 /// Result of background workspace loading
@@ -2377,6 +2436,9 @@ impl Default for AppState {
             workspace_load_error: None,
             workspace_load_started: None,
             workspace_load_receiver: None,
+
+            // MCP socket pool (initialized lazily when first session is created)
+            mcp_pool: None,
         }
     }
 }
@@ -2389,6 +2451,46 @@ impl AppState {
     /// Get the log directory path for the log history viewer
     pub fn log_dir(&self) -> Option<std::path::PathBuf> {
         dirs::home_dir().map(|h| h.join(".agents-in-a-box").join("logs"))
+    }
+
+    /// Write MCP session configuration to a worktree directory
+    ///
+    /// This writes a .mcp.json file to the worktree with socket-based MCPs
+    /// when pooling is enabled, or falls back to stdio configuration.
+    pub fn write_mcp_session_config(&self, worktree_path: &std::path::Path) {
+        use crate::config::{McpCatalog, McpImporter};
+
+        // Get MCPs from config, auto-import, or use defaults
+        let mut mcps = self.app_config.mcps.clone();
+
+        // If no MCPs configured, try auto-import
+        if mcps.is_empty() {
+            mcps = McpImporter::auto_import();
+            if !mcps.is_empty() {
+                info!("Auto-imported {} MCP definitions", mcps.len());
+            }
+        }
+
+        // Get socket directory from pool if available
+        let socket_dir = self.mcp_pool.as_ref().and_then(|pool| pool.socket_dir());
+
+        // Write the session config
+        match McpCatalog::write_session_config(worktree_path, &mcps, socket_dir.as_deref()) {
+            Ok(()) => {
+                info!(
+                    "Wrote MCP session config to {} (pooled: {})",
+                    worktree_path.display(),
+                    socket_dir.is_some()
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to write MCP session config to {}: {}",
+                    worktree_path.display(),
+                    e
+                );
+            }
+        }
     }
 
     /// Initialize Claude integration if authentication is available
@@ -5836,6 +5938,9 @@ impl AppState {
                             // Store tmux session in our map
                             self.tmux_sessions.insert(session_id, tmux_session);
 
+                            // Write MCP session configuration to the worktree
+                            self.write_mcp_session_config(&worktree_info.path);
+
                             let _ = log_sender.send("Tmux session created successfully!".to_string());
                         }
                         Err(e) => {
@@ -6035,6 +6140,10 @@ impl AppState {
                     "claude".to_string(),
                 );
                 self.tmux_sessions.insert(session_id, tmux_session);
+
+                // Write MCP session configuration to the worktree
+                // This sets up socket-based MCPs when pooling is enabled
+                self.write_mcp_session_config(&interactive_session.worktree_path);
 
                 info!("Successfully created Interactive session {}", session_id);
                 Ok(())

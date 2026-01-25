@@ -18,7 +18,7 @@ pub mod onboarding;
 pub mod presets;
 
 pub use container::{ContainerTemplate, ContainerTemplateConfig};
-pub use mcp::{McpInitStrategy, McpServerConfig};
+pub use mcp::{McpCatalog, McpDefinition, McpImporter, McpInitStrategy, McpServerConfig};
 pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
 pub use onboarding::OnboardingConfig;
 pub use presets::{PermissionSet, PresetManager, RepositoryPreset, create_default_presets};
@@ -183,6 +183,11 @@ pub struct AppConfig {
     /// MCP server configurations
     #[serde(default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
+
+    /// MCP definitions for socket pooling
+    /// Maps MCP name to its definition (command, args, pooling settings)
+    #[serde(default)]
+    pub mcps: HashMap<String, McpDefinition>,
 
     /// Workspace defaults
     #[serde(default)]
@@ -437,6 +442,7 @@ impl AppConfig {
         // Merge maps
         self.container_templates.extend(other.container_templates);
         self.mcp_servers.extend(other.mcp_servers);
+        self.mcps.extend(other.mcps);
 
         // Override workspace defaults if provided
         if other.workspace_defaults.branch_prefix != default_branch_prefix() {
@@ -523,6 +529,7 @@ impl Default for AppConfig {
             default_container_template: default_container_template(),
             container_templates: HashMap::new(),
             mcp_servers: HashMap::new(),
+            mcps: HashMap::new(),
             workspace_defaults: WorkspaceDefaults::default(),
             ui_preferences: UiPreferences::default(),
             docker: DockerConfig::default(),
