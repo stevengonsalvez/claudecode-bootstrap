@@ -289,6 +289,18 @@ const TOOL_CONFIG = {
             }
         }
     },
+    clawdhub: {
+        ruleDir: 'clawdhub-skills',
+        targetSubdir: 'skills',
+        useClawdhubStructure: true,
+        excludeFiles: ['_meta.json'],  // Don't copy auto-generated ClawdHub metadata
+        templateSubstitutions: {
+            '**/*.md': {
+                'TOOL_DIR': '.clawdbot',
+                'HOME_TOOL_DIR': '~/.clawdbot'
+            }
+        }
+    },
 };
 
 const GENERAL_RULES_DIR = path.join(__dirname, 'general-rules');
@@ -1348,6 +1360,153 @@ async function handleFullDirectoryCopy(tool, config, overrideHomeDir = null, tar
     console.log(`Files copied to: ${destDir}`);
 }
 
+// Discover available ClawdHub skills for interactive selection
+function discoverClawdhubSkills(clawdhubDir) {
+    const skills = [];
+
+    if (!fs.existsSync(clawdhubDir)) {
+        return skills;
+    }
+
+    const skillDirs = readdirSync(clawdhubDir).filter(f =>
+        statSync(path.join(clawdhubDir, f)).isDirectory()
+    );
+
+    for (const skill of skillDirs) {
+        const skillPath = path.join(clawdhubDir, skill);
+        const skillMd = path.join(skillPath, 'SKILL.md');
+        const skillJson = path.join(skillPath, 'skill.json');
+
+        let description = skill;
+        let version = 'unknown';
+
+        // Try to get description from skill.json first
+        if (fs.existsSync(skillJson)) {
+            try {
+                const json = JSON.parse(fs.readFileSync(skillJson, 'utf8'));
+                if (json.description) description = json.description.split('.')[0]; // First sentence
+                if (json.version) version = json.version;
+            } catch {}
+        }
+        // Fallback to SKILL.md frontmatter
+        else if (fs.existsSync(skillMd)) {
+            const content = fs.readFileSync(skillMd, 'utf8');
+            const descMatch = content.match(/description:\s*([^\n]+)/);
+            if (descMatch) description = descMatch[1].trim().split('.')[0];
+            const verMatch = content.match(/version:\s*["']?([^"'\n]+)/);
+            if (verMatch) version = verMatch[1].trim();
+        }
+
+        skills.push({ name: skill, path: skill, description, version });
+    }
+
+    return skills;
+}
+
+async function handleClawdhubSkillsCopy(tool, config, targetFolder = null, isNonInteractive = false, specifiedSkills = null) {
+    // Require target folder for ClawdHub skills
+    if (!targetFolder) {
+        const answers = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'targetFolder',
+                message: 'Enter the target workspace folder:',
+                validate: (input) => !!input.trim() || 'Folder name required',
+            },
+        ]);
+        targetFolder = answers.targetFolder;
+    }
+
+    const clawdhubDir = path.join(__dirname, config.ruleDir);
+    const destDir = path.join(targetFolder, config.targetSubdir);
+    let totalFilesCopied = 0;
+
+    // Discover available skills
+    const availableSkills = discoverClawdhubSkills(clawdhubDir);
+
+    if (availableSkills.length === 0) {
+        console.log('\\n⚠️  No ClawdHub skills found in clawdhub-skills/ directory.\\n');
+        return;
+    }
+
+    let selectedSkillPaths = null;
+
+    // If skills specified via CLI, use those
+    if (specifiedSkills) {
+        selectedSkillPaths = new Set(specifiedSkills);
+        console.log(`\\n📦 Installing specified skills: ${specifiedSkills.join(', ')}\\n`);
+    }
+    // Interactive skill selection
+    else if (!isNonInteractive) {
+        console.log('\\n🦞 Select ClawdHub skills to install:\\n');
+
+        const choices = availableSkills.map(skill => ({
+            name: `${skill.name} (v${skill.version}) - ${skill.description}`,
+            value: skill.name,
+            checked: true
+        }));
+
+        const { selectedSkills } = await inquirer.prompt([
+            {
+                type: 'checkbox',
+                name: 'selectedSkills',
+                message: 'Use space to toggle, enter to confirm:',
+                choices: choices,
+                pageSize: 15
+            }
+        ]);
+
+        if (selectedSkills.length === 0) {
+            console.log('\\n⚠️  No skills selected.\\n');
+            return;
+        }
+
+        selectedSkillPaths = new Set(selectedSkills);
+    }
+    // Non-interactive: copy all skills
+    else {
+        selectedSkillPaths = new Set(availableSkills.map(s => s.name));
+    }
+
+    showProgress(`Checking ${destDir} directory`);
+    if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+        completeProgress(`Created ${destDir} directory`);
+    } else {
+        completeProgress(`Found ${destDir} directory`);
+    }
+
+    // Copy each selected skill
+    for (const skillName of selectedSkillPaths) {
+        const sourceDir = path.join(clawdhubDir, skillName);
+        const targetDir = path.join(destDir, skillName);
+
+        if (!fs.existsSync(sourceDir)) {
+            console.log(`\\x1b[33m⚠\\x1b[0m  Skill not found: ${skillName}`);
+            continue;
+        }
+
+        showProgress(`Copying skill: ${skillName}`);
+        fs.mkdirSync(targetDir, { recursive: true });
+        const filesCopied = copyDirectoryRecursive(
+            sourceDir,
+            targetDir,
+            config.excludeFiles || [],
+            config.templateSubstitutions || {}
+        );
+        totalFilesCopied += filesCopied;
+        completeProgress(`Copied ${filesCopied} files from ${skillName}`);
+    }
+
+    console.log(`\\n\\x1b[32m🦞 ClawdHub skills installed!\\x1b[0m`);
+    console.log(`Skills copied to: ${destDir} (${totalFilesCopied} files)`);
+    console.log(`\\nInstalled skills:`);
+    for (const skillName of selectedSkillPaths) {
+        console.log(`  - ${skillName}/`);
+    }
+    console.log(`\\nTo publish to ClawdHub, run: clawdhub publish ${destDir}/<skill-name>`);
+}
+
 async function main() {
     const args = process.argv.slice(2);
     const toolArg = args.find(arg => arg.startsWith('--tool='));
@@ -1399,6 +1558,12 @@ async function main() {
     }
 
     const config = TOOL_CONFIG[tool];
+
+    // Handle ClawdHub skills (copy to target workspace/skills/)
+    if (config.useClawdhubStructure) {
+        await handleClawdhubSkillsCopy(tool, config, targetFolder, isNonInteractive, specifiedPackages);
+        return;
+    }
 
     // Handle packages structure (new catalog-based structure)
     if (config.usePackagesStructure) {
