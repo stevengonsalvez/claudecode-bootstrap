@@ -302,8 +302,9 @@ pub enum AppEvent {
     SessionRecoveryNext,         // Navigate to next session (Down/j)
     SessionRecoveryPrev,         // Navigate to previous session (Up/k)
     SessionRecoveryResume,       // Resume selected session (r)
-    SessionRecoveryArchive,      // Archive selected session (d)
+    SessionRecoveryArchive,      // Archive/delete selected item (d)
     SessionRecoveryRefresh,      // Refresh session list (R)
+    SessionRecoveryToggleView,   // Toggle view mode: Sessions/Worktrees/All (Tab)
 }
 
 pub struct EventHandler;
@@ -1399,6 +1400,7 @@ impl EventHandler {
             KeyCode::Char('r') => Some(AppEvent::SessionRecoveryResume),
             KeyCode::Char('d') => Some(AppEvent::SessionRecoveryArchive),
             KeyCode::Char('R') => Some(AppEvent::SessionRecoveryRefresh),
+            KeyCode::Tab => Some(AppEvent::SessionRecoveryToggleView),
             _ => None,
         }
     }
@@ -3190,32 +3192,62 @@ impl EventHandler {
             }
             AppEvent::SessionRecoveryResume => {
                 tracing::debug!("Session recovery resume");
-                match state.session_recovery_state.resume_selected() {
-                    Ok(new_session) => {
-                        state.add_info_notification(format!(
-                            "Session resumed: {}. Use 'tmux attach -t {}' to connect.",
-                            new_session, new_session
-                        ));
+                if state.session_recovery_state.is_worktree_selected() {
+                    // Resume worktree - create tmux session and start Claude
+                    match state.session_recovery_state.resume_worktree() {
+                        Ok(new_session) => {
+                            state.add_info_notification(format!(
+                                "Worktree resumed: {}. Use 'tmux attach -t {}' to connect.",
+                                new_session, new_session
+                            ));
+                        }
+                        Err(e) => {
+                            state.add_error_notification(format!("Failed to resume worktree: {}", e));
+                        }
                     }
-                    Err(e) => {
-                        state.add_error_notification(format!("Failed to resume: {}", e));
+                } else {
+                    // Resume session with transcript
+                    match state.session_recovery_state.resume_selected() {
+                        Ok(new_session) => {
+                            state.add_info_notification(format!(
+                                "Session resumed: {}. Use 'tmux attach -t {}' to connect.",
+                                new_session, new_session
+                            ));
+                        }
+                        Err(e) => {
+                            state.add_error_notification(format!("Failed to resume: {}", e));
+                        }
                     }
                 }
             }
             AppEvent::SessionRecoveryArchive => {
-                tracing::debug!("Session recovery archive");
-                match state.session_recovery_state.archive_selected() {
+                tracing::debug!("Session recovery archive/delete");
+                // Use delete_selected() which handles both sessions (archive) and worktrees (delete)
+                let is_worktree = state.session_recovery_state.is_worktree_selected();
+                match state.session_recovery_state.delete_selected() {
                     Ok(()) => {
-                        state.add_info_notification("Session archived".to_string());
+                        if is_worktree {
+                            state.add_info_notification("Worktree deleted".to_string());
+                        } else {
+                            state.add_info_notification("Session archived".to_string());
+                        }
                     }
                     Err(e) => {
-                        state.add_error_notification(format!("Failed to archive: {}", e));
+                        if is_worktree {
+                            state.add_error_notification(format!("Failed to delete: {}", e));
+                        } else {
+                            state.add_error_notification(format!("Failed to archive: {}", e));
+                        }
                     }
                 }
             }
             AppEvent::SessionRecoveryRefresh => {
                 tracing::debug!("Session recovery refresh");
                 state.session_recovery_state.refresh();
+            }
+            AppEvent::SessionRecoveryToggleView => {
+                tracing::debug!("Session recovery toggle view");
+                state.session_recovery_state.toggle_view_mode();
             }
             // Onboarding wizard events
             AppEvent::OnboardingNext => {

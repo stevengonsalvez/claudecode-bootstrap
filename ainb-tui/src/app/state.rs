@@ -2977,6 +2977,9 @@ impl AppState {
             }
             // If workspace has neither sessions nor shell, selection indices stay None
             // which is the correct state for an empty workspace
+        } else if !self.other_tmux_sessions.is_empty() {
+            // No workspaces but there are "Other tmux" sessions - select the first one
+            self.selected_other_tmux_index = Some(0);
         } else {
             info!("No active sessions found. Use 'n' to create a new session.");
             // Selection indices already reset above
@@ -3028,6 +3031,9 @@ impl AppState {
                                 } else if self.workspaces[0].shell_session.is_some() {
                                     self.shell_selected = true;
                                 }
+                            } else if !self.other_tmux_sessions.is_empty() {
+                                // No workspaces but there are "Other tmux" sessions - select the first one
+                                self.selected_other_tmux_index = Some(0);
                             }
 
                             self.add_success_notification("Workspaces loaded".to_string());
@@ -3482,6 +3488,12 @@ impl AppState {
             return;
         }
 
+        // If nothing is selected but "Other tmux" sessions exist, select the first one
+        if self.selected_workspace_index.is_none() && !self.other_tmux_sessions.is_empty() {
+            self.selected_other_tmux_index = Some(0);
+            return;
+        }
+
         if let Some(workspace_idx) = self.selected_workspace_index {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
                 // Currently on shell session?
@@ -3576,6 +3588,12 @@ impl AppState {
                     }
                 }
             }
+            return;
+        }
+
+        // If nothing is selected but "Other tmux" sessions exist, select the last one
+        if self.selected_workspace_index.is_none() && !self.other_tmux_sessions.is_empty() {
+            self.selected_other_tmux_index = Some(self.other_tmux_sessions.len() - 1);
             return;
         }
 
