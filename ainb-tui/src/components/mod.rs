@@ -58,7 +58,10 @@ pub use mascot::{MascotAnimation, render_mascot, render_mascot_centered};
 pub use new_session::NewSessionComponent;
 pub use onboarding::{OnboardingComponent, OnboardingState, OnboardingStep};
 pub use session_list::SessionListComponent;
-pub use session_recovery::{SessionRecovery, SessionRecoveryState, OrphanedSession};
+pub use session_recovery::{
+    OrphanedSession, OrphanedWorktree, OrphanType, RecoveryViewMode,
+    SessionRecovery, SessionRecoveryState,
+};
 pub use setup_menu::{SetupMenuComponent, SetupMenuItem, SetupMenuState};
 pub use sidebar::{SidebarComponent, SidebarItem, SidebarState};
 #[allow(unused_imports)]

@@ -205,19 +205,22 @@ impl SidebarComponent {
         frame.render_widget(block, area);
 
         // Layout: title + items + flexible space
+        // Using 2 lines per item to fit 10 items in typical terminal heights
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2),  // Title area
                 Constraint::Length(1),  // Spacer
-                Constraint::Length(3),  // Agents (taller for premium feel)
-                Constraint::Length(3),  // Catalog
-                Constraint::Length(3),  // Config
-                Constraint::Length(3),  // Sessions
-                Constraint::Length(3),  // Logs
-                Constraint::Length(3),  // Stats
-                Constraint::Length(3),  // Setup
-                Constraint::Length(3),  // Help
+                Constraint::Length(2),  // Agents
+                Constraint::Length(2),  // Catalog
+                Constraint::Length(2),  // Config
+                Constraint::Length(2),  // Sessions
+                Constraint::Length(2),  // Recovery
+                Constraint::Length(2),  // Logs
+                Constraint::Length(2),  // Stats
+                Constraint::Length(2),  // Changelog
+                Constraint::Length(2),  // Setup
+                Constraint::Length(2),  // Help
                 Constraint::Min(0),     // Flexible space
             ])
             .split(inner);
@@ -227,7 +230,7 @@ impl SidebarComponent {
 
         let items = SidebarItem::all();
 
-        // Render all 8 items with premium styling
+        // Render all 10 items with premium styling
         for (idx, item) in items.iter().enumerate() {
             let is_selected = state.selected_index == idx;
             let badge = if *item == SidebarItem::Sessions && state.active_sessions_count > 0 {
@@ -298,13 +301,12 @@ impl SidebarComponent {
                 )
             };
 
-        // Split the item area for multi-line content
+        // Split the item area for 2-line content (compact to fit 10 items)
         let item_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // Top padding
                 Constraint::Length(1), // Main line (icon + label + shortcut)
-                Constraint::Length(1), // Description line
+                Constraint::Length(1), // Description line (when selected)
             ])
             .split(area);
 
@@ -355,7 +357,7 @@ impl SidebarComponent {
 
         let main_line = Paragraph::new(Line::from(main_spans))
             .style(Style::default().bg(bg_color));
-        frame.render_widget(main_line, item_layout[1]);
+        frame.render_widget(main_line, item_layout[0]);
 
         // Description line (only when selected and space available)
         if is_selected && state.show_labels && area.width > 15 {
@@ -369,16 +371,12 @@ impl SidebarComponent {
             ];
             let desc_line = Paragraph::new(Line::from(desc_spans))
                 .style(Style::default().bg(bg_color));
-            frame.render_widget(desc_line, item_layout[2]);
+            frame.render_widget(desc_line, item_layout[1]);
         } else {
             // Empty line with background
             let empty = Paragraph::new("").style(Style::default().bg(bg_color));
-            frame.render_widget(empty, item_layout[2]);
+            frame.render_widget(empty, item_layout[1]);
         }
-
-        // Top padding with background
-        let padding = Paragraph::new("").style(Style::default().bg(bg_color));
-        frame.render_widget(padding, item_layout[0]);
     }
 
     /// Get the recommended width for the sidebar
