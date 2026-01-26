@@ -59,7 +59,7 @@ Analyze the conversation for correction signals and learning opportunities.
 | **MEDIUM** | Approved approaches | "perfect", "exactly", "that's right", accepted output |
 | **LOW** | Observations | Patterns that worked but not explicitly validated |
 
-See [data/signal_patterns.md](data/signal_patterns.md) for full detection rules.
+See [signal_patterns.md](signal_patterns.md) for full detection rules.
 
 ### Step 2: Classify & Match to Target Files
 
@@ -74,7 +74,7 @@ Map each signal to the appropriate target:
 | Tools | `CLAUDE.md`, relevant specialists |
 | New Skill | Create new skill file |
 
-See [data/agent_mappings.md](data/agent_mappings.md) for mapping rules.
+See [agent_mappings.md](agent_mappings.md) for mapping rules.
 
 ### Step 3: Check for Skill-Worthy Signals
 
