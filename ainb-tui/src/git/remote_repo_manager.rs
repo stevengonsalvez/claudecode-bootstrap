@@ -547,10 +547,71 @@ impl RemoteRepoManager {
 
                 if !retry_output.status.success() {
                     let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
-                    return Err(RemoteRepoError::CloneFailed(format!(
-                        "Failed to create worktree with suffixed branch: {}",
-                        retry_stderr
-                    )));
+
+                    // Check if failure is due to smudge/clean filter (e.g., transcrypt)
+                    if retry_stderr.contains("smudge filter") || retry_stderr.contains("clean filter") {
+                        warn!(
+                            "Suffixed worktree creation failed due to filter issue, retrying with --no-checkout: {}",
+                            retry_stderr
+                        );
+
+                        // Clean up any partial worktree
+                        if suffixed_worktree_path.exists() {
+                            let _ = std::fs::remove_dir_all(&suffixed_worktree_path);
+                        }
+                        let _ = Command::new("git")
+                            .args(["worktree", "prune"])
+                            .current_dir(cache_path)
+                            .output();
+
+                        // Retry with --no-checkout
+                        let no_checkout_output = Command::new("git")
+                            .args([
+                                "worktree",
+                                "add",
+                                "--no-checkout",
+                                "-b",
+                                &suffixed_branch,
+                                suffixed_worktree_path.to_string_lossy().as_ref(),
+                                &remote_ref,
+                            ])
+                            .current_dir(cache_path)
+                            .output()?;
+
+                        if !no_checkout_output.status.success() {
+                            let no_checkout_stderr = String::from_utf8_lossy(&no_checkout_output.stderr);
+                            return Err(RemoteRepoError::CloneFailed(format!(
+                                "Failed to create suffixed worktree (even with --no-checkout): {}",
+                                no_checkout_stderr
+                            )));
+                        }
+
+                        // Checkout files with filter bypass
+                        let checkout_output = Command::new("git")
+                            .args([
+                                "-c", "filter.crypt.smudge=cat",
+                                "-c", "filter.crypt.clean=cat",
+                                "checkout",
+                                "--force",
+                            ])
+                            .current_dir(&suffixed_worktree_path)
+                            .output()?;
+
+                        if !checkout_output.status.success() {
+                            let checkout_stderr = String::from_utf8_lossy(&checkout_output.stderr);
+                            warn!("Checkout with filter bypass had issues: {}", checkout_stderr);
+                        }
+
+                        info!(
+                            "Created suffixed worktree with filter bypass at: {}",
+                            suffixed_worktree_path.display()
+                        );
+                    } else {
+                        return Err(RemoteRepoError::CloneFailed(format!(
+                            "Failed to create worktree with suffixed branch: {}",
+                            retry_stderr
+                        )));
+                    }
                 }
 
                 // Set up tracking for the suffixed branch
