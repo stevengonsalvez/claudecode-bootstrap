@@ -593,10 +593,69 @@ impl RemoteRepoManager {
                                     return Ok(Some(result));
                                 }
 
-                                // Branch exists but no worktree found
+                                // Branch exists but no worktree found - it's orphaned
+                                // Clean it up and retry with a new suffix
+                                info!(
+                                    "Branch '{}' is orphaned (no worktree found), cleaning up and retrying",
+                                    suffixed_branch
+                                );
+
+                                if delete_orphaned_branch(cache_path, &suffixed_branch)? {
+                                    // Generate a new suffix and retry
+                                    let new_suffix: String = uuid::Uuid::new_v4().to_string().chars().take(8).collect();
+                                    let new_suffixed_branch = format!("{}-{}", remote_branch, new_suffix);
+                                    let new_worktree_dir = worktree_path.file_name()
+                                        .map(|n| format!("{}-{}", n.to_string_lossy(), new_suffix))
+                                        .unwrap_or_else(|| format!("worktree-{}", new_suffix));
+                                    let new_suffixed_worktree_path = worktree_path.parent()
+                                        .map(|p| p.join(&new_worktree_dir))
+                                        .unwrap_or_else(|| PathBuf::from(&new_worktree_dir));
+
+                                    info!(
+                                        "Retrying with new branch '{}' at {}",
+                                        new_suffixed_branch,
+                                        new_suffixed_worktree_path.display()
+                                    );
+
+                                    let retry2_output = Command::new("git")
+                                        .args([
+                                            "worktree",
+                                            "add",
+                                            "--no-checkout",
+                                            "-b",
+                                            &new_suffixed_branch,
+                                            new_suffixed_worktree_path.to_string_lossy().as_ref(),
+                                            &remote_ref,
+                                        ])
+                                        .current_dir(cache_path)
+                                        .output()?;
+
+                                    if retry2_output.status.success() {
+                                        // Checkout with filter bypass
+                                        let _ = Command::new("git")
+                                            .args(["-c", "filter.crypt.smudge=cat", "-c", "filter.crypt.clean=cat", "checkout", "--force"])
+                                            .current_dir(&new_suffixed_worktree_path)
+                                            .output();
+
+                                        // Set up tracking
+                                        let _ = Command::new("git")
+                                            .args(["branch", "--set-upstream-to", &remote_ref, &new_suffixed_branch])
+                                            .current_dir(&new_suffixed_worktree_path)
+                                            .output();
+
+                                        info!(
+                                            "Created worktree with new suffixed branch '{}' at {}",
+                                            new_suffixed_branch,
+                                            new_suffixed_worktree_path.display()
+                                        );
+                                        return Ok(Some((new_suffixed_worktree_path, new_suffixed_branch)));
+                                    }
+                                }
+
+                                // If cleanup and retry failed, return error
                                 return Err(RemoteRepoError::CloneFailed(format!(
-                                    "Branch '{}' exists but couldn't find its worktree. \
-                                     Try removing the branch with: git branch -D {}",
+                                    "Branch '{}' exists but couldn't find its worktree, and cleanup failed. \
+                                     Try manually: git branch -D {}",
                                     suffixed_branch, suffixed_branch
                                 )));
                             }
@@ -639,10 +698,62 @@ impl RemoteRepoManager {
                             return Ok(Some(result));
                         }
 
-                        // Branch exists but no worktree found
+                        // Branch exists but no worktree found - it's orphaned
+                        // Clean it up and retry with a new suffix
+                        info!(
+                            "Branch '{}' is orphaned (no worktree found), cleaning up and retrying",
+                            suffixed_branch
+                        );
+
+                        if delete_orphaned_branch(cache_path, &suffixed_branch)? {
+                            // Generate a new suffix and retry
+                            let new_suffix: String = uuid::Uuid::new_v4().to_string().chars().take(8).collect();
+                            let new_suffixed_branch = format!("{}-{}", remote_branch, new_suffix);
+                            let new_worktree_dir = worktree_path.file_name()
+                                .map(|n| format!("{}-{}", n.to_string_lossy(), new_suffix))
+                                .unwrap_or_else(|| format!("worktree-{}", new_suffix));
+                            let new_suffixed_worktree_path = worktree_path.parent()
+                                .map(|p| p.join(&new_worktree_dir))
+                                .unwrap_or_else(|| PathBuf::from(&new_worktree_dir));
+
+                            info!(
+                                "Retrying with new branch '{}' at {}",
+                                new_suffixed_branch,
+                                new_suffixed_worktree_path.display()
+                            );
+
+                            let retry2_output = Command::new("git")
+                                .args([
+                                    "worktree",
+                                    "add",
+                                    "-b",
+                                    &new_suffixed_branch,
+                                    new_suffixed_worktree_path.to_string_lossy().as_ref(),
+                                    &remote_ref,
+                                ])
+                                .current_dir(cache_path)
+                                .output()?;
+
+                            if retry2_output.status.success() {
+                                // Set up tracking
+                                let _ = Command::new("git")
+                                    .args(["branch", "--set-upstream-to", &remote_ref, &new_suffixed_branch])
+                                    .current_dir(&new_suffixed_worktree_path)
+                                    .output();
+
+                                info!(
+                                    "Created worktree with new suffixed branch '{}' at {}",
+                                    new_suffixed_branch,
+                                    new_suffixed_worktree_path.display()
+                                );
+                                return Ok(Some((new_suffixed_worktree_path, new_suffixed_branch)));
+                            }
+                        }
+
+                        // If cleanup and retry failed, return error
                         return Err(RemoteRepoError::CloneFailed(format!(
-                            "Branch '{}' exists but couldn't find its worktree. \
-                             Try removing the branch with: git branch -D {}",
+                            "Branch '{}' exists but couldn't find its worktree, and cleanup failed. \
+                             Try manually: git branch -D {}",
                             suffixed_branch, suffixed_branch
                         )));
                     } else {
@@ -802,6 +913,41 @@ fn find_worktree_for_branch(
     }
 
     Ok(None)
+}
+
+/// Delete an orphaned branch (branch exists but worktree was removed)
+///
+/// This cleans up branches that were left behind when their worktree
+/// directories were manually deleted.
+fn delete_orphaned_branch(cache_path: &Path, branch_name: &str) -> Result<bool, RemoteRepoError> {
+    info!(
+        "Attempting to delete orphaned branch '{}' from cache",
+        branch_name
+    );
+
+    // First prune any stale worktree references
+    let _ = Command::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(cache_path)
+        .output();
+
+    // Delete the branch
+    let output = Command::new("git")
+        .args(["branch", "-D", branch_name])
+        .current_dir(cache_path)
+        .output()?;
+
+    if output.status.success() {
+        info!("Successfully deleted orphaned branch '{}'", branch_name);
+        Ok(true)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        warn!(
+            "Failed to delete orphaned branch '{}': {}",
+            branch_name, stderr
+        );
+        Ok(false)
+    }
 }
 
 /// Classify git errors into appropriate RemoteRepoError variants
