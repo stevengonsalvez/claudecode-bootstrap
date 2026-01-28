@@ -580,6 +580,27 @@ impl RemoteRepoManager {
 
                         if !no_checkout_output.status.success() {
                             let no_checkout_stderr = String::from_utf8_lossy(&no_checkout_output.stderr);
+
+                            // Check if the suffixed branch already exists
+                            if no_checkout_stderr.contains("already exists") {
+                                info!(
+                                    "Suffixed branch '{}' already exists, looking for existing worktree",
+                                    suffixed_branch
+                                );
+
+                                // Find worktree for this branch
+                                if let Some(result) = find_worktree_for_branch(cache_path, &suffixed_branch)? {
+                                    return Ok(Some(result));
+                                }
+
+                                // Branch exists but no worktree found
+                                return Err(RemoteRepoError::CloneFailed(format!(
+                                    "Branch '{}' exists but couldn't find its worktree. \
+                                     Try removing the branch with: git branch -D {}",
+                                    suffixed_branch, suffixed_branch
+                                )));
+                            }
+
                             return Err(RemoteRepoError::CloneFailed(format!(
                                 "Failed to create suffixed worktree (even with --no-checkout): {}",
                                 no_checkout_stderr
@@ -606,6 +627,24 @@ impl RemoteRepoManager {
                             "Created suffixed worktree with filter bypass at: {}",
                             suffixed_worktree_path.display()
                         );
+                    } else if retry_stderr.contains("already exists") {
+                        // Suffixed branch already exists from a previous session
+                        // Find and return the existing worktree for that branch
+                        info!(
+                            "Suffixed branch '{}' already exists, looking for existing worktree",
+                            suffixed_branch
+                        );
+
+                        if let Some(result) = find_worktree_for_branch(cache_path, &suffixed_branch)? {
+                            return Ok(Some(result));
+                        }
+
+                        // Branch exists but no worktree found
+                        return Err(RemoteRepoError::CloneFailed(format!(
+                            "Branch '{}' exists but couldn't find its worktree. \
+                             Try removing the branch with: git branch -D {}",
+                            suffixed_branch, suffixed_branch
+                        )));
                     } else {
                         return Err(RemoteRepoError::CloneFailed(format!(
                             "Failed to create worktree with suffixed branch: {}",
@@ -720,6 +759,49 @@ impl Default for RemoteRepoManager {
     fn default() -> Self {
         Self::new().expect("Failed to create RemoteRepoManager")
     }
+}
+
+/// Find an existing worktree for a given branch name
+///
+/// Parses `git worktree list --porcelain` output to find a worktree
+/// that is checked out on the specified branch.
+fn find_worktree_for_branch(
+    cache_path: &Path,
+    branch_name: &str,
+) -> Result<Option<(PathBuf, String)>, RemoteRepoError> {
+    let worktree_list_output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(cache_path)
+        .output()?;
+
+    if !worktree_list_output.status.success() {
+        return Ok(None);
+    }
+
+    let output = String::from_utf8_lossy(&worktree_list_output.stdout);
+
+    // Parse porcelain output to find worktree with matching branch
+    // Format: worktree /path/to/worktree\nbranch refs/heads/branch-name\n\n
+    let mut current_worktree: Option<PathBuf> = None;
+
+    for line in output.lines() {
+        if let Some(path_str) = line.strip_prefix("worktree ") {
+            current_worktree = Some(PathBuf::from(path_str));
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            if branch == branch_name {
+                if let Some(ref path) = current_worktree {
+                    info!(
+                        "Found existing worktree for branch '{}' at: {}",
+                        branch_name,
+                        path.display()
+                    );
+                    return Ok(Some((path.clone(), branch_name.to_string())));
+                }
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Classify git errors into appropriate RemoteRepoError variants
