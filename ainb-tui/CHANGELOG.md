@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2-beta1] - 2026-01-29
+### Added
+- **ainb-tui**: add session recovery tile to home screen
+- **ainb-tui**: extend session recovery with orphaned worktree detection
+- **clawdhub**: add ClawdHub skills directory and installer
+- **multi-agent**: add session persistence and recovery for agent worktrees
+- **reflect**: consolidate command + agent into portable skill
+- **toolkit**: add interactive package selection for project installs
+- **toolkit**: add unified plugin/skill tracking manifest
+
+### Fixed
+- **ainb-tui**: add Recovery to sidebar navigation
+- **ainb-tui**: auto-cleanup orphaned branches when creating worktrees
+- **ainb-tui**: enable navigation to Other tmux sessions
+- **ainb-tui**: handle existing suffixed branches gracefully
+- **ainb-tui**: handle transcrypt filter in suffixed branch worktree creation
+- **clawdhub**: flatten reflect skill structure for web upload
+- **skills**: use absolute paths for browser-tools binary
+- **tui**: handle branch worktree collision with auto-suffix
+
+### Documentation
+- **sync-learnings**: enhance with bidirectional sync and session learnings
+
+### Other
+- **deps**: add open-prose to external plugins manifest
+- **homebrew**: update formula to v0.5.1-beta1
+- sync claude commands and agents
+- **toolkit**: make packages/ canonical source for all tools
+
+
 ## [0.5.1-beta1] - 2026-01-23
 ### Added
 - **agents**: retrofit reflect learnings to test agents
