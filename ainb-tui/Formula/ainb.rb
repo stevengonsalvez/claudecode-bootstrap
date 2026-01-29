@@ -20,6 +20,7 @@ class Ainb < Formula
 
   def install
     bin.install "agents-box"
+    bin.install_symlink "agents-box" => "ainb"
   end
 
   test do
