@@ -7,6 +7,213 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-09-07
+### Added
+- **acp**: carry the pool's turn deadline to the client
+- **atc**: delete lite mode, and the two-controller machinery it needed
+- **atc**: show what the retry sweep did
+- **attention**: add the ask pane's answer machine
+- **attention**: add the one chip vocabulary the sessions screen paints
+- **attention**: answer a permission request through the approve broker
+- **attention**: give a chip a route, options and a reason it has none
+- **attention**: poll the daemon for what only it knows
+- **chat**: name every step of the cold open, and never draw a dead composer
+- **cli**: expose the adapter registry and the copilot dial
+- **copilot**: give the channel a guardrail dial the model cannot turn
+- **copilot**: list the named channels on the pane
+- **copilot**: make the engine a registry name, and let a swap keep the channel
+- **daemon**: auto-continue transient API errors with no ATC instance
+- **fleet**: host one chat conversation off the UI thread
+- **fleet**: tell an answer's success from its failure
+- **hangar**: accept a task executor on agent create
+- **hangar**: add elapsed and cost words to the status vocabulary
+- **hangar**: capture an ACP run's PR url from its transcript
+- **hangar**: cut the tab strip to seven and route the rest through the palette
+- **hangar**: make task detail the execution view
+- **hangar**: parse acp.usage rows into ProviderUsage
+- **hangar**: record a per-agent task executor on the agent row
+- **hangar**: resolve a task's executor from its agent at dispatch
+- **hangar**: retire the Codex-only start form
+- **hangar**: serve both executors from one board_card_timeline read
+- **hangar**: stream an ACP run's transcript live, completing T1
+- **proto**: classify ACP transcript rows through the shared taxonomy
+- **sessions**: add the right-pane tab strip
+- **sessions**: answer from the ask pane, and show what the send did
+- **sessions**: broadcast to the checked rows from the thread tab
+- **sessions**: delete the host Fleet panel
+- **sessions**: delete the host notifyd Inbox
+- **sessions**: dim a chip nothing can answer, and row the rest
+- **sessions**: merge the daemon's attention rows onto session rows
+- **sessions**: paint the chip strip and the needs-you badge
+- **sessions**: produce attention chips per row instead of one marker
+- **sessions**: put the copilot's engine, model and dial on the pane
+- **sessions**: scope Enter to the active tab and open the panes
+- **store**: read the ERR roster and a session's recent event payloads
+- **store**: read the newest row of one event type in a session
+- **tui**: preserve tmux preview fidelity
+
+### Fixed
+- docs(disk-cleaner): record the two new traps and the known limits
+- **acp**: let a task mint its own confined adapter again
+- **acp**: recouple the pool sweep to the effective turn deadline
+- **acp**: refuse a task adapter key nothing registered
+- **acp**: validate a provider against the registry the picker was offered
+- **ask**: keep the double-send guard across a navigation
+- **attention**: drop the tmux path filter, it was a command-injection surface
+- **attention**: keep a daemon row across a transient poll failure
+- **attention**: stop a failed option pick writing its label into the composer
+- **chat**: retire a leg even when no turn deadline was reported
+- **chat**: stop offering a cancel for a turn that is long over
+- **cli**: stop offering two ATC verbs whose handlers are gone
+- **copilot**: keep the chat page openable against an older daemon
+- **copilot**: let a session create ask for the scope's own adapter
+- **copilot**: match only a MISSING provider field on the legacy retry
+- **copilot**: put the session back when an engine swap cannot mint
+- **copilot**: restore a failed swap's session as idle, not as active
+- **copilot**: roll the guardrail back from every error exit, not one
+- **copilot**: roll the guardrail back when a swap fails
+- **daemons**: count the hangar sweep as a racing supervisor
+- **disk-cleaner**: close the holes the first pass left open
+- **disk-cleaner**: stop it deleting source and reporting success
+- **fleet**: refuse the legacy watcher while the daemon's retry sweep is live
+- **fleet-macos**: follow the copilot wire onto a registry name and a dial
+- **hangar**: bound an acp task's turn by the task budget, not the pool's
+- **hangar**: drop a negative or non-finite acp cost
+- **hangar**: let the command palette keep the keys the router claims
+- **hangar**: make the palette modal size total, not nearly total
+- **hangar**: match a timeline reply to the screen that asked for it
+- **hangar**: refuse a chat prompt aimed at a task's acp session
+- **hangar**: review-848 P1 and P2s on the execution view
+- **hangar**: route the adapter-death drain through the commit path too
+- **hangar**: say when the ACP timeline read left rows behind
+- **hangar**: say why the transcript pane is empty
+- **hangar**: stop the timeline ledger leaking and wedging the pane
+- **hangar**: stream the interruption a cancelled run writes past the sink
+- **hangar**: subscribe the workspace stream before the ack, not after
+- **hangar**: trim before extracting a task id in the transcript binder
+- **hangar**: trim before extracting a task id, and pin the predicate
+- **hangar-tui**: answer an ACP permission from the attention board
+- **hangar-tui**: deliver an ACP permission's option id, not its label
+- **help**: stop advertising two panels that no longer exist
+- **notifyd**: require both paths to resolve in canonical_eq
+- **proto**: keep tool-output blocks on separate lines, and cover the gate
+- **sessions**: a missing tmux server means the session is already stopped
+- **sessions**: file an answer's outcome under the question, not the pane
+- **sessions**: give the conversation Shift+Tab and the strip Tab
+- **sessions**: hold a re-reported question at the instant it was first seen
+- **sessions**: keep the operator's text when a failure lands off-screen
+- **sessions**: key a thread by the agent's session id, not the tmux name
+- **sweep**: a ledger read that failed is not a budget of zero
+- **sweep**: read the reported failure, not the whole event record
+- **sweep**: say when the failure field was not found, and correct the scope
+- **sweep**: stand down for the legacy watcher, not just for ATC
+- **sweep**: stop letting agent-authored text decide an auto-continue
+- **tui**: bound terminal observer retries
+- **tui**: harden observer failure handling
+- **tui**: harden terminal observer
+- **tui**: isolate live terminal previews
+- **tui**: release blocked terminal observers
+- **tui**: reset observer retry state
+- **update**: let the running binary decide who owns the install
+- **update**: recognise Homebrew by its Cellar, not by asking brew
+- test(hangar): assert the no-process marker on the path that writes it
+- test(sessions): answer a structured request through the daemon
+
+### Documentation
+- **chat**: say plainly that the cancel's version check is vacuous
+- **cli**: regenerate for the deleted ATC mode verbs
+- **cli**: regenerate for the retry ledger and the retired mode verbs
+- **cli**: regenerate the reference for the adapter registry and the dial
+- **core**: say which output each executor scans for the PR url
+- **disk-cleaner**: document fail-closed and the record-splitting trap
+- **disk-cleaner**: record the two new traps and the known limits
+- **hangar**: ACP P3 still 4, the adapter's options on the Inbox board
+- **hangar**: ACP P3 still 5, the refusal and the second approval in the transcript
+- **hangar**: ACP P3 still 6, the board back to nothing needs you
+- **hangar**: ACP P3 still 7, the transcript acting on the pick
+- **hangar**: ACP P3 still 8, store and worktree ground truth
+- **hangar**: add ACP P3 still 1, the card before its run
+- **hangar**: add ACP P3 still 2, the Run menu
+- **hangar**: add ACP P3 still 3, launched on the acp executor
+- **hangar**: add ACP P3 still 4, control center before the ask
+- **hangar**: add ACP P3 still 5, the adapter's own options on the board
+- **hangar**: add ACP P3 still 6, the fallback write asking after the reject
+- **hangar**: add ACP P3 still 7, the board back to zero
+- **hangar**: add ACP P3 still 8, the transcript acting on the pick
+- **hangar**: add ACP P3 still 9, store and worktree ground truth
+- **hangar**: add the ACP P3 gif
+- **hangar**: add the ACP P3 recording
+- **hangar**: add the ACP P3 tape
+- **hangar**: add the zero-tmux ACP leg to the fullstack explainer
+- **hangar**: advertise the task-detail expand key
+- **hangar**: bring the keybindings table in line with the nine-key router
+- **hangar**: correct the section 2.5 tab-strip width to the measured one
+- **hangar**: correct two comments the tab shrink made false
+- **hangar**: correct what the PR badge tripwire uniquely proves
+- **hangar**: drop the ACP P3 still that showed nothing
+- **hangar**: label which UI era each recording was made on
+- **hangar**: name the proof script by its repo path and the second gate
+- **hangar**: name the right reason an overflowing acp cost is rejected
+- **hangar**: name the single-writer invariant the scope guard rests on
+- **hangar**: point defect 29 at its issue
+- **hangar**: point the tape at the committed proof script
+- **hangar**: record the A8 executor-column decision
+- **hangar**: record the ACP P3 leg green and its five new findings
+- **hangar**: regenerate the ACP P3 tape
+- **hangar**: retake ACP P3 still 1, board-card on the merged base
+- **hangar**: retake ACP P3 still 2, run-menu on the merged base
+- **hangar**: retake ACP P3 still 3, launched on the merged base
+- **hangar**: retake the ACP P3 gif
+- **hangar**: retake the ACP P3 recording
+- **hangar**: rewrite the ACP P3 row for the answered surface and scope
+- **hangar**: say why the convergence publish runs after its append
+- **hangar**: tighten the zero-tmux claim to what was sampled
+- **hangar**: track the mixed token measure in task_usage
+- **hangar-tui**: say what the two option parsers actually do
+- **hangar-tui**: the inbox note names what actually reaches the no-options case
+- **hangar-tui**: the inbox note now matches which rows answer inline
+- **man**: regenerate for the fleet adapter subcommand
+- **plans**: add the attention-surface spec and its run goal
+- **plans**: correct a grounding row that claimed ATC lite was already gone
+- **plans**: open the attention-surface progress log with the eight settled decisions
+- **plans**: publish the attention-surface explainer and record its takes
+- **plans**: record phase 10 and three defects the suite never showed
+- **plans**: record phase 3 done, two more deviations and three tripwire-found bugs
+- **plans**: record phase 4 done, two more tripwire-found bugs and the suite status
+- **plans**: record phase 5 and the panel's full verb-parity table
+- **plans**: record phase 6 and the Inbox verb-parity table
+- **plans**: record phase 7, three more spec deviations and three tripwire finds
+- **plans**: record phase 8, three deviations and where each verb went
+- **plans**: record phase 9 done
+- **plans**: record phases 1-2 done, five spec deviations and the pre-existing suite failure
+- **plans**: record the per-feature recordings and the host-data near-miss
+- **plans**: record the review's findings, the fixes and what is left open
+- **sessions**: record each feature, against a private tmux server
+- **sessions**: record the attention surface answering a real question
+- **store**: name the scan latest_by_scope pays and when to index it
+- keep the explainer beside the others
+- feat(sessions): delete the host Fleet panel
+
+### Other
+- feat(sessions): delete the host notifyd Inbox
+- **atc**: delete two heartbeat builders that skip the injection fence
+- **atc**: move the retry cap below both crates that enforce it
+- **attention**: stop carrying a pane name nothing decides with
+- **daemons**: drop a footer parameter nothing reads
+- **fleet**: delete the panel's subscription and dispatch layer
+- **hangar**: collapse the task-detail header to one meta line
+- **hangar**: count Screen variants with mem::discriminant
+- **hangar**: delete the constants the run head orphaned
+- **hangar**: label the K board Runs
+- **hangar**: make the ledger append and its publish one operation
+- **hangar**: make the store writer unreachable without publishing
+- **hangar**: move the transcript sink into its own module for privacy
+- **hangar**: read the task-scope convention in one place
+- **proto**: make the ACP text fold a free function
+- **sessions**: drop the outstanding-send accessor nothing calls
+- **sessions**: time the spinner from the phase it matched
+
+
 ## [1.24.0] - 2026-09-03
 ### Added
 - **acp**: confine an adapter child to an OS sandbox policy
