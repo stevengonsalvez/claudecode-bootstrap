@@ -98,6 +98,52 @@ fn non_blank(subtype: Option<&str>) -> Option<&str> {
     subtype.map(str::trim).filter(|subtype| !subtype.is_empty())
 }
 
+/// The question and options a hook payload carries for an `AskUserQuestion`.
+///
+/// Returns `(question, options)` where each option is `(label, description)`.
+///
+/// The picker's whole structure is already in the payload: 540 of 718
+/// `PermissionRequest` records in one local log are `AskUserQuestion`, and
+/// every one carries `tool_input.questions`. They are stored too, because a
+/// permission request is user-facing — unlike `PreToolUse`, which the listener
+/// drops as telemetry. So the options reach the chip with no new ingestion.
+///
+/// Without this the row shows the permission vocabulary — approve / deny — for
+/// a prompt whose real answers are its own options, which is the wrong two
+/// words on the majority of permission chips.
+///
+/// Only the FIRST question is lifted. A multi-question call is answered one
+/// question at a time in the native picker, and showing the second one's
+/// options against the first one's prompt would be worse than showing none.
+#[must_use]
+pub fn ask_user_question(payload: &serde_json::Value) -> Option<(String, Vec<(String, String)>)> {
+    if payload.get("tool_name")?.as_str()? != "AskUserQuestion" {
+        return None;
+    }
+    let first = payload.get("tool_input")?.get("questions")?.as_array()?.first()?;
+    let question = non_blank(first.get("question").and_then(|q| q.as_str()))?.to_string();
+    let options = first
+        .get("options")
+        .and_then(|o| o.as_array())
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    let label = non_blank(option.get("label").and_then(|l| l.as_str()))?;
+                    let description = option
+                        .get("description")
+                        .and_then(|d| d.as_str())
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    Some((label.to_string(), description))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((question, options))
+}
+
 /// The `notification_type` a hook payload carries, if any.
 ///
 /// One accessor so the OS-notification path and the TUI chip path cannot

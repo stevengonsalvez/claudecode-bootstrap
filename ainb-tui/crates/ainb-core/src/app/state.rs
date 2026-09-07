@@ -11802,6 +11802,31 @@ impl AppState {
             // pane leads with what the agent actually said rather than "the
             // request carried no question text" on a row where the producer
             // plainly had one.
+            // An `AskUserQuestion` states its own question and its own
+            // answers, so it must not wear the permission vocabulary.
+            //
+            // It arrives as a `PermissionRequest`, which classifies APPROVE and
+            // would then have approve/deny synthesised onto it — the wrong two
+            // words on the majority of permission chips, since 540 of 718 such
+            // records are this tool. Carrying the real options also stops the
+            // pane offering a free-text box as the only way to answer a prompt
+            // that already has four named answers.
+            if let Some((question, options)) =
+                payload.as_ref().and_then(ainb_plugin_notifyd::ask_user_question)
+            {
+                return Some(
+                    SessionAttention::local(AttentionKind::Ask, rec.ts)
+                        .with_detail(question)
+                        .with_options(
+                            options
+                                .into_iter()
+                                .map(|(label, description)| {
+                                    crate::fleet::attention::AttentionOption { label, description }
+                                })
+                                .collect(),
+                        ),
+                );
+            }
             return Some(
                 SessionAttention::local(Self::chip_for_alert(kind), rec.ts).with_detail(
                     payload.as_ref().and_then(Self::payload_message).unwrap_or_default(),

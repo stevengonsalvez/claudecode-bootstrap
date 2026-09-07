@@ -2090,6 +2090,62 @@ mod tests {
         );
     }
 
+    /// An `AskUserQuestion` shows ITS OWN options, not approve/deny.
+    ///
+    /// It arrives as a `PermissionRequest`, which classifies APPROVE, and the
+    /// approve/deny pair would then be synthesised onto it. That is the wrong
+    /// vocabulary on the majority of permission chips: 540 of 718 such records
+    /// in one local log are this tool, each carrying its real question and a
+    /// full option list that was being thrown away.
+    #[test]
+    fn an_ask_user_question_carries_its_own_question_and_options() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json = r#"{
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{
+                "header": "Environment",
+                "question": "Which environment ship to?",
+                "options": [
+                    {"label": "staging", "description": "Safe test env before prod."},
+                    {"label": "prod", "description": "Live user-facing env."},
+                    {"label": "canary", "description": "Small subset traffic first."}
+                ]
+            }]}
+        }"#
+        .to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("the question marks the row");
+        assert_eq!(
+            chip.kind,
+            AttentionKind::Ask,
+            "a question is not an approval, whatever hook carried it"
+        );
+        assert_eq!(chip.detail.as_deref(), Some("Which environment ship to?"));
+        assert_eq!(
+            chip.options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(),
+            vec!["staging", "prod", "canary"],
+            "the operator picks the agent's own answers, in the agent's own order"
+        );
+        assert_eq!(
+            chip.options[0].description, "Safe test env before prod.",
+            "each option keeps the explanation that makes it choosable"
+        );
+    }
+
+    /// An ordinary permission request is untouched: it is still an approval.
+    #[test]
+    fn a_plain_tool_permission_request_stays_an_approval() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json =
+            r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#.to_string();
+        assert_eq!(
+            kind_of(CWD, Some("claude"), false, 0, NOW, &[record]),
+            Some(AttentionKind::Approve),
+        );
+    }
+
     /// An idle prompt stays ASK. Same bare event, different subtype.
     #[test]
     fn a_claude_idle_prompt_stays_ask() {
