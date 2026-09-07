@@ -65,7 +65,7 @@ Chord grammar, answering the spec's open question: modifiers are `ctrl`, `alt`, 
 
 ```rust
 /// A normalised key chord: modifiers sorted, key lowercased unless shifted letter.
-/// Wire form is the same string the TOML file uses: "ctrl+k", "shift+G", "g g", "f2", "esc".
+/// Wire form is the same string the TOML file uses: "ctrl+k", "G", "shift+tab", "g g", "f2", "esc".
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Chord(String);
 
@@ -235,7 +235,7 @@ Blocking `lock_exclusive` everywhere (not `try_lock`): contention waits, config 
 
 #### 8. notifyd: O_EXCL supersedes the spec's flock
 **File**: `plugin-notifyd/src/pid.rs:25-34`
-**Changes**: the spec asked for a flock; the audit's hazard is already closed by `StartupLock` (`listener.rs:105-138`), which takes `notify.lock` with `create_new` (O_EXCL, atomic) before any socket mutation. Its stale-recovery path (dead pid: remove and retry `create_new` once) is race-safe because the retry is itself O_EXCL, so two recoverers cannot both win; the loser bails. Accepted as is. Only change: replace the pid-file doc comment claiming it locks with a pointer to `StartupLock`.
+**Changes**: the spec asked for a flock; the audit's hazard is mostly closed by `StartupLock` (`listener.rs:105-138`), which takes `notify.lock` with `create_new` (O_EXCL, atomic) before any socket mutation. Its stale-recovery path is not race-safe: two starters can both read the dead pid, A removes the stale file and wins `create_new`, then B removes A's fresh lock and wins its own retry, giving two daemons. Fix inside `StartupLock::acquire`: recover by atomic `rename(notify.lock, notify.lock.stale-<mypid>)` instead of `remove_file`; only one recoverer's rename succeeds, the other sees `NotFound` or `AlreadyExists` on retry and bails; the winner deletes the renamed stale file after acquiring. Also replace the pid-file doc comment claiming it locks with a pointer to `StartupLock`. Test: two threads race `acquire` on a stale lock, exactly one succeeds (`listener.rs` already has `startup_lock_excludes_a_second_live_holder`; add the stale-race case).
 
 #### 9. Test
 **File**: `ainb-tui/crates/ainb-core/tests/config_concurrent_save.rs` (new)
