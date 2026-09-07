@@ -11711,6 +11711,17 @@ impl AppState {
             .filter(|message| !message.is_empty())
     }
 
+    /// The hook payload's `notification_type`, when it carried one.
+    ///
+    /// Reads the stored payload rather than a column: the notifications table
+    /// has no matcher field, and the payload copy is the one that survives
+    /// ingest. Mirrors [`Self::hook_message`], which pulls `message` the same
+    /// way for the chip's detail line.
+    fn hook_subtype(record: &ainb_plugin_notifyd::NotificationRecord) -> Option<String> {
+        let payload = serde_json::from_str::<serde_json::Value>(&record.payload_json).ok()?;
+        ainb_plugin_notifyd::notification_subtype(&payload).map(str::to_string)
+    }
+
     /// Map a notifyd alert class to its chip.
     ///
     /// One function so the OS notification and the row chip can never disagree
@@ -11751,7 +11762,13 @@ impl AppState {
             if rec.agent != agent || rec.cwd.trim_end_matches('/') != cwd {
                 continue;
             }
-            let Some(kind) = classify_attention(&rec.raw_event) else {
+            // The subtype rides in the payload, not in `raw_event`: Claude has
+            // no distinct permission hook, so a blocked approval and an idle
+            // prompt are both a bare `Notification` and only this tells them
+            // apart. Without it every permission prompt read as ASK, and the
+            // approve/deny options the broker needs were never synthesised.
+            let Some(kind) = classify_attention(&rec.raw_event, Self::hook_subtype(rec).as_deref())
+            else {
                 continue;
             };
             // Newest qualifying event wins. A long-finished turn isn't

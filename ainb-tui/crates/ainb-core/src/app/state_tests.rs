@@ -2018,6 +2018,66 @@ mod tests {
         );
     }
 
+    /// A real Claude permission prompt raises APPROVE, not ASK.
+    ///
+    /// Shaped from actual hook traffic: Claude has no permission hook, so the
+    /// event is a BARE `Notification` and the only discriminator is the
+    /// payload's `notification_type`. Classifying on the event name alone put
+    /// an ASK chip on the row, whose `ask` pane offered a free-text box at a
+    /// prompt that reads none — and left the approve broker unreachable.
+    #[test]
+    fn a_claude_permission_prompt_raises_approve_not_ask() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "Notification", NOW - 1000);
+        record.payload_json =
+            r#"{"message":"Claude needs your permission","notification_type":"permission_prompt"}"#
+                .to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("a permission prompt marks the row");
+        assert_eq!(
+            chip.kind,
+            AttentionKind::Approve,
+            "a bare Notification carrying permission_prompt is an approval"
+        );
+    }
+
+    /// An idle prompt stays ASK. Same bare event, different subtype.
+    #[test]
+    fn a_claude_idle_prompt_stays_ask() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "Notification", NOW - 1000);
+        record.payload_json =
+            r#"{"message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#
+                .to_string();
+        assert_eq!(
+            kind_of(CWD, Some("claude"), false, 0, NOW, &[record]),
+            Some(AttentionKind::Ask),
+        );
+    }
+
+    /// Toast notifications raise NOTHING.
+    ///
+    /// A login banner, a delivered push, and a quota auto-resume are not a
+    /// session asking for something. They arrive on the same bare
+    /// `Notification` and used to put a chip on a row with nothing to answer.
+    #[test]
+    fn claude_toast_notifications_raise_no_chip() {
+        for subtype in [
+            "auth_success",
+            "push_notification",
+            "quota_auto_resume_fired",
+        ] {
+            let mut record = rec("claude", CWD, "Notification", NOW - 1000);
+            record.payload_json =
+                format!(r#"{{"message":"informational","notification_type":"{subtype}"}}"#);
+            assert_eq!(
+                kind_of(CWD, Some("claude"), false, 0, NOW, &[record]),
+                None,
+                "{subtype} is a toast, not a request"
+            );
+        }
+    }
+
     #[test]
     fn a_local_chip_carries_the_hooks_own_message() {
         // Without this the `ask` pane opens on a locally-produced row saying

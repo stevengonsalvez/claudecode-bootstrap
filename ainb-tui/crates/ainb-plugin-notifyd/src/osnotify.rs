@@ -72,7 +72,7 @@ impl Debouncer {
 /// events that signal "human attention needed" or "session ended".
 /// Equivalent to [`classify_attention`] returning `Some`.
 pub fn is_user_facing(env: &Envelope) -> bool {
-    classify_attention(&env.raw_event).is_some()
+    classify_attention(&env.raw_event, notification_subtype(&env.payload)).is_some()
 }
 
 /// The attention state a hook event implies for the session that
@@ -89,6 +89,21 @@ pub enum AlertKind {
     Finished,
 }
 
+/// The `notification_type` a hook payload carries, if any.
+///
+/// One accessor so the OS-notification path and the TUI chip path cannot
+/// disagree about where the subtype lives. Claude puts it in the payload
+/// and mirrors it into the matcher; the payload is the copy that survives
+/// into the notifications store, which has no matcher column.
+#[must_use]
+pub fn notification_subtype(payload: &serde_json::Value) -> Option<&str> {
+    payload
+        .get("notification_type")?
+        .as_str()
+        .map(str::trim)
+        .filter(|subtype| !subtype.is_empty())
+}
+
 /// Map a host agent's `raw_event` to the attention state it implies,
 /// or `None` for telemetry / lifecycle events that don't warrant a
 /// marker. This is the single source of truth for which hook events
@@ -97,10 +112,24 @@ pub enum AlertKind {
 /// surfaces never drift apart.
 ///
 /// Host agents name the same semantic events differently; every
-/// supported variant maps to the same [`AlertKind`]. A matcher suffix
-/// (e.g. `Notification:idle_prompt`) is stripped before matching.
-pub fn classify_attention(raw_event: &str) -> Option<AlertKind> {
+/// supported variant maps to the same [`AlertKind`].
+///
+/// `subtype` is the payload's `notification_type` (Claude also mirrors it
+/// into the hook matcher). It is REQUIRED to classify Claude correctly:
+/// Claude has no distinct permission hook, so a blocked approval and an
+/// idle prompt both arrive as a bare `Notification` and are separable only
+/// by this field. Reading it here rather than sniffing the user-facing
+/// `message` keeps the classifier off Anthropic's wording, which can change
+/// without notice. Pass `None` when the producer sent no subtype.
+pub fn classify_attention(raw_event: &str, subtype: Option<&str>) -> Option<AlertKind> {
     let head = raw_event.split(':').next().unwrap_or(raw_event);
+    // A subtype only ever refines a `Notification`; it never overrides an
+    // event that already names its own semantics.
+    if matches!(head, "Notification" | "notification") {
+        if let Some(subtype) = subtype.map(str::trim).filter(|s| !s.is_empty()) {
+            return classify_notification_subtype(subtype);
+        }
+    }
     Some(match head {
         // Blocked on an approval — most urgent.
         "PermissionRequest"
@@ -115,6 +144,30 @@ pub fn classify_attention(raw_event: &str) -> Option<AlertKind> {
         "Stop" | "agentStop" | "agent-turn-complete" | "task_complete" => AlertKind::Finished,
         // Telemetry / lifecycle (PreToolUse, PostToolUse, UserPromptSubmit, …).
         _ => return None,
+    })
+}
+
+/// Classify a Claude `Notification` by its `notification_type`.
+///
+/// The set is closed and enumerated from real hook traffic. Three of these
+/// are pure toasts: a login banner or a delivered push is NOT a session
+/// asking for something, and binning them as `WaitingOnUser` put a chip on
+/// a row that had nothing to answer.
+///
+/// An UNKNOWN subtype falls back to `WaitingOnUser` rather than `None`, so a
+/// subtype added upstream still reaches the operator. Losing a real question
+/// is worse than showing one toast too many.
+fn classify_notification_subtype(subtype: &str) -> Option<AlertKind> {
+    Some(match subtype {
+        // Blocked on a tool approval. The approve broker can answer this.
+        "permission_prompt" => AlertKind::NeedsPermission,
+        // Waiting on the operator, with nothing structured to offer.
+        "idle_prompt" | "agent_needs_input" => AlertKind::WaitingOnUser,
+        // Turn ended.
+        "agent_completed" => AlertKind::Finished,
+        // Toasts. Informational, and answering them is not a thing.
+        "auth_success" | "push_notification" | "quota_auto_resume_fired" => return None,
+        _ => AlertKind::WaitingOnUser,
     })
 }
 
@@ -368,6 +421,99 @@ mod tests {
         assert!(is_user_facing(&env("notification", "copilot")));
     }
 
+    /// Every `notification_type` Claude actually emits, pinned.
+    ///
+    /// Claude has NO distinct permission hook: a blocked tool approval and an
+    /// idle prompt are both a bare `Notification`, separable only by this
+    /// subtype. Before it was threaded through, every permission prompt was
+    /// classified `WaitingOnUser`, so the row showed an ASK chip with no
+    /// approve/deny to pick and the approve broker was unreachable for Claude.
+    ///
+    /// The list is exhaustive against real hook traffic. A subtype added
+    /// upstream lands on the `WaitingOnUser` fallback rather than vanishing.
+    #[test]
+    fn claude_notification_subtypes_each_map_to_their_kind() {
+        let cases = [
+            ("permission_prompt", Some(AlertKind::NeedsPermission)),
+            ("idle_prompt", Some(AlertKind::WaitingOnUser)),
+            ("agent_needs_input", Some(AlertKind::WaitingOnUser)),
+            ("agent_completed", Some(AlertKind::Finished)),
+            // Toasts: informational, and there is nothing to answer.
+            ("auth_success", None),
+            ("push_notification", None),
+            ("quota_auto_resume_fired", None),
+        ];
+        for (subtype, want) in cases {
+            assert_eq!(
+                classify_attention("Notification", Some(subtype)),
+                want,
+                "{subtype}"
+            );
+        }
+        assert_eq!(
+            classify_attention("Notification", Some("some_future_subtype")),
+            Some(AlertKind::WaitingOnUser),
+            "an unknown subtype must still reach the operator"
+        );
+        assert_eq!(
+            classify_attention("Notification", Some("   ")),
+            Some(AlertKind::WaitingOnUser),
+            "a blank subtype is no subtype"
+        );
+    }
+
+    /// A subtype refines a `Notification`; it never overrides an event that
+    /// already names its own semantics.
+    #[test]
+    fn a_subtype_never_overrides_a_self_naming_event() {
+        assert_eq!(
+            classify_attention("Stop", Some("permission_prompt")),
+            Some(AlertKind::Finished)
+        );
+        assert_eq!(
+            classify_attention("exec_approval_request", Some("idle_prompt")),
+            Some(AlertKind::NeedsPermission)
+        );
+        assert_eq!(
+            classify_attention("PreToolUse", Some("permission_prompt")),
+            None,
+            "telemetry stays telemetry"
+        );
+    }
+
+    /// The subtype is read from the payload, which is the copy that survives
+    /// into the notifications store (that table has no matcher column).
+    #[test]
+    fn a_permission_toast_is_not_user_facing_but_a_prompt_is() {
+        let mut permission = env("Notification", "claude");
+        permission.payload = json!({
+            "message": "Claude needs your permission",
+            "notification_type": "permission_prompt"
+        });
+        assert!(is_user_facing(&permission));
+        assert_eq!(
+            notification_subtype(&permission.payload),
+            Some("permission_prompt")
+        );
+
+        let mut login = env("Notification", "claude");
+        login.payload = json!({
+            "message": "Claude Code login successful",
+            "notification_type": "auth_success"
+        });
+        assert!(
+            !is_user_facing(&login),
+            "a login banner is not a session asking for something"
+        );
+
+        let bare = env("Notification", "claude");
+        assert_eq!(notification_subtype(&bare.payload), None);
+        assert!(
+            is_user_facing(&bare),
+            "no subtype still falls back to asking"
+        );
+    }
+
     #[test]
     fn classify_attention_maps_each_kind() {
         // Permission / approval (Claude + Codex) → NeedsPermission.
@@ -378,7 +524,7 @@ mod tests {
             "apply_patch_approval_request",
         ] {
             assert_eq!(
-                classify_attention(e),
+                classify_attention(e, None),
                 Some(AlertKind::NeedsPermission),
                 "{e}"
             );
@@ -391,11 +537,19 @@ mod tests {
             "request_user_input",
             "wait_for_user",
         ] {
-            assert_eq!(classify_attention(e), Some(AlertKind::WaitingOnUser), "{e}");
+            assert_eq!(
+                classify_attention(e, None),
+                Some(AlertKind::WaitingOnUser),
+                "{e}"
+            );
         }
         // Turn ended → Finished.
         for e in ["Stop", "agentStop", "agent-turn-complete", "task_complete"] {
-            assert_eq!(classify_attention(e), Some(AlertKind::Finished), "{e}");
+            assert_eq!(
+                classify_attention(e, None),
+                Some(AlertKind::Finished),
+                "{e}"
+            );
         }
         // Telemetry / lifecycle → no marker.
         for e in [
@@ -405,7 +559,7 @@ mod tests {
             "SessionStart",
             "",
         ] {
-            assert_eq!(classify_attention(e), None, "{e}");
+            assert_eq!(classify_attention(e, None), None, "{e}");
         }
     }
 
