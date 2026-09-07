@@ -11703,12 +11703,37 @@ impl AppState {
     /// `None`, and the pane says so. A manufactured "waiting for input" would
     /// read as something the agent actually said.
     fn hook_message(record: &ainb_plugin_notifyd::NotificationRecord) -> Option<String> {
-        serde_json::from_str::<serde_json::Value>(&record.payload_json)
-            .ok()?
+        Self::hook_payload(record).and_then(|payload| Self::payload_message(&payload))
+    }
+
+    /// The hook payload, parsed once.
+    ///
+    /// `attention_for_session` needs both the subtype and the message off the
+    /// same record, and it runs per session row per refresh — now over MORE
+    /// records than before, because a toast subtype is skipped rather than
+    /// ending the scan. Parsing the same JSON twice per row to read two fields
+    /// is the kind of waste that only shows up on a big fleet.
+    fn hook_payload(record: &ainb_plugin_notifyd::NotificationRecord) -> Option<serde_json::Value> {
+        serde_json::from_str::<serde_json::Value>(&record.payload_json).ok()
+    }
+
+    /// The hook's own `message`, trimmed, if it carried a non-empty one.
+    fn payload_message(payload: &serde_json::Value) -> Option<String> {
+        payload
             .get("message")?
             .as_str()
             .map(|message| message.trim().to_string())
             .filter(|message| !message.is_empty())
+    }
+
+    /// The hook payload's `notification_type`, when it carried one.
+    ///
+    /// Reads the stored payload rather than a column: the notifications table
+    /// has no matcher field, and the payload copy is the one that survives
+    /// ingest. Mirrors [`Self::hook_message`], which pulls `message` the same
+    /// way for the chip's detail line.
+    fn hook_subtype(record: &ainb_plugin_notifyd::NotificationRecord) -> Option<String> {
+        ainb_plugin_notifyd::notification_subtype(&Self::hook_payload(record)?)
     }
 
     /// Map a notifyd alert class to its chip.
@@ -11751,7 +11776,16 @@ impl AppState {
             if rec.agent != agent || rec.cwd.trim_end_matches('/') != cwd {
                 continue;
             }
-            let Some(kind) = classify_attention(&rec.raw_event) else {
+            // The subtype rides in the payload, not in `raw_event`: Claude has
+            // no distinct permission hook, so a blocked approval and an idle
+            // prompt are both a bare `Notification` and only this tells them
+            // apart. Without it every permission prompt read as ASK, and the
+            // approve/deny options the broker needs were never synthesised.
+            // Parsed ONCE: the subtype decides the chip's kind and the message
+            // becomes its detail, and both come out of this same payload.
+            let payload = Self::hook_payload(rec);
+            let subtype = payload.as_ref().and_then(ainb_plugin_notifyd::notification_subtype);
+            let Some(kind) = classify_attention(&rec.raw_event, subtype.as_deref()) else {
                 continue;
             };
             // Newest qualifying event wins. A long-finished turn isn't
@@ -11769,8 +11803,9 @@ impl AppState {
             // request carried no question text" on a row where the producer
             // plainly had one.
             return Some(
-                SessionAttention::local(Self::chip_for_alert(kind), rec.ts)
-                    .with_detail(Self::hook_message(rec).unwrap_or_default()),
+                SessionAttention::local(Self::chip_for_alert(kind), rec.ts).with_detail(
+                    payload.as_ref().and_then(Self::payload_message).unwrap_or_default(),
+                ),
             );
         }
         None

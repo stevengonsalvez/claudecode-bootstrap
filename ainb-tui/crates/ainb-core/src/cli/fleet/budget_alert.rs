@@ -361,7 +361,10 @@ mod tests {
         // would silently drop it).
         assert!(ainb_plugin_notifyd::osnotify::is_user_facing(&env));
         assert_eq!(
-            ainb_plugin_notifyd::classify_attention(&env.raw_event),
+            ainb_plugin_notifyd::classify_attention(
+                &env.raw_event,
+                ainb_plugin_notifyd::notification_subtype(&env.payload).as_deref(),
+            ),
             Some(ainb_plugin_notifyd::AlertKind::WaitingOnUser)
         );
     }

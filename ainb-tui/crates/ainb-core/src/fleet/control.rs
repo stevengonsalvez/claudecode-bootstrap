@@ -555,14 +555,39 @@ pub fn answer_via_broker_blocking(
         DecisionKind::Deny
     };
     // Blocking `std::os::unix` I/O, no runtime needed.
-    match client_decide(&socket, session_id, kind, reason) {
+    describe_decision(
+        client_decide(&socket, session_id, kind, reason).map_err(|error| error.to_string()),
+        approve,
+    )
+}
+
+/// Turn the broker's verdict into what the ask pane will SAY about it.
+///
+/// Split out so the no-waiter case can be pinned without a live broker: it is
+/// the branch that decides whether the operator sees a green tick or their
+/// draft handed back, and it is not reachable from a unit test otherwise.
+fn describe_decision(decided: Result<bool, String>, approve: bool) -> Result<String, String> {
+    match decided {
         Ok(true) => Ok(format!(
             "{} the waiting hook",
             if approve { "approved" } else { "denied" }
         )),
-        // NOT an error: the request resolved some other way, or timed out. The
-        // agent is no longer waiting, so the chip should clear.
-        Ok(false) => Ok("no waiter left (already resolved or timed out)".to_string()),
+        // NOT a delivery. The broker had nothing parked under this session,
+        // which means EITHER the request already resolved, OR no waiter was
+        // ever parked for it — and the broker cannot tell those apart.
+        //
+        // Reported as a failure because the second case is real and silent: a
+        // permission chip raised by Claude's idle nudge has no parked waiter
+        // unless `PermissionRequest` also fired for it, and painting a green
+        // tick over a prompt still blocking in the pane is precisely the lying
+        // surface this screen replaced. A `Failed` puts the chip back to ASK
+        // and hands the operator their draft, and when the request really had
+        // resolved the producer stops reporting the row and the chip clears on
+        // the next refresh anyway. Wrong-but-loud beats wrong-but-green.
+        Ok(false) => Err(
+            "nothing was waiting for this: already answered, or the prompt is only in the pane"
+                .to_string(),
+        ),
         Err(error) => Err(format!("approve broker unreachable: {error}")),
     }
 }
@@ -749,6 +774,58 @@ fn names_the_provider_field(error: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::describe_decision;
+
+    /// A broker with nothing parked must NOT read as delivered.
+    ///
+    /// `client_decide` answers `Ok(false)` both when the request already
+    /// resolved and when no waiter was ever parked, and it cannot tell them
+    /// apart. The second case is reachable: a permission chip raised by
+    /// Claude's idle-nudge `Notification` has no parked waiter unless
+    /// `PermissionRequest` also fired for it. Treating that as success painted
+    /// a green tick over a prompt still blocking in the pane — the exact lying
+    /// surface the sessions screen was built to remove.
+    #[test]
+    fn a_broker_with_no_waiter_is_reported_as_a_failure() {
+        let outcome = describe_decision(Ok(false), true);
+        let reason = outcome.expect_err("no waiter is not a delivery");
+        assert!(
+            reason.contains("nothing was waiting"),
+            "the operator must be told what did not happen: {reason}"
+        );
+        assert!(
+            reason.contains("pane"),
+            "and where the prompt still is: {reason}"
+        );
+    }
+
+    /// A real delivery still reads as one, and names the verb that was used.
+    #[test]
+    fn a_delivered_decision_names_what_it_did() {
+        assert_eq!(
+            describe_decision(Ok(true), true).expect("delivered"),
+            "approved the waiting hook"
+        );
+        assert_eq!(
+            describe_decision(Ok(true), false).expect("delivered"),
+            "denied the waiting hook"
+        );
+    }
+
+    /// An unreachable broker stays distinguishable from an empty one: they
+    /// need different fixes, so they must not share a message.
+    #[test]
+    fn an_unreachable_broker_says_so() {
+        let reason = describe_decision(Err("connection refused".into()), true)
+            .expect_err("unreachable is not a delivery");
+        assert!(reason.contains("unreachable"), "{reason}");
+        assert!(reason.contains("connection refused"), "{reason}");
+        assert!(
+            !reason.contains("nothing was waiting"),
+            "an empty broker and a dead one are different problems: {reason}"
+        );
+    }
+
     use super::*;
     use crate::fleet::types::{Session, SessionSource};
 
