@@ -2041,6 +2041,55 @@ mod tests {
         );
     }
 
+    /// The idle nudge must not DOWNGRADE a live permission request.
+    ///
+    /// This is the reported bug. Claude reports one blocked approval twice:
+    /// `PermissionRequest` fires and parks the broker's waiter, then ~30s
+    /// later an unanswered prompt gets an idle nudge as a bare `Notification`
+    /// carrying `permission_prompt`. Chips are newest-wins, so that second
+    /// record replaced the APPROVE chip with ASK, and the ask pane then showed
+    /// a free-text box, no approve/deny, on a prompt that reads no typing.
+    /// Measured on real traffic: 653 of 665 prompts send both within 30s.
+    #[test]
+    fn the_idle_nudge_does_not_downgrade_a_live_permission_request() {
+        use crate::fleet::attention::AttentionKind;
+        let mut nudge = rec("claude", CWD, "Notification", NOW - 1000);
+        nudge.payload_json =
+            r#"{"message":"Claude needs your permission","notification_type":"permission_prompt"}"#
+                .to_string();
+        let request = rec("claude", CWD, "PermissionRequest", NOW - 31_000);
+        // Newest-first, exactly as `attention_for_session` requires.
+        assert_eq!(
+            kind_of(CWD, Some("claude"), false, 0, NOW, &[nudge, request]),
+            Some(AttentionKind::Approve),
+            "the nudge names the same blocked approval, so it must not soften it"
+        );
+    }
+
+    /// A background task finishing must not erase an open question.
+    ///
+    /// `agent_completed` is a SUBAGENT/background event — real payloads read
+    /// "rust dependency compilation finished". Mapping it to a DONE chip let a
+    /// build completion supersede a still-open question on a newest-wins
+    /// scan, and then blank the row entirely once the DONE TTL elapsed, while
+    /// the session was genuinely waiting on the operator.
+    #[test]
+    fn a_finished_background_task_does_not_erase_an_open_question() {
+        use crate::fleet::attention::AttentionKind;
+        let mut done = rec("claude", CWD, "Notification", NOW - 1000);
+        done.payload_json =
+            r#"{"message":"rust dependency compilation finished","notification_type":"agent_completed"}"#
+                .to_string();
+        let mut question = rec("claude", CWD, "Notification", NOW - 60_000);
+        question.payload_json =
+            r#"{"message":"Which sqlite path?","notification_type":"idle_prompt"}"#.to_string();
+        assert_eq!(
+            kind_of(CWD, Some("claude"), false, 0, NOW, &[done, question]),
+            Some(AttentionKind::Ask),
+            "the question is still open; a finished build says nothing about it"
+        );
+    }
+
     /// An idle prompt stays ASK. Same bare event, different subtype.
     #[test]
     fn a_claude_idle_prompt_stays_ask() {

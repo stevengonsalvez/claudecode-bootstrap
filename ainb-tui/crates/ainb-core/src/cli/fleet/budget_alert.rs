@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(
             ainb_plugin_notifyd::classify_attention(
                 &env.raw_event,
-                ainb_plugin_notifyd::notification_subtype(&env.payload),
+                ainb_plugin_notifyd::notification_subtype(&env.payload).as_deref(),
             ),
             Some(ainb_plugin_notifyd::AlertKind::WaitingOnUser)
         );

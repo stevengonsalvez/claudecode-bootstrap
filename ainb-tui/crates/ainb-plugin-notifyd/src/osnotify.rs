@@ -72,7 +72,11 @@ impl Debouncer {
 /// events that signal "human attention needed" or "session ended".
 /// Equivalent to [`classify_attention`] returning `Some`.
 pub fn is_user_facing(env: &Envelope) -> bool {
-    classify_attention(&env.raw_event, notification_subtype(&env.payload)).is_some()
+    classify_attention(
+        &env.raw_event,
+        notification_subtype(&env.payload).as_deref(),
+    )
+    .is_some()
 }
 
 /// The attention state a hook event implies for the session that
@@ -89,19 +93,35 @@ pub enum AlertKind {
     Finished,
 }
 
+/// A subtype string with the blanks rejected. `"   "` is no subtype.
+fn non_blank(subtype: Option<&str>) -> Option<&str> {
+    subtype.map(str::trim).filter(|subtype| !subtype.is_empty())
+}
+
 /// The `notification_type` a hook payload carries, if any.
 ///
 /// One accessor so the OS-notification path and the TUI chip path cannot
-/// disagree about where the subtype lives. Claude puts it in the payload
-/// and mirrors it into the matcher; the payload is the copy that survives
-/// into the notifications store, which has no matcher column.
+/// disagree about where the subtype lives. The payload is the copy that
+/// survives into the notifications store, which has no matcher column.
+/// `notify.sh` reads `.matcher // .hook_matcher` for its own suffix and
+/// never consults `notification_type`, so the two are independent: a record
+/// can carry one, the other, or both.
+///
+/// Reads BOTH shapes `notify.sh` can produce. With `jq` the hook input is
+/// nested whole under `payload`, so `notification_type` sits at the top
+/// level. WITHOUT `jq` the script cannot build nested JSON and stashes the
+/// entire hook input verbatim as a JSON *string* under `payload._raw` —
+/// the subtype is still in there, one decode down. Missing that second
+/// shape left every jq-less machine classifying permission prompts as an
+/// unanswerable ASK, which is the whole bug this accessor exists to fix.
 #[must_use]
-pub fn notification_subtype(payload: &serde_json::Value) -> Option<&str> {
-    payload
-        .get("notification_type")?
-        .as_str()
-        .map(str::trim)
-        .filter(|subtype| !subtype.is_empty())
+pub fn notification_subtype(payload: &serde_json::Value) -> Option<String> {
+    if let Some(subtype) = non_blank(payload.get("notification_type").and_then(|v| v.as_str())) {
+        return Some(subtype.to_string());
+    }
+    let raw = payload.get("_raw")?.as_str()?;
+    let nested = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+    non_blank(nested.get("notification_type").and_then(|v| v.as_str())).map(str::to_string)
 }
 
 /// Map a host agent's `raw_event` to the attention state it implies,
@@ -114,11 +134,20 @@ pub fn notification_subtype(payload: &serde_json::Value) -> Option<&str> {
 /// Host agents name the same semantic events differently; every
 /// supported variant maps to the same [`AlertKind`].
 ///
-/// `subtype` is the payload's `notification_type` (Claude also mirrors it
-/// into the hook matcher). It is REQUIRED to classify Claude correctly:
-/// Claude has no distinct permission hook, so a blocked approval and an
-/// idle prompt both arrive as a bare `Notification` and are separable only
-/// by this field. Reading it here rather than sniffing the user-facing
+/// `subtype` is the payload's `notification_type`. It is REQUIRED to
+/// classify Claude correctly, because Claude reports one blocked approval
+/// TWICE and the two reports disagree.
+///
+/// `PermissionRequest` fires first and parks the broker's waiter. Roughly
+/// thirty seconds later, if the operator has not answered, Claude sends an
+/// idle nudge as a bare `Notification` carrying
+/// `notification_type: "permission_prompt"`. Chips are newest-wins, so that
+/// second record used to DOWNGRADE the correct APPROVE chip to ASK: the ask
+/// pane then offered a free-text box for a prompt that reads none, and the
+/// approve/deny options were dropped. Measured on real traffic: 653 of 665
+/// prompts send both within 30s.
+///
+/// Reading the structured field rather than sniffing the user-facing
 /// `message` keeps the classifier off Anthropic's wording, which can change
 /// without notice. Pass `None` when the producer sent no subtype.
 pub fn classify_attention(raw_event: &str, subtype: Option<&str>) -> Option<AlertKind> {
@@ -126,7 +155,15 @@ pub fn classify_attention(raw_event: &str, subtype: Option<&str>) -> Option<Aler
     // A subtype only ever refines a `Notification`; it never overrides an
     // event that already names its own semantics.
     if matches!(head, "Notification" | "notification") {
-        if let Some(subtype) = subtype.map(str::trim).filter(|s| !s.is_empty()) {
+        // The subtype rides in EITHER place, so read both. `notify.sh` appends
+        // the matcher to the event (`Notification:idle_prompt`) whenever the
+        // payload carried one, and that suffix form is what
+        // `resolver::attention_kind_token` already keys on and what the store's
+        // own fixtures record. Reading only the payload copy would leave those
+        // rows on the ASK fallback and put the two classifiers in disagreement
+        // about a record that plainly names its kind.
+        let suffix = raw_event.split_once(':').map(|(_, rest)| rest);
+        if let Some(subtype) = non_blank(subtype).or_else(|| non_blank(suffix)) {
             return classify_notification_subtype(subtype);
         }
     }
@@ -163,10 +200,17 @@ fn classify_notification_subtype(subtype: &str) -> Option<AlertKind> {
         "permission_prompt" => AlertKind::NeedsPermission,
         // Waiting on the operator, with nothing structured to offer.
         "idle_prompt" | "agent_needs_input" => AlertKind::WaitingOnUser,
-        // Turn ended.
-        "agent_completed" => AlertKind::Finished,
-        // Toasts. Informational, and answering them is not a thing.
-        "auth_success" | "push_notification" | "quota_auto_resume_fired" => return None,
+        // Toasts and background lifecycle. Informational, and answering
+        // them is not a thing.
+        //
+        // `agent_completed` is a BACKGROUND TASK finishing, not the session's
+        // turn ending — real payloads read "rust dependency compilation
+        // finished". Mapping it to `Finished` let a build completion supersede
+        // a still-open question and then blank the row at the DONE TTL, while
+        // the session was genuinely waiting. Turn ends already arrive as
+        // `Stop` / `SubagentStop`.
+        "agent_completed" | "auth_success" | "push_notification"
+        | "quota_auto_resume_fired" => return None,
         _ => AlertKind::WaitingOnUser,
     })
 }
@@ -437,7 +481,8 @@ mod tests {
             ("permission_prompt", Some(AlertKind::NeedsPermission)),
             ("idle_prompt", Some(AlertKind::WaitingOnUser)),
             ("agent_needs_input", Some(AlertKind::WaitingOnUser)),
-            ("agent_completed", Some(AlertKind::Finished)),
+            // A background task finishing is not the session finishing.
+            ("agent_completed", None),
             // Toasts: informational, and there is nothing to answer.
             ("auth_success", None),
             ("push_notification", None),
@@ -492,7 +537,7 @@ mod tests {
         });
         assert!(is_user_facing(&permission));
         assert_eq!(
-            notification_subtype(&permission.payload),
+            notification_subtype(&permission.payload).as_deref(),
             Some("permission_prompt")
         );
 
@@ -511,6 +556,66 @@ mod tests {
         assert!(
             is_user_facing(&bare),
             "no subtype still falls back to asking"
+        );
+    }
+
+    /// The jq-less hook path still reaches the subtype.
+    ///
+    /// Without `jq`, `notify.sh` cannot nest the hook input under `payload`
+    /// and stashes it verbatim as a JSON string under `payload._raw`. Reading
+    /// only the top level left every jq-less machine binning a permission
+    /// prompt as ASK — an unanswerable chip offering a free-text box at a
+    /// prompt that reads none.
+    #[test]
+    fn a_jq_less_payload_still_yields_its_subtype() {
+        let mut jqless = env("Notification", "claude");
+        jqless.payload = json!({
+            "_raw": r#"{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"allow Bash?"}"#
+        });
+        assert_eq!(
+            notification_subtype(&jqless.payload).as_deref(),
+            Some("permission_prompt")
+        );
+        assert_eq!(
+            classify_attention(
+                &jqless.raw_event,
+                notification_subtype(&jqless.payload).as_deref()
+            ),
+            Some(AlertKind::NeedsPermission),
+            "a jq-less permission prompt is still an approval"
+        );
+
+        let mut unparseable = env("Notification", "claude");
+        unparseable.payload = json!({ "_raw": "not json at all" });
+        assert_eq!(notification_subtype(&unparseable.payload), None);
+    }
+
+    /// The matcher suffix on `raw_event` is a subtype source too.
+    ///
+    /// `notify.sh` appends the matcher to the event, and
+    /// `resolver::attention_kind_token` already keys on that
+    /// `Notification:idle_prompt` form. Reading only the payload copy left
+    /// those rows on the ASK fallback and put the two classifiers in
+    /// disagreement about a record that plainly named its kind.
+    #[test]
+    fn the_matcher_suffix_classifies_when_the_payload_carries_nothing() {
+        assert_eq!(
+            classify_attention("Notification:permission_prompt", None),
+            Some(AlertKind::NeedsPermission)
+        );
+        assert_eq!(
+            classify_attention("Notification:idle_prompt", None),
+            Some(AlertKind::WaitingOnUser)
+        );
+        assert_eq!(
+            classify_attention("Notification:auth_success", None),
+            None,
+            "a toast is a toast whichever half of the envelope named it"
+        );
+        // The payload copy is the authority when both are present.
+        assert_eq!(
+            classify_attention("Notification:idle_prompt", Some("permission_prompt")),
+            Some(AlertKind::NeedsPermission)
         );
     }
 
