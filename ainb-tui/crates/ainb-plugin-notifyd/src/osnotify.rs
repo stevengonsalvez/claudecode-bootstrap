@@ -209,8 +209,9 @@ fn classify_notification_subtype(subtype: &str) -> Option<AlertKind> {
         // a still-open question and then blank the row at the DONE TTL, while
         // the session was genuinely waiting. Turn ends already arrive as
         // `Stop` / `SubagentStop`.
-        "agent_completed" | "auth_success" | "push_notification"
-        | "quota_auto_resume_fired" => return None,
+        "agent_completed" | "auth_success" | "push_notification" | "quota_auto_resume_fired" => {
+            return None;
+        }
         _ => AlertKind::WaitingOnUser,
     })
 }
