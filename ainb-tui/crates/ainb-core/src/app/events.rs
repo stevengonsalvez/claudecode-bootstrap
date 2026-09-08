@@ -1392,9 +1392,12 @@ impl EventHandler {
         // appears in — so Enter reaching the reducer there is a key the footer
         // advertised and nothing performed.
         //
-        // Gated on the same predicate the pane paints from, so the offer, the
-        // footer's verb and the key cannot disagree.
-        if key_event.code == KeyCode::Enter && state.copilot_daemon_cta_open() {
+        // Gated on ARMED, not merely shown: with focus on the session list,
+        // `Enter` is that list's, and starting a daemon on a keystroke the
+        // operator aimed somewhere else is not a thing to do quietly. The
+        // footer reads the same predicate, so it promises this only when it
+        // will happen.
+        if key_event.code == KeyCode::Enter && state.copilot_daemon_cta_armed() {
             return Some(AppEvent::SessionStartHangarDaemon);
         }
         // The broadcast composer, which replaces the thread's while rows are

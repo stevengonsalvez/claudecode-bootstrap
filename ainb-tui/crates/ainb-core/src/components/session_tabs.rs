@@ -98,19 +98,12 @@ impl SessionTab {
     /// than a dialog is to dismiss.
     #[must_use]
     pub fn enter_verb_in(self, state: &AppState) -> std::borrow::Cow<'static, str> {
-        // The daemon offer OWNS Enter while it is up: the composer beneath it
-        // has nothing to send to, so this is the only verb the key has. While a
-        // start is already out the key is a no-op, and the footer says nothing
-        // rather than advertising a second press that the offer declines.
-        if self == Self::Copilot && state.copilot_daemon_cta_open() {
-            return std::borrow::Cow::Borrowed(
-                if *state.daemon_start_cta.status() == crate::fleet::daemon_cta::CtaStatus::Starting
-                {
-                    ""
-                } else {
-                    START_DAEMON_VERB
-                },
-            );
+        // The daemon offer OWNS Enter while it is ARMED: the composer beneath it
+        // has nothing to send to, so this is the only verb the key has. Armed,
+        // not merely shown — focus elsewhere, or a start already out, and the
+        // key does nothing here, so neither may this say otherwise.
+        if self == Self::Copilot && state.copilot_daemon_cta_armed() {
+            return std::borrow::Cow::Borrowed(START_DAEMON_VERB);
         }
         let targets = state.broadcast_targets().len();
         if self == Self::Thread && targets > 0 {
@@ -1331,9 +1324,11 @@ mod tests {
     fn a_pane_offering_a_daemon_advertises_that_and_not_a_send() {
         let mut state = state_with(Vec::new(), true);
         state.session_tab = SessionTab::Copilot;
+        state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         with_daemon(&mut state, false, true);
 
         assert!(state.copilot_daemon_cta_open());
+        assert!(state.copilot_daemon_cta_armed());
         assert_eq!(SessionTab::Copilot.enter_verb_in(&state), START_DAEMON_VERB);
         let footer = footer_text(&state, SessionTab::Copilot, false);
         assert!(
@@ -1354,6 +1349,7 @@ mod tests {
     fn an_unreachable_daemon_that_is_still_running_is_not_offered_a_start() {
         let mut state = state_with(Vec::new(), true);
         state.session_tab = SessionTab::Copilot;
+        state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         with_daemon(&mut state, false, false);
 
         assert!(!state.hangar_daemon_not_running());
@@ -1373,6 +1369,7 @@ mod tests {
     fn a_pane_that_cannot_send_advertises_no_verb_at_all() {
         let mut state = state_with(Vec::new(), true);
         state.session_tab = SessionTab::Copilot;
+        state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         // Daemon UP: this is not the offer's case, it is the one where the
         // conversation opened and its scope never resolved.
         with_daemon(&mut state, true, false);
@@ -1439,6 +1436,68 @@ mod tests {
             "the conversation below must keep its rows:\n{painted}"
         );
     }
+
+    /// With focus on the session list, `Enter` is the LIST's. The offer stays
+    /// on screen, and the footer stops promising a key it will not get.
+    #[test]
+    fn the_offer_neither_claims_enter_nor_advertises_it_from_the_session_list() {
+        let mut state = state_with(Vec::new(), true);
+        state.session_tab = SessionTab::Copilot;
+        state.focused_pane = crate::app::state::FocusedPane::Sessions;
+        with_daemon(&mut state, false, true);
+
+        assert!(
+            state.copilot_daemon_cta_open(),
+            "the offer is still on screen beside the list"
+        );
+        assert!(
+            !state.copilot_daemon_cta_armed(),
+            "but Enter belongs to the list, so starting a daemon is not on it"
+        );
+        let footer = footer_text(&state, SessionTab::Copilot, false);
+        assert!(
+            !footer.contains(START_DAEMON_VERB),
+            "and the footer must not promise a key that goes elsewhere: {footer}"
+        );
+    }
+
+    /// A start already out disarms the key, so the footer stops advertising a
+    /// second press that the offer declines.
+    #[test]
+    fn a_start_in_flight_disarms_the_key_and_the_verb() {
+        let mut state = state_with(Vec::new(), true);
+        state.session_tab = SessionTab::Copilot;
+        state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
+        with_daemon(&mut state, false, true);
+        assert!(state.copilot_daemon_cta_armed());
+
+        state.daemon_start_cta.start();
+        assert!(!state.copilot_daemon_cta_armed());
+        assert!(!footer_text(&state, SessionTab::Copilot, true).contains(START_DAEMON_VERB));
+    }
+
+    /// The tab the pane TICKS and the tab it PAINTS resolve to the same host.
+    ///
+    /// The render path ticks through `chat_host_for` (which needs `&mut`) and
+    /// then paints through `chat_host`, because the two borrows cannot be held
+    /// at once. That is only safe while the two resolve identically, so it is
+    /// pinned rather than assumed — reaching for `copilot_chat` at the render
+    /// site was the same fact written twice.
+    #[test]
+    fn ticking_a_tabs_host_and_painting_it_resolve_to_the_same_conversation() {
+        let mut state = state_with(Vec::new(), true);
+        state.workspaces[0].sessions[0].provider_session_id = Some("hook-sess-1".to_string());
+
+        for tab in ALL_TABS {
+            let ticked = state.chat_host_for(tab).map(std::ptr::from_ref);
+            let painted = state.chat_host(tab).map(std::ptr::from_ref);
+            assert_eq!(
+                ticked, painted,
+                "{tab:?} ticks one conversation and paints another"
+            );
+        }
+    }
+
     #[test]
     fn preview_and_copilot_are_never_disabled() {
         let state = state_with(Vec::new(), false);

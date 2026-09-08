@@ -11896,15 +11896,38 @@ impl AppState {
         )
     }
 
-    /// Whether the copilot pane is showing its start-the-daemon offer.
+    /// Whether the copilot pane is SHOWING its start-the-daemon offer.
     ///
-    /// The single predicate the renderer, the footer and the key path all ask,
-    /// so the pane cannot paint an offer the footer does not advertise or the
-    /// key does not fire.
+    /// About the pane, not about the keyboard: the offer stays on screen while
+    /// the operator works the session list beside it. The renderer asks this
+    /// one.
     #[must_use]
     pub fn copilot_daemon_cta_open(&self) -> bool {
         self.session_tab == crate::components::session_tabs::SessionTab::Copilot
             && self.hangar_daemon_not_running()
+    }
+
+    /// Whether pressing `Enter` right now would fire that offer.
+    ///
+    /// A SECOND predicate deliberately, because the two answer different
+    /// questions and only this one may be advertised. Starting a daemon is not
+    /// something to do on a mis-routed keystroke: with focus on the session
+    /// list, `Enter` belongs to the list, so the offer neither claims the key
+    /// nor lets the footer promise it.
+    ///
+    /// A start already in flight disarms it too, so the footer stops
+    /// advertising a second press that [`DaemonStartCta::start`] declines.
+    ///
+    /// The footer's verb and the key handler both read THIS, so what is
+    /// promised and what happens are one fact.
+    #[must_use]
+    pub fn copilot_daemon_cta_armed(&self) -> bool {
+        self.copilot_daemon_cta_open()
+            // The right pane. `SessionTabNext` puts focus here whenever it
+            // lands on a tab that takes input, and takes it away again when it
+            // lands on one that does not.
+            && self.focused_pane == FocusedPane::LiveLogs
+            && *self.daemon_start_cta.status() != crate::fleet::daemon_cta::CtaStatus::Starting
     }
 
     /// Why a conversation tab cannot send right now, in the pane's own words.
