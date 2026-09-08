@@ -385,6 +385,18 @@ pub struct DaemonAttention {
     pub reachable: bool,
     /// Why the last poll failed, for the one banner line the header shows.
     pub error: Option<String>,
+    /// `true` when that failure means NOTHING IS SERVING the socket, so
+    /// starting a daemon is the remedy a surface may offer.
+    ///
+    /// Carried separately from [`Self::reachable`] because the two answer
+    /// different questions and only one of them licenses an offer. A daemon
+    /// that is up but wedged is equally unreachable, and a surface that read
+    /// only the flag above would offer to start a process that is already
+    /// running. Classified from the typed [`DaemonError`] at the poll, never
+    /// from its wording.
+    ///
+    /// [`DaemonError`]: crate::fleet::bridge::daemon::DaemonError
+    pub not_running: bool,
 }
 
 impl DaemonAttention {
@@ -395,6 +407,7 @@ impl DaemonAttention {
             by_cwd,
             reachable: true,
             error: None,
+            not_running: false,
         }
     }
 
@@ -412,15 +425,23 @@ impl DaemonAttention {
     /// successful poll drops it. That is the safe direction: it is unanswerable
     /// from here for as long as it lingers, and the alternative is a live
     /// request disappearing because one socket read timed out.
+    ///
+    /// `not_running` is the caller's classification of the TYPED failure
+    /// (`DaemonError::means_not_running`), passed explicitly rather than
+    /// defaulted: it is the only thing licensing a "start the daemon" offer,
+    /// and a call site that forgot it would be offering to start a daemon that
+    /// is answering.
     #[must_use]
     pub fn down(
         previous: std::collections::HashMap<String, Vec<SessionAttention>>,
         error: String,
+        not_running: bool,
     ) -> Self {
         Self {
             by_cwd: previous,
             reachable: false,
             error: Some(error),
+            not_running,
         }
     }
 
@@ -613,7 +634,7 @@ mod tests {
         // then the daemon is gone. With nothing to carry forward the merge sees
         // only the local row and the surface keeps working — which is the whole
         // point of reading notifyd off disk.
-        let down = DaemonAttention::down(std::collections::HashMap::new(), "refused".into());
+        let down = DaemonAttention::down(std::collections::HashMap::new(), "refused".into(), true);
         assert!(down.rows_for("/work/proj").is_empty());
         let mut chips = vec![SessionAttention::local(AttentionKind::Ask, 1_000)];
         chips.extend(down.rows_for("/work/proj").iter().cloned());
@@ -636,7 +657,7 @@ mod tests {
                 "att-1".into(),
             )],
         );
-        let down = DaemonAttention::down(by_cwd, "refused".into());
+        let down = DaemonAttention::down(by_cwd, "refused".into(), true);
         let chips = normalise(down.rows_for("/work/proj").to_vec());
         assert_eq!(chips.len(), 1);
         assert!(
