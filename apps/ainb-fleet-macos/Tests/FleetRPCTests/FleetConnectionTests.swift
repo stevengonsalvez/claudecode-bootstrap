@@ -880,6 +880,270 @@ final class FleetConnectionTests: XCTestCase {
         )
     }
 
+    /// The copilot session is minted ONCE per connection, not once per poll,
+    /// and a leg refused because the SESSION IS GONE is what makes the next
+    /// page mint again.
+    ///
+    /// This is the bug the cache exists for, counted on the wire rather than
+    /// asserted about a dictionary. `fleet/acp_session_create` is idempotent
+    /// but not free: daemon-side every call is an INSERT inside a write
+    /// transaction that hits the live-scope unique index and reads the
+    /// incumbent back, and the chat pane polls once a second, so this surface
+    /// was opening 86,400 write transactions a day against a database whose
+    /// reads answer in 0.1s while this call timed out at 5s.
+    func testCopilotSessionIsMintedOncePerConnectionUntilTheSessionIsGone() async throws {
+        try await runMintCacheScenario(rejectionDetail: "target_not_running", mintsAfterSend: 2)
+    }
+
+    /// A TRANSIENT refusal keeps the mint.
+    ///
+    /// `queue_full` is a pool that is busy, not a session that is gone, and the
+    /// daemon still holds the session behind it. Re-minting here would pay the
+    /// write transaction this cache exists to remove on a session that is
+    /// about to answer the next prompt perfectly well.
+    func testATransientRejectionDoesNotCostAReMint() async throws {
+        try await runMintCacheScenario(rejectionDetail: "queue_full", mintsAfterSend: 1)
+    }
+
+    /// Two pages, then one send that comes back REJECTED with `rejectionDetail`,
+    /// asserting how many mints the whole sequence cost.
+    ///
+    /// Shared so the two outcomes cannot drift apart: what differs between them
+    /// is ONE daemon token, and everything else about the flow is identical.
+    private func runMintCacheScenario(rejectionDetail: String, mintsAfterSend: Int) async throws {
+        var descriptors = [Int32](repeating: 0, count: 2)
+        XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let serverDescriptor = descriptors[1]
+        defer { Darwin.close(serverDescriptor) }
+        let location = try Self.testLocation()
+        defer { try? FileManager.default.removeItem(at: location.home) }
+        let serverDone = expectation(description: "chat server finished")
+        let serverResult = SocketServerResult()
+        let mints = ChatServerCounts(rejectionDetail: rejectionDetail)
+
+        DispatchQueue.global().async {
+            defer { serverDone.fulfill() }
+            do {
+                try Self.serveStoreBootstrap(
+                    descriptor: serverDescriptor,
+                    subscriptionSnapshot: try Self.snapshotObject(head: 1, sessions: []),
+                    eventBeforeSubscriptionResponse: false,
+                    snapshotAfterEvent: try Self.snapshotObject(head: 1, sessions: []),
+                    capabilityIDs: [
+                        "fleet.chat.read", "fleet.chat.write",
+                        "fleet.message.read", "fleet.message.send", "fleet.acp.spawn",
+                    ]
+                )
+                while true {
+                    try Self.answerChatRequest(
+                        try Self.readRequest(from: serverDescriptor),
+                        to: serverDescriptor,
+                        counts: mints
+                    )
+                }
+            } catch StoreServerError.closed {
+                // The client hung up at the end of the test. Not a failure.
+            } catch {
+                serverResult.record(error)
+            }
+        }
+
+        let store = await MainActor.run {
+            FleetStore(
+                location: location,
+                makeConnection: { _ in FleetConnection(location: location, injectedDescriptor: descriptors[0]) },
+                reconnectDelayNanoseconds: { _ in 10_000_000_000 }
+            )
+        }
+        await MainActor.run { store.start() }
+        let live = await Self.waitUntil {
+            await MainActor.run {
+                guard case .live = store.connectionState else { return false }
+                return store.canWrite
+            }
+        }
+        XCTAssertTrue(live, "the fixture never reached a live, writable connection")
+
+        await store.refreshChatOnce()
+        await MainActor.run { XCTAssertEqual(store.chat.targetSessionKey, "acp:1") }
+        XCTAssertEqual(mints.acpCreates, 1, "the first page has to mint")
+
+        await store.refreshChatOnce()
+        await MainActor.run { XCTAssertEqual(store.chat.targetSessionKey, "acp:1") }
+        XCTAssertEqual(
+            mints.acpCreates, 1,
+            "a second page must reuse the remembered session, not reopen a write transaction"
+        )
+
+        await MainActor.run { store.sendChatMessage("hello") }
+        let reported = await Self.waitUntil {
+            await MainActor.run { store.controlNotice?.contains("not delivered") == true }
+        }
+        XCTAssertTrue(reported, "the rejected leg must reach the operator")
+        // The send re-pages itself, so waiting for the notice is not enough:
+        // wait for the page that follows it to have run.
+        let repaged = await Self.waitUntil {
+            await MainActor.run { store.pendingIntentID == nil }
+        }
+        XCTAssertTrue(repaged, "the send never finished its own re-page")
+        XCTAssertEqual(
+            mints.acpCreates, mintsAfterSend,
+            "\(rejectionDetail): wrong number of mints after the send"
+        )
+
+        await MainActor.run { store.stop() }
+        await fulfillment(of: [serverDone], timeout: 5)
+        try serverResult.throwIfRecorded()
+    }
+
+    /// A page already in flight when the cache is invalidated must NOT put the
+    /// forgotten session back.
+    ///
+    /// A page is four round trips, and the poll loop and the send path each run
+    /// in their own Task on the main actor, so they interleave. Without a
+    /// generation check the sequence is: poll reads the cached key, send
+    /// reports REJECTED and forgets it, poll finishes and writes the dead key
+    /// back. The operator's next message then goes to the same dead session,
+    /// which is the exact failure the invalidation exists to prevent, arriving
+    /// one poll later and looking like the fix never worked.
+    ///
+    /// Driven by holding the daemon inside the page rather than by hoping the
+    /// interleaving happens, so this fails deterministically without the guard.
+    func testAPageInFlightDuringAnInvalidationDoesNotRestoreTheForgottenSession() async throws {
+        var descriptors = [Int32](repeating: 0, count: 2)
+        XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let serverDescriptor = descriptors[1]
+        defer { Darwin.close(serverDescriptor) }
+        let location = try Self.testLocation()
+        defer { try? FileManager.default.removeItem(at: location.home) }
+        let serverDone = expectation(description: "chat server finished")
+        let serverResult = SocketServerResult()
+        let mints = ChatServerCounts()
+        let gate = ChatServerGate()
+
+        DispatchQueue.global().async {
+            defer { serverDone.fulfill() }
+            do {
+                try Self.serveStoreBootstrap(
+                    descriptor: serverDescriptor,
+                    subscriptionSnapshot: try Self.snapshotObject(head: 1, sessions: []),
+                    eventBeforeSubscriptionResponse: false,
+                    snapshotAfterEvent: try Self.snapshotObject(head: 1, sessions: []),
+                    capabilityIDs: [
+                        "fleet.chat.read", "fleet.chat.write",
+                        "fleet.message.read", "fleet.message.send", "fleet.acp.spawn",
+                    ]
+                )
+                while true {
+                    try Self.answerChatRequest(
+                        try Self.readRequest(from: serverDescriptor),
+                        to: serverDescriptor,
+                        counts: mints,
+                        gate: gate
+                    )
+                }
+            } catch StoreServerError.closed {
+                // The client hung up at the end of the test. Not a failure.
+            } catch {
+                serverResult.record(error)
+            }
+        }
+
+        let store = await MainActor.run {
+            FleetStore(
+                location: location,
+                makeConnection: { _ in FleetConnection(location: location, injectedDescriptor: descriptors[0]) },
+                reconnectDelayNanoseconds: { _ in 10_000_000_000 }
+            )
+        }
+        await MainActor.run { store.start() }
+        let live = await Self.waitUntil {
+            await MainActor.run {
+                guard case .live = store.connectionState else { return false }
+                return store.canWrite
+            }
+        }
+        XCTAssertTrue(live, "the fixture never reached a live, writable connection")
+
+        await store.refreshChatOnce()
+        XCTAssertEqual(mints.acpCreates, 1, "the first page fills the cache")
+
+        // A second page, stopped in the middle: past the cache read, before the
+        // write-back.
+        gate.arm()
+        let paging = Task { await store.refreshChatOnce() }
+        let stopped = await Self.waitUntil { gate.hasReached }
+        XCTAssertTrue(stopped, "the daemon never reached the point the page is held at")
+
+        // What a REJECTED send does, on the actor, while that page is waiting.
+        await MainActor.run { store.forgetCopilotSession(inScope: "channel:c1") }
+        gate.letGo()
+        await paging.value
+
+        // The page finished after the invalidation, so the next one must ask
+        // the daemon again rather than reusing what that page had read.
+        await store.refreshChatOnce()
+        XCTAssertEqual(
+            mints.acpCreates, 2,
+            "the in-flight page restored a session the operator had already been told is dead"
+        )
+
+        await MainActor.run { store.stop() }
+        await fulfillment(of: [serverDone], timeout: 5)
+        try serverResult.throwIfRecorded()
+    }
+
+    /// Answer one chat-page RPC with a canned result, counting the mints.
+    ///
+    /// Dispatched by METHOD rather than by position, so the test asserts how
+    /// many times the store asked rather than pinning an exact call order that
+    /// a later page change would have to rewrite.
+    private static func answerChatRequest(
+        _ request: [String: Any],
+        to descriptor: Int32,
+        counts: ChatServerCounts,
+        gate: ChatServerGate? = nil
+    ) throws {
+        switch request["method"] as? String {
+        case "fleet/channel_list":
+            try writeResponse(to: descriptor, request: request, result: ["channels": [[
+                "id": "c1",
+                "kind": "copilot",
+                "name": "copilot",
+                "scope_key": "channel:c1",
+                "recipients": [],
+                "created_at": 1,
+            ]]])
+        case "fleet/acp_session_create":
+            counts.recordAcpCreate()
+            try writeResponse(to: descriptor, request: request, result: [
+                "session_key": "acp:1",
+                "scope_key": "channel:c1",
+                "turn_deadline_ms": 1_800_000,
+            ])
+        case "fleet/message_list":
+            // The page's first call AFTER the mint decision, which makes it the
+            // window a test needs to invalidate the cache in.
+            gate?.pauseIfArmed()
+            try writeResponse(to: descriptor, request: request, result: ["messages": []])
+        case "fleet/confirm_list":
+            try writeResponse(to: descriptor, request: request, result: ["confirms": []])
+        case "fleet/activity_list":
+            try writeResponse(to: descriptor, request: request, result: ["activities": []])
+        case "fleet/message_send":
+            try writeResponse(to: descriptor, request: request, result: [
+                "message_id": "01J0MSG",
+                "deliveries": [[
+                    "session_key": "acp:1",
+                    "state": "REJECTED",
+                    "detail": counts.rejectionDetail,
+                ]],
+            ])
+        default:
+            try writeError(to: descriptor, request: request)
+        }
+    }
+
     private static func testLocation() throws -> HangarLocation {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let tokenDirectory = home.appendingPathComponent("hangar", isDirectory: true)
@@ -1107,5 +1371,79 @@ private final class SocketServerResult: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let error { throw error }
+    }
+}
+
+/// How many times the scripted chat daemon was asked for each thing.
+///
+/// The mint count is the assertion the copilot cache exists to make: it is a
+/// WRITE transaction daemon-side, so "how often was it asked" is the whole
+/// question, and only the wire can answer it.
+private final class ChatServerCounts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var acpCreateCount = 0
+    /// The daemon token the scripted `message_send` refuses with. Settable
+    /// because whether a refusal forgets the mint depends entirely on WHICH
+    /// token it carries, not on the REJECTED state.
+    let rejectionDetail: String
+
+    init(rejectionDetail: String = "target_not_running") {
+        self.rejectionDetail = rejectionDetail
+    }
+
+    var acpCreates: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return acpCreateCount
+    }
+
+    func recordAcpCreate() {
+        lock.lock()
+        acpCreateCount += 1
+        lock.unlock()
+    }
+}
+
+/// Lets a test stop the scripted chat daemon in the middle of one page.
+///
+/// One-shot, and armed per page rather than always on: a page that could not
+/// finish would hang the poll loop for every other assertion in the file. The
+/// reached flag is polled rather than waited on so the test never blocks a
+/// cooperative thread; only the server's own dispatch queue blocks, which is
+/// what "the daemon is slow" means here.
+private final class ChatServerGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var armed = false
+    private var reached = false
+    private let release = DispatchSemaphore(value: 0)
+
+    var hasReached: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return reached
+    }
+
+    func arm() {
+        lock.lock()
+        armed = true
+        reached = false
+        lock.unlock()
+    }
+
+    func letGo() {
+        release.signal()
+    }
+
+    /// Called on the server thread. Blocks that thread, once, if armed.
+    func pauseIfArmed() {
+        lock.lock()
+        let isArmed = armed
+        armed = false
+        if isArmed { reached = true }
+        lock.unlock()
+        guard isArmed else { return }
+        // Bounded: a test that never releases fails on its own assertions
+        // rather than hanging the suite.
+        _ = release.wait(timeout: .now() + 5)
     }
 }

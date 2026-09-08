@@ -45,7 +45,10 @@ async fn create(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> 
     let result = client()
         .acp_session_create(FleetAcpSessionCreateParams {
             provider: Some(provider),
-            cwd,
+            // Always named here, unlike the chat page's attach: this subcommand
+            // exists to CREATE a session, and its `--cwd` is required above, so
+            // there is no operator intent to resolve from a standing one.
+            cwd: Some(cwd),
             scope_key: matches.get_one::<String>("scope").cloned(),
         })
         .await;
