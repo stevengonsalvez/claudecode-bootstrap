@@ -55,6 +55,21 @@ const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 /// connect and `sysinfo` process lookups — work that must NEVER run on the UI
 /// render thread (H-D2). A few seconds keeps the screen live while staying cheap.
 const COLLECT_INTERVAL: Duration = Duration::from_secs(2);
+/// How long the collector keeps polling after the screen last asked it for
+/// anything, before it parks itself.
+///
+/// It used to be forever. Opening the Daemons screen ONCE armed a thread that
+/// re-probed every daemon socket every two seconds for the rest of the
+/// process's life — including the hours after the operator navigated away and
+/// the whole time the TUI was suspended behind a tmux attach. On one real
+/// session that was ~25 connects a minute to `hangar.sock` for three hours from
+/// a single visit to the screen, none of which anything was going to read.
+///
+/// Comfortably longer than any render gap the screen can have while it is
+/// actually on view (the TUI redraws far faster than this), so parking cannot
+/// interrupt a screen someone is looking at; short enough that walking away
+/// stops the polling within one screenful of time.
+const COLLECT_IDLE_STOP_MS: i64 = 30_000;
 /// Evidence needs fresh process checks, unlike daemon rows. Avoid one `ps` per
 /// historical probe on every screen refresh.
 const EVIDENCE_INTERVAL_MS: i64 = 30_000;
@@ -92,6 +107,18 @@ pub struct Snapshot {
     /// one a switch would act on), or the meta will not parse. The mode toggle
     /// and the inline help are both hidden in that case rather than guessing.
     pub atc: Option<AtcModeView>,
+    /// When the UI thread last reached for this snapshot. The collector reads
+    /// it to decide whether anyone is still watching.
+    last_touch_ms: i64,
+    /// Set by the collector on its way out, cleared by whoever spawns the next
+    /// one. Lives inside the snapshot's mutex rather than in a separate atomic
+    /// so "is a collector running?" and "when was it last wanted?" are read and
+    /// written under ONE lock — that is what makes at-most-one-collector an
+    /// invariant instead of a race.
+    ///
+    /// Defaults to "not parked" so a test seam that installs a pre-seeded
+    /// snapshot (see `seeded_state`) still never spawns the real collector.
+    collector_parked: bool,
 }
 
 /// What the Daemons screen needs to know about the ATC supervisor beyond its
@@ -284,19 +311,49 @@ impl DaemonsState {
     ///
     /// The collector seeds an immediate first collect (so the screen is populated
     /// within one interval of opening), then re-collects every [`COLLECT_INTERVAL`]
-    /// for the lifetime of the process. It is intentionally a detached daemon
-    /// thread — the snapshot is the only shared state and it is best-effort, so
-    /// there is nothing to join on teardown.
+    /// for as long as the screen keeps asking. It is intentionally a detached
+    /// daemon thread — the snapshot is the only shared state and it is
+    /// best-effort, so there is nothing to join on teardown.
+    ///
+    /// Every call through here is the UI thread saying "I still want this",
+    /// which is what keeps the collector alive and what revives it after a park.
     fn shared(&mut self) -> Arc<Mutex<Snapshot>> {
         if let Some(shared) = &self.shared {
-            return Arc::clone(shared);
+            let shared = Arc::clone(shared);
+            if Self::touch(&shared, now_ms()) {
+                self.spawn_collector_for(&shared);
+            }
+            return shared;
         }
-        let shared = Arc::new(Mutex::new(Snapshot::default()));
-        let (wake, wake_rx) = std::sync::mpsc::channel();
-        spawn_collector(Arc::clone(&shared), wake_rx);
-        self.wake = Some(wake);
+        let shared = Arc::new(Mutex::new(Snapshot {
+            last_touch_ms: now_ms(),
+            ..Snapshot::default()
+        }));
+        self.spawn_collector_for(&shared);
         self.shared = Some(Arc::clone(&shared));
         shared
+    }
+
+    /// Record that the UI thread wants the snapshot, and claim the right to
+    /// spawn a collector if the last one parked. Returns `true` when the caller
+    /// must spawn.
+    ///
+    /// The claim and the timestamp are one critical section on purpose. Whoever
+    /// takes the lock first wins cleanly: if the UI wins, the collector reads a
+    /// fresh `last_touch_ms` and does not park; if the collector wins, it parks
+    /// and the UI sees `collector_parked` and revives it. `collector_parked` is
+    /// only ever set by a collector about to return and only ever cleared here,
+    /// so at most one collector can be live at a time.
+    fn touch(shared: &Mutex<Snapshot>, now: i64) -> bool {
+        let mut guard = shared.lock().unwrap_or_else(|p| p.into_inner());
+        guard.last_touch_ms = now;
+        std::mem::take(&mut guard.collector_parked)
+    }
+
+    fn spawn_collector_for(&mut self, shared: &Arc<Mutex<Snapshot>>) {
+        let (wake, wake_rx) = std::sync::mpsc::channel();
+        spawn_collector(Arc::clone(shared), wake_rx);
+        self.wake = Some(wake);
     }
 
     /// Ask the collector to re-collect now. The table free-runs anyway, so this
@@ -558,6 +615,8 @@ impl DaemonsState {
             evidence_census: guard.evidence_census,
             evidence_collected_at_ms: guard.evidence_collected_at_ms,
             atc: guard.atc.clone(),
+            last_touch_ms: guard.last_touch_ms,
+            collector_parked: guard.collector_parked,
         }
     }
 }
@@ -767,9 +826,16 @@ fn collect_atc_mode() -> Option<AtcModeView> {
     })
 }
 
+/// Has the screen stopped asking for snapshots long enough that the collector
+/// should stop producing them? Pure so the window is testable without threads.
+fn collector_should_park(last_touch_ms: i64, now_ms: i64) -> bool {
+    now_ms.saturating_sub(last_touch_ms) > COLLECT_IDLE_STOP_MS
+}
+
 /// Spawn the detached background collector: one immediate collect, then a collect
-/// every [`COLLECT_INTERVAL`] forever. Keeps ALL disk I/O / socket connects off
-/// the UI render thread (H-D2).
+/// every [`COLLECT_INTERVAL`] for as long as the screen keeps reaching for the
+/// snapshot. Keeps ALL disk I/O / socket connects off the UI render thread
+/// (H-D2).
 fn spawn_collector(shared: Arc<Mutex<Snapshot>>, wake: std::sync::mpsc::Receiver<()>) {
     std::thread::Builder::new()
         .name("ainb-daemons-collect".into())
@@ -785,6 +851,14 @@ fn spawn_collector(shared: Arc<Mutex<Snapshot>>, wake: std::sync::mpsc::Receiver
                     // The screen's state was dropped; nothing will read another
                     // snapshot.
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+                // Park when nobody has looked at the snapshot for a while. The
+                // flag is set under the same lock that publishes it, so the
+                // next `shared()` sees a parked collector and revives it.
+                let mut guard = shared.lock().unwrap_or_else(|p| p.into_inner());
+                if collector_should_park(guard.last_touch_ms, now_ms()) {
+                    guard.collector_parked = true;
+                    return;
                 }
             }
         })
@@ -1562,6 +1636,51 @@ mod tests {
         assert_eq!(daemon_version_label(&daemon).0, "999.0.0 newer");
     }
 
+    /// The collector used to run "for the lifetime of the process": one visit
+    /// to this screen armed a thread that re-probed every daemon socket every
+    /// two seconds until the TUI exited. A real session logged ~25 connects a
+    /// minute to the hangar daemon for three hours off a single navigation.
+    #[test]
+    fn a_screen_nobody_is_watching_stops_polling() {
+        let armed = 10_000;
+        assert!(
+            !collector_should_park(armed, armed + COLLECT_IDLE_STOP_MS),
+            "a screen still on view must keep collecting"
+        );
+        assert!(
+            collector_should_park(armed, armed + COLLECT_IDLE_STOP_MS + 1),
+            "past the idle window the collector must park"
+        );
+        assert!(
+            collector_should_park(armed, armed + 3 * 60 * 60 * 1_000),
+            "three hours after the last look, nothing should still be probing"
+        );
+    }
+
+    /// Parking is only useful if coming back works, and only SAFE if coming
+    /// back twice does not leave two collectors racing the same snapshot.
+    #[test]
+    fn a_parked_collector_is_revived_exactly_once() {
+        let shared = Mutex::new(Snapshot {
+            collector_parked: true,
+            ..Snapshot::default()
+        });
+        assert!(
+            DaemonsState::touch(&shared, 1_000),
+            "re-entering the screen must revive a parked collector"
+        );
+        assert!(
+            !DaemonsState::touch(&shared, 2_000),
+            "a live collector must not be spawned a second time"
+        );
+        let guard = shared.lock().unwrap();
+        assert_eq!(
+            guard.last_touch_ms, 2_000,
+            "every touch refreshes the clock"
+        );
+        assert!(!guard.collector_parked);
+    }
+
     /// A `DaemonsState` whose background collector is pre-empted: the shared
     /// snapshot is seeded with `rows` and the `shared` handle is installed, so
     /// `render`/`snapshot` read the seed and never spawn the real collector.
@@ -1574,6 +1693,8 @@ mod tests {
             hook_health: None,
             evidence_census: None,
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         }));
         DaemonsState {
             shared: Some(shared),
@@ -1599,6 +1720,8 @@ mod tests {
             hook_health: None,
             evidence_census: None,
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         }));
         DaemonsState {
             shared: Some(shared),
@@ -1616,6 +1739,8 @@ mod tests {
             hook_health: Some(hook_health()),
             evidence_census: None,
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         }));
         DaemonsState {
             shared: Some(shared),
@@ -1681,6 +1806,8 @@ mod tests {
             hook_health: None,
             evidence_census: None,
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         };
         assert_eq!(
             atc_help_lines(&snapshot, 0),
@@ -1700,6 +1827,8 @@ mod tests {
             hook_health: None,
             evidence_census: None,
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         };
         assert!(atc_help_lines(&snapshot, 0).is_empty(), "bridge row");
         assert!(!atc_help_lines(&snapshot, 1).is_empty(), "atc row");
@@ -1887,6 +2016,8 @@ mod tests {
             hook_health: Some(hook_health),
             evidence_census: Some(EvidenceCensus::from_counts(true, 1, 1)),
             evidence_collected_at_ms: 0,
+            last_touch_ms: now_ms(),
+            collector_parked: false,
         }));
         DaemonsState {
             shared: Some(shared),
