@@ -9520,6 +9520,8 @@ impl AppState {
                     logs.push("Interactive session created successfully!".to_string());
                 }
 
+                self.announce_created_session_degrade(&interactive_session);
+
                 // Convert to Session model and add to workspaces
                 let mut session = interactive_session.to_session_model();
                 if let Some(label) =
@@ -11665,6 +11667,30 @@ impl AppState {
     /// Add an info notification
     pub fn add_info_notification(&mut self, message: String) {
         self.add_notification(Notification::info(message));
+    }
+
+    /// Announce a freshly created session's degrade, if it had one.
+    ///
+    /// A FIRST launch is the most common way to meet the degrade, and it was
+    /// the one path that stayed silent: resume and restart announce from their
+    /// own locals, while the create paths only ever wrote the reason onto
+    /// `InteractiveSession` and left it there, unread. A field with no consumer
+    /// looks like a feature and is not one.
+    ///
+    /// No [`Self::begin_codex_launch`] here: `create` mints its id moments
+    /// before this runs (`Uuid::new_v4()`), so nothing has ever been announced
+    /// against it and there is no stale entry to clear.
+    ///
+    /// Split out from the create path so it can be driven directly. The create
+    /// path itself needs real git and real tmux, which is exactly how the
+    /// missing consumer stayed invisible.
+    pub fn announce_created_session_degrade(
+        &mut self,
+        session: &crate::interactive::session_manager::InteractiveSession,
+    ) {
+        if let Some(degrade) = session.codex_degrade {
+            self.notify_codex_degraded(session.session_id, degrade);
+        }
     }
 
     /// Start a new launch for this session, so its degrade can be announced
@@ -15051,6 +15077,78 @@ mod codex_degrade_notice_tests {
             "two launches that both degraded must produce two notices, one each; \
              got {announced}"
         );
+    }
+
+    /// A FIRST launch that degraded is announced too.
+    ///
+    /// The create paths write the reason onto `InteractiveSession` and used to
+    /// stop there: nothing read the field, so the most common way to meet the
+    /// degrade (launching a new Codex session) was the one that said nothing on
+    /// screen. Resume and restart were covered; create was not.
+    #[test]
+    fn a_first_launch_that_degraded_is_announced() {
+        let mut state = AppState::new();
+        let session = degraded_session(Some(SharedThreadDegrade::StoreBusy));
+        let before = state.notifications.len();
+
+        state.announce_created_session_degrade(&session);
+
+        let added: Vec<_> = state.notifications[before..]
+            .iter()
+            .filter(|n| n.message.contains("without shared remote control"))
+            .collect();
+        assert_eq!(
+            added.len(),
+            1,
+            "a degraded first launch must say so on screen, got: {added:?}"
+        );
+        assert!(
+            added[0].message.contains(SharedThreadDegrade::StoreBusy.cause()),
+            "and must name the cause: {}",
+            added[0].message
+        );
+    }
+
+    /// A first launch that got its shared thread says nothing.
+    ///
+    /// The guard on the guard: announcing unconditionally would put a banner on
+    /// every healthy Codex launch, which is the fastest way to teach the user to
+    /// ignore the one that matters.
+    #[test]
+    fn a_healthy_first_launch_is_silent() {
+        let mut state = AppState::new();
+        let session = degraded_session(None);
+        let before = state.notifications.len();
+
+        state.announce_created_session_degrade(&session);
+
+        let added = state.notifications[before..]
+            .iter()
+            .filter(|n| n.message.contains("without shared remote control"))
+            .count();
+        assert_eq!(added, 0, "a healthy launch must not be announced");
+    }
+
+    /// An `InteractiveSession` as the create paths build it, carrying `degrade`.
+    fn degraded_session(
+        degrade: Option<SharedThreadDegrade>,
+    ) -> crate::interactive::session_manager::InteractiveSession {
+        crate::interactive::session_manager::InteractiveSession {
+            session_id: Uuid::new_v4(),
+            worktree_path: std::path::PathBuf::from("/tmp/wt"),
+            source_repository: std::path::PathBuf::from("/tmp/repo"),
+            tmux_session_name: "tmux_wt_main".to_string(),
+            branch_name: "main".to_string(),
+            workspace_name: "repo".to_string(),
+            created_at: chrono::Utc::now(),
+            agent_type: crate::models::session::SessionAgentType::Codex,
+            skip_permissions: false,
+            model: None,
+            headroom_enabled: false,
+            rtk_enabled: false,
+            codex_thread_id: None,
+            codex_degrade: degrade,
+        }
     }
 
     /// The dedup is per session, not global: a second degraded session is a
