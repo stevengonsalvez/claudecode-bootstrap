@@ -11951,12 +11951,7 @@ impl AppState {
             return false;
         }
         match self.session_tab {
-            // A copilot pane showing the start-the-daemon offer is NOT a
-            // composer: there is no conversation behind it, so a key routed
-            // into the chat reducer there would land in a composer nothing
-            // paints. It keeps the ordinary sessions-screen bindings instead,
-            // which is what its footer advertises.
-            SessionTab::Copilot => self.copilot_chat.is_some() && !self.copilot_daemon_cta_open(),
+            SessionTab::Copilot => self.copilot_chat.is_some(),
             // A broadcast owns the keyboard whether or not a thread host has
             // been opened: the composer is there the moment rows are checked.
             SessionTab::Thread => {
@@ -11980,12 +11975,6 @@ impl AppState {
         use crate::components::session_tabs::SessionTab;
         if self.session_tab == SessionTab::Thread && !self.broadcast_targets().is_empty() {
             return self.broadcast.capturing();
-        }
-        // Same rule as [`Self::session_tab_owns_keys`]: the offer is not a
-        // composer, so it must not suppress the screen's own shortcuts on
-        // behalf of one that is not on screen.
-        if self.copilot_daemon_cta_open() {
-            return false;
         }
         let host = match self.session_tab {
             SessionTab::Copilot => self.copilot_chat.as_ref(),

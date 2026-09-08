@@ -1386,6 +1386,17 @@ impl EventHandler {
                 return Some(AppEvent::Consumed);
             }
         }
+        // The copilot pane's offer to start the daemon owns Enter while it is
+        // up, and takes it BEFORE the chat reducer. The composer under it has
+        // nothing to send to — that is precisely the condition the offer
+        // appears in — so Enter reaching the reducer there is a key the footer
+        // advertised and nothing performed.
+        //
+        // Gated on the same predicate the pane paints from, so the offer, the
+        // footer's verb and the key cannot disagree.
+        if key_event.code == KeyCode::Enter && state.copilot_daemon_cta_open() {
+            return Some(AppEvent::SessionStartHangarDaemon);
+        }
         // The broadcast composer, which replaces the thread's while rows are
         // checked. Handled BEFORE the chat reducer because there is no chat
         // host behind it — the pane is a composer and a receipt list, not a
@@ -2394,14 +2405,6 @@ impl EventHandler {
                 match crate::components::session_tabs::resolve(state, state.session_tab) {
                     SessionTab::Preview => {}
                     SessionTab::Ask => return Some(AppEvent::SessionAskSend),
-                    // The copilot pane offering to start the daemon is not a
-                    // composer, and Enter on it is the offer's own key. Checked
-                    // against the same predicate the pane paints from, so the
-                    // footer's verb, the line on screen and the key that fires
-                    // are one fact.
-                    SessionTab::Copilot if state.copilot_daemon_cta_open() => {
-                        return Some(AppEvent::SessionStartHangarDaemon);
-                    }
                     SessionTab::Thread | SessionTab::Copilot => {
                         return Some(AppEvent::SessionTabComposerSend);
                     }

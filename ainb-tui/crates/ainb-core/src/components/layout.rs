@@ -177,21 +177,27 @@ impl LayoutComponent {
                 if state.daemon_start_cta.tick() {
                     state.ui_needs_refresh = true;
                 }
-                // With no daemon there is no channel, no session and no
-                // timeline, so the pane offers the one thing that fixes it
-                // rather than painting a composer with nothing behind it. The
-                // dial header goes with it: its three settings are the DAEMON's
-                // registry, and none of them can be turned from here either.
-                if state.copilot_daemon_cta_open() {
-                    session_tabs::render_copilot_daemon_cta(frame, inner, &state.daemon_start_cta);
-                    return;
-                }
                 // Cloned rather than borrowed: `chat_host_for` needs `&mut
                 // state` to tick the conversation, and the header is three
                 // strings and a status.
                 let header = session_tabs::copilot_header(&state.copilot_dial);
-                let host = state.chat_host_for(active);
-                session_tabs::render_copilot(frame, inner, header, host);
+                // Ticked for its effect, then re-read: `chat_host_for` borrows
+                // the whole state mutably, and the offer beside it is another
+                // field of the same state.
+                let _ = state.chat_host_for(active);
+                // Inserted between the header and the conversation rather than
+                // replacing either. Both still have something true to say with
+                // the daemon down — the dials an operator recovers an adapter
+                // with, and the call the chat could not make — and the offer is
+                // the one thing neither of them could say.
+                let offer = state.copilot_daemon_cta_open().then_some(&state.daemon_start_cta);
+                session_tabs::render_copilot(
+                    frame,
+                    inner,
+                    header,
+                    offer,
+                    state.copilot_chat.as_ref(),
+                );
             }
             SessionTab::Thread => {
                 // Checked rows win over the cursor, the same rule `Enter` and

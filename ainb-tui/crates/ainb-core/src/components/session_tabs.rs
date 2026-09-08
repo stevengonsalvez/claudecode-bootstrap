@@ -684,6 +684,7 @@ pub fn render_copilot(
     frame: &mut Frame,
     area: Rect,
     header: Vec<Line<'static>>,
+    offer: Option<&crate::fleet::daemon_cta::DaemonStartCta>,
     host: Option<&crate::fleet::chat_host::ChatHost>,
 ) {
     let height = u16::try_from(header.len()).unwrap_or(u16::MAX).min(area.height);
@@ -693,6 +694,40 @@ pub fn render_copilot(
     ])
     .areas(area);
     frame.render_widget(ratatui::widgets::Paragraph::new(header), head);
+    if rest.height == 0 {
+        return;
+    }
+    // The offer is INSERTED, never a replacement. The dials above it are how an
+    // operator recovers from an adapter that will not spawn, and the
+    // conversation below still has its own failure to report — a pane that
+    // swapped both for one sentence would take away two working surfaces to
+    // add one.
+    let rest = match offer {
+        Some(offer) => {
+            let lines = daemon_offer_lines(offer);
+            let wanted = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+            // Never at the cost of the conversation: below four rows the chat
+            // renderer draws nothing at all, and an offer that blanked it would
+            // hide the daemon's own words to make room for a key.
+            let height = wanted.min(rest.height.saturating_sub(MIN_CHAT_ROWS));
+            if height == 0 {
+                rest
+            } else {
+                let [block, below] = Layout::vertical([
+                    ratatui::layout::Constraint::Length(height),
+                    ratatui::layout::Constraint::Min(0),
+                ])
+                .areas(rest);
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(lines)
+                        .wrap(ratatui::widgets::Wrap { trim: false }),
+                    block,
+                );
+                below
+            }
+        }
+        None => rest,
+    };
     if rest.height == 0 {
         return;
     }
@@ -706,24 +741,16 @@ pub fn render_copilot(
     }
 }
 
-/// Render the copilot pane's offer to start the hangar daemon.
+/// The copilot pane's offer to start the hangar daemon, as lines.
 ///
-/// Replaces the conversation rather than annotating it, and that is the point:
-/// with no daemon there is no channel, no session and no timeline, so a
-/// composer under this would be a control that cannot act. The offer is
-/// answered HERE, with one key, instead of sending the operator to the Daemons
-/// screen to work out for themselves which row the copilot needs.
+/// Built rather than painted, so the caller can size it against what is left of
+/// the pane and refuse to take the conversation's last rows for it.
 ///
 /// Every state says what it is. A start that failed keeps the key, because the
-/// remedy for "the port was busy" is to try again; a start that is out shows no
-/// key at all, so the offer cannot be fired twice into one home.
-pub fn render_copilot_daemon_cta(
-    frame: &mut Frame,
-    area: Rect,
-    cta: &crate::fleet::daemon_cta::DaemonStartCta,
-) {
+/// remedy for a port that was busy is to try again; a start that is out shows
+/// no key at all, so the offer cannot be fired twice into one home.
+fn daemon_offer_lines(cta: &crate::fleet::daemon_cta::DaemonStartCta) -> Vec<Line<'static>> {
     use crate::fleet::daemon_cta::CtaStatus;
-    use ratatui::widgets::{Paragraph, Wrap};
 
     let mut lines = vec![
         Line::raw(""),
@@ -731,7 +758,6 @@ pub fn render_copilot_daemon_cta(
             " copilot needs the hangar daemon, which is not running.",
             Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
         ),
-        Line::raw(""),
     ];
     match cta.status() {
         CtaStatus::Offered => lines.push(offer_line()),
@@ -741,13 +767,12 @@ pub fn render_copilot_daemon_cta(
         )),
         // The command's own closing line, never a paraphrase: `start` reports
         // "already running" as a SUCCESS, and an operator still staring at this
-        // pane afterwards needs to read that rather than a tick.
+        // offer afterwards needs to read that rather than a tick.
         CtaStatus::Reported { ok, detail } => {
             lines.push(Line::styled(
                 format!("   {} {detail}", if *ok { "\u{2713}" } else { "\u{2717}" }),
                 Style::default().fg(if *ok { SELECTION_GREEN } else { ALERT_RED }),
             ));
-            lines.push(Line::raw(""));
             // The offer stands on BOTH outcomes. A start that exited zero and
             // left this pane still asking for a daemon has not produced one,
             // and withdrawing the key there would leave the operator with a
@@ -755,7 +780,8 @@ pub fn render_copilot_daemon_cta(
             lines.push(offer_line());
         }
     }
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+    lines.push(Line::raw(""));
+    lines
 }
 
 /// The key line, worded once so the two states that offer it cannot differ.
@@ -986,12 +1012,19 @@ pub fn render_broadcast(
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
+/// The fewest rows the chat renderer will paint a conversation into.
+///
+/// Named because the daemon offer above it has to respect the same floor: an
+/// offer that ate the conversation's last rows would hide the daemon's own
+/// words to make room for a key that explains them.
+pub const MIN_CHAT_ROWS: u16 = 4;
+
 /// Render one chat conversation into the right pane.
 pub fn render_chat(frame: &mut Frame, area: Rect, host: &crate::fleet::chat_host::ChatHost) {
     // Below this the chat renderer draws nothing at all rather than something
     // illegible, so say so instead of leaving a blank pane — a blank box with
     // no explanation is the symptom this screen exists to remove.
-    if area.width < 24 || area.height < 4 {
+    if area.width < 24 || area.height < MIN_CHAT_ROWS {
         frame.render_widget(
             ratatui::widgets::Paragraph::new("widen the pane to show this conversation")
                 .style(Style::default().fg(MUTED_GRAY)),
@@ -1194,10 +1227,6 @@ mod tests {
             !footer.contains("send message"),
             "and must not still promise a send: {footer}"
         );
-        // A pane with no conversation behind it is not a composer, or a key
-        // typed at it lands in one nothing paints.
-        assert!(!state.session_tab_owns_keys());
-        assert!(!state.session_composer_captures_text());
     }
 
     /// The offer appears ONLY for a daemon that is not there. A daemon that
