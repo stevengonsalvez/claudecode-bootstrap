@@ -599,7 +599,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
         assert_eq!(session.id, metadata.session_id);
         assert!(matches!(session.status, SessionStatus::Stopped));
         assert_eq!(
@@ -639,7 +642,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
         assert!(
             !session.skip_permissions,
             "Some(false) must be preserved, not defaulted to yolo"
@@ -675,7 +681,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
 
         assert_eq!(session.branch_name, "feature");
         assert_ne!(session.branch_name, "ainb/fpl");
