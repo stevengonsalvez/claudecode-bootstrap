@@ -11896,8 +11896,7 @@ impl AppState {
         )
     }
 
-    /// Whether the copilot pane is showing its start-the-daemon offer instead
-    /// of a conversation.
+    /// Whether the copilot pane is showing its start-the-daemon offer.
     ///
     /// The single predicate the renderer, the footer and the key path all ask,
     /// so the pane cannot paint an offer the footer does not advertise or the
@@ -12021,6 +12020,28 @@ impl AppState {
                 }
                 self.session_chat.as_ref().map(|(_, host)| host)
             }
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
+        }
+    }
+
+    /// The chat host a tab is showing, WITHOUT opening or ticking it.
+    ///
+    /// The one resolver from tab to host. [`Self::chat_host_for`] ends by
+    /// calling it, so a caller that ticks through that and paints through this
+    /// cannot tick one conversation and paint another — the alternative was
+    /// reaching for `copilot_chat` at the render site and assuming the two
+    /// agree, which is a fact written twice.
+    ///
+    /// Wildcard-free: a sixth tab has to say here which conversation it shows.
+    #[must_use]
+    pub fn chat_host(
+        &self,
+        tab: crate::components::session_tabs::SessionTab,
+    ) -> Option<&crate::fleet::chat_host::ChatHost> {
+        use crate::components::session_tabs::SessionTab;
+        match tab {
+            SessionTab::Copilot => self.copilot_chat.as_ref(),
+            SessionTab::Thread => self.session_chat.as_ref().map(|(_, host)| host),
             SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
         }
     }
@@ -12183,6 +12204,14 @@ impl AppState {
         // separate self borrows, taken in turn.
         let mut changed = false;
         let reachable = daemon.reachable;
+        // The copilot pane's start offer is one per process, so a report from a
+        // previous outage has to be retired when that outage ends. Done HERE,
+        // on the refresh that reads the poller's cell every tick, rather than
+        // on the pane: a daemon that came up and went down again while the
+        // operator was on another tab is still a change this sees.
+        if self.daemon_start_cta.observe_daemon((!reachable) && daemon.not_running) {
+            changed = true;
+        }
         let live: HashSet<Uuid> = marks.iter().map(|(id, ..)| *id).collect();
         // A session that recovered (or vanished) must lose its ERR clock, or a
         // later failure would render with the age of the previous one.

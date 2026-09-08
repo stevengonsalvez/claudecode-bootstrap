@@ -51,6 +51,13 @@ pub enum CtaStatus {
 #[derive(Debug, Default)]
 pub struct DaemonStartCta {
     status: CtaStatus,
+    /// Whether the daemon was down the last time anything looked.
+    ///
+    /// `None` until the first look. Kept so a REPORT can be retired when the
+    /// outage it belongs to ends: this offer is one per process, so without it
+    /// the pane reopens on the next outage still showing the tick from the
+    /// last one.
+    last_seen_down: Option<bool>,
     inbox: Arc<Mutex<Option<ActionOutcome>>>,
 }
 
@@ -94,6 +101,38 @@ impl DaemonStartCta {
             detail,
         };
         true
+    }
+
+    /// Fold in what the daemon's liveness now looks like.
+    ///
+    /// A [`CtaStatus::Reported`] describes ONE start, against the outage that
+    /// prompted it. Any change in whether the daemon is there ends that outage,
+    /// so the report stops being current and the offer goes back to plain
+    /// [`CtaStatus::Offered`]. Without this the pane reopens on the NEXT outage
+    /// still claiming `✓ already running (pid 4242)` about a daemon that is
+    /// down right now — a stale success is worse than no report at all,
+    /// because an operator reads it as this outage's.
+    ///
+    /// Called from the attention refresh rather than from the pane, so a cycle
+    /// that happened while the operator was on another tab is still observed:
+    /// the refresh reads the poller's cell every tick, far faster than the
+    /// poller can change it.
+    ///
+    /// A start still IN FLIGHT is left alone. Its own landing is what retires
+    /// it, and clearing it here would lose the report the operator pressed for.
+    ///
+    /// Returns `true` when the offer changed, so the caller marks the frame
+    /// dirty.
+    pub fn observe_daemon(&mut self, down: bool) -> bool {
+        if self.last_seen_down == Some(down) {
+            return false;
+        }
+        self.last_seen_down = Some(down);
+        if matches!(self.status, CtaStatus::Reported { .. }) {
+            self.status = CtaStatus::Offered;
+            return true;
+        }
+        false
     }
 
     /// Start the hangar daemon on a detached worker.
@@ -181,6 +220,48 @@ mod tests {
                 detail: "already running (pid 4242)".to_string(),
             }
         );
+    }
+
+    /// A report belongs to ONE outage. The next one must not open still
+    /// showing the last one's tick.
+    ///
+    /// This offer is one per process, so without retiring the report the pane
+    /// reopens on a daemon that is down RIGHT NOW while claiming a success from
+    /// a cycle the operator may not even remember.
+    #[test]
+    fn a_report_does_not_survive_into_the_next_outage() {
+        let mut cta = DaemonStartCta::default();
+        // The outage that prompted the start, then the start landing.
+        assert!(
+            !cta.observe_daemon(true),
+            "the first look reports no change"
+        );
+        *cta.inbox.lock().unwrap() = Some(outcome(true, "already running (pid 4242)", "cmd: …"));
+        cta.tick();
+        assert!(matches!(cta.status(), CtaStatus::Reported { ok: true, .. }));
+
+        // The daemon comes up, then goes down again: the pane reopens on a
+        // clean offer, not on the last outage's tick.
+        let cleared = cta.observe_daemon(false);
+        cta.observe_daemon(true);
+        assert_eq!(
+            cta.status(),
+            &CtaStatus::Offered,
+            "the offer reopened carrying the previous outage's result"
+        );
+        assert!(cleared, "and retiring it must dirty the frame");
+    }
+
+    /// A start still in flight is not retired by a liveness reading. Its own
+    /// landing is what resolves it, and clearing it here would lose the report
+    /// the operator pressed for.
+    #[test]
+    fn a_start_in_flight_survives_a_liveness_change() {
+        let mut cta = DaemonStartCta::default();
+        cta.observe_daemon(true);
+        cta.status = CtaStatus::Starting;
+        assert!(!cta.observe_daemon(false));
+        assert_eq!(cta.status(), &CtaStatus::Starting);
     }
 
     /// The id this shells is the DaemonKind's, so the offer and the Daemons
