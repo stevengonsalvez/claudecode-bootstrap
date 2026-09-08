@@ -328,10 +328,6 @@ where
             warn!("{}", busy_store_warning(&error));
             Ok(None)
         }
-        // The daemon answered, and answered that it could not reach its store.
-        // Same cost as no daemon at all (the shared thread, nothing else), so
-        // the same degrade: a wedged store must not turn a launch into a
-        // failure whose cleanup deletes the worktree the launch just cloned.
         Err(error) => {
             let message = format_codex_remote_control_failure(&error.to_string());
             warn!(error = %error, "{message}");
