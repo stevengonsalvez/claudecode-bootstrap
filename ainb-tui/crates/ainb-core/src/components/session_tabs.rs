@@ -704,12 +704,20 @@ pub fn render_copilot(
     // add one.
     let rest = match offer {
         Some(offer) => {
-            let lines = daemon_offer_lines(offer);
-            let wanted = u16::try_from(lines.len()).unwrap_or(u16::MAX);
-            // Never at the cost of the conversation: below four rows the chat
-            // renderer draws nothing at all, and an offer that blanked it would
-            // hide the daemon's own words to make room for a key.
-            let height = wanted.min(rest.height.saturating_sub(MIN_CHAT_ROWS));
+            // Yield to the conversation where there is room, because below its
+            // floor the chat renderer draws nothing at all and an offer that
+            // blanked it would hide the daemon's own words. But never to
+            // NOTHING: one row is always taken while any row exists, and the
+            // clamp below guarantees that row is the key. A pane too short even
+            // for that already says "widen the pane" for the chat.
+            let budget = rest.height.saturating_sub(MIN_CHAT_ROWS).max(1).min(rest.height);
+            // Clamped by what is PASSED, not only by the rect. A `Paragraph`
+            // handed more rows than it has drops the ones at the BOTTOM in
+            // silence, and the bottom of this block is the action line — so the
+            // pane would keep the diagnosis and lose the remedy while the
+            // footer went on advertising it.
+            let lines = daemon_offer_lines(offer, rest.width, budget);
+            let height = offer_block_height(&lines, rest.width).min(budget);
             if height == 0 {
                 rest
             } else {
@@ -741,47 +749,126 @@ pub fn render_copilot(
     }
 }
 
-/// The copilot pane's offer to start the hangar daemon, as lines.
+/// How many ROWS `lines` occupy at `width` once wrapped.
 ///
-/// Built rather than painted, so the caller can size it against what is left of
-/// the pane and refuse to take the conversation's last rows for it.
+/// The block is sized by what will be painted, not by how many `Line`s were
+/// built: a headline that wraps to two rows pushes the key off a block measured
+/// in lines, which is the silent cut this exists to stop.
+fn offer_block_height(lines: &[Line<'static>], width: u16) -> u16 {
+    lines.iter().map(|line| wrapped_rows(line, width)).sum::<u16>()
+}
+
+/// The rows one line occupies at `width`, greedily word-wrapped like the
+/// `Paragraph` that paints it. Always at least one, so a blank still costs its
+/// row.
+fn wrapped_rows(line: &Line<'static>, width: u16) -> u16 {
+    let width = usize::from(width.max(1));
+    let text: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+    let mut rows: u16 = 1;
+    let mut used = 0usize;
+    for word in text.split_inclusive(' ') {
+        let len = word.chars().count();
+        if used > 0 && used + len > width {
+            rows = rows.saturating_add(1);
+            used = len;
+        } else {
+            used += len;
+        }
+        // A single word longer than the pane wraps on its own.
+        while used > width {
+            rows = rows.saturating_add(1);
+            used -= width;
+        }
+    }
+    rows
+}
+
+/// The copilot pane's offer to start the hangar daemon, as the lines that will
+/// FIT in `max_rows` at `width`.
+///
+/// Built rather than painted so the caller can size the block against what is
+/// left of the pane, and CLAMPED here rather than left to the paragraph: a
+/// paragraph given more rows than it has drops the ones at the bottom without
+/// saying so, and the bottom of this block is the key.
+///
+/// Dropped in priority order, from the least load-bearing end. The action line
+/// is priority zero and is never a casualty — a pane that kept the diagnosis
+/// and lost the remedy is the dead end this whole surface removes. Next most
+/// load-bearing is the last start's own words, then the headline, then the
+/// padding.
 ///
 /// Every state says what it is. A start that failed keeps the key, because the
 /// remedy for a port that was busy is to try again; a start that is out shows
 /// no key at all, so the offer cannot be fired twice into one home.
-fn daemon_offer_lines(cta: &crate::fleet::daemon_cta::DaemonStartCta) -> Vec<Line<'static>> {
+fn daemon_offer_lines(
+    cta: &crate::fleet::daemon_cta::DaemonStartCta,
+    width: u16,
+    max_rows: u16,
+) -> Vec<Line<'static>> {
     use crate::fleet::daemon_cta::CtaStatus;
 
-    let mut lines = vec![
-        Line::raw(""),
-        Line::styled(
-            " copilot needs the hangar daemon, which is not running.",
-            Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+    // (priority, line) in SCREEN order. 0 is never dropped.
+    let mut rows: Vec<(u8, Line<'static>)> = vec![
+        (3, Line::raw("")),
+        (
+            2,
+            Line::styled(
+                " copilot needs the hangar daemon, which is not running.",
+                Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+            ),
         ),
     ];
     match cta.status() {
-        CtaStatus::Offered => lines.push(offer_line()),
-        CtaStatus::Starting => lines.push(Line::styled(
-            "   \u{25cf} starting the hangar daemon\u{2026}",
-            Style::default().fg(ALERT_AMBER),
+        CtaStatus::Offered => rows.push((0, offer_line())),
+        // The spinner IS the action line's stand-in while a start is out: it is
+        // what tells the operator their key press went somewhere.
+        CtaStatus::Starting => rows.push((
+            0,
+            Line::styled(
+                "   \u{25cf} starting the hangar daemon\u{2026}",
+                Style::default().fg(ALERT_AMBER),
+            ),
         )),
         // The command's own closing line, never a paraphrase: `start` reports
         // "already running" as a SUCCESS, and an operator still staring at this
         // offer afterwards needs to read that rather than a tick.
         CtaStatus::Reported { ok, detail } => {
-            lines.push(Line::styled(
-                format!("   {} {detail}", if *ok { "\u{2713}" } else { "\u{2717}" }),
-                Style::default().fg(if *ok { SELECTION_GREEN } else { ALERT_RED }),
+            rows.push((
+                1,
+                Line::styled(
+                    format!("   {} {detail}", if *ok { "\u{2713}" } else { "\u{2717}" }),
+                    Style::default().fg(if *ok { SELECTION_GREEN } else { ALERT_RED }),
+                ),
             ));
             // The offer stands on BOTH outcomes. A start that exited zero and
             // left this pane still asking for a daemon has not produced one,
             // and withdrawing the key there would leave the operator with a
             // green tick and nothing to press.
-            lines.push(offer_line());
+            rows.push((0, offer_line()));
         }
     }
-    lines.push(Line::raw(""));
-    lines
+    rows.push((3, Line::raw("")));
+
+    // Drop the lowest priority first, and the LAST of that priority, so the
+    // padding above the headline outlives the padding below the key only if it
+    // has to.
+    while offer_block_height(
+        &rows.iter().map(|(_, line)| line.clone()).collect::<Vec<_>>(),
+        width,
+    ) > max_rows
+    {
+        let Some(index) = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, (priority, _))| *priority > 0)
+            .max_by_key(|(index, (priority, _))| (*priority, *index))
+            .map(|(index, _)| index)
+        else {
+            break;
+        };
+        rows.remove(index);
+    }
+    rows.into_iter().map(|(_, line)| line).collect()
 }
 
 /// The key line, worded once so the two states that offer it cannot differ.
@@ -1196,6 +1283,36 @@ mod tests {
             .collect()
     }
 
+    /// Render the copilot pane into a rect of exactly `w`x`h` and return its
+    /// rows, so a test can ask what a SHORT pane actually painted.
+    fn copilot_rows(
+        offer: Option<&crate::fleet::daemon_cta::DaemonStartCta>,
+        w: u16,
+        h: u16,
+    ) -> Vec<String> {
+        let backend = ratatui::backend::TestBackend::new(w, h);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_copilot(
+                    frame,
+                    frame.area(),
+                    vec![Line::raw(" engine   claude-agent-acp  \u{25c0} \u{2325}e")],
+                    offer,
+                    None,
+                );
+            })
+            .expect("draw the copilot pane");
+        let buffer = terminal.backend().buffer().clone();
+        (0..h)
+            .map(|y| {
+                (0..w)
+                    .map(|x| buffer.cell((x, y)).map_or(" ", ratatui::buffer::Cell::symbol))
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
     /// Put the attention poller's cell in the state it reaches when the socket
     /// is dialled and nothing accepts.
     fn with_daemon(state: &mut AppState, reachable: bool, not_running: bool) {
@@ -1273,6 +1390,55 @@ mod tests {
         );
     }
 
+    /// A pane too short for the whole offer keeps the KEY, not the top of the
+    /// block.
+    ///
+    /// A `Paragraph` drops the rows it has no room for from the BOTTOM, and the
+    /// bottom of this block is the remedy — so a short pane silently kept the
+    /// diagnosis and lost the way out, while the footer went on advertising it.
+    /// Driven through a real render into a deliberately short rect, because
+    /// only the painted buffer settles what survived.
+    #[test]
+    fn a_short_pane_keeps_the_offers_key_and_drops_its_padding() {
+        let cta = crate::fleet::daemon_cta::DaemonStartCta::default();
+        // 6 rows: 1 header + 5 left, of which the chat floor claims 4. One row
+        // for the offer, and it has to be the one that says what to press.
+        for height in [6, 7, 8, 12] {
+            let rows = copilot_rows(Some(&cta), 90, height);
+            let painted = rows.join("\n");
+            assert!(
+                painted.contains(START_DAEMON_VERB) && painted.contains('\u{23ce}'),
+                "a {height}-row pane lost the offer's key:\n{painted}"
+            );
+        }
+
+        // And at a WIDTH that wraps the headline onto a second row, so the
+        // block is sized by rows painted rather than by lines built.
+        let narrow = copilot_rows(Some(&cta), 30, 8).join("\n");
+        assert!(
+            narrow.contains("start the hangar") && narrow.contains('\u{23ce}'),
+            "a wrapped headline pushed the key off the block:\n{narrow}"
+        );
+    }
+
+    /// The offer never takes the conversation's floor while there is room to
+    /// leave it: the daemon's own words below are what an operator reads when
+    /// the start does not help.
+    #[test]
+    fn a_tall_pane_gives_the_offer_its_padding_and_the_chat_its_floor() {
+        let cta = crate::fleet::daemon_cta::DaemonStartCta::default();
+        let rows = copilot_rows(Some(&cta), 90, 20);
+        let painted = rows.join("\n");
+        assert!(painted.contains(START_DAEMON_VERB));
+        assert!(
+            painted.contains("copilot needs the hangar daemon"),
+            "a pane with room must still lead with the reason:\n{painted}"
+        );
+        assert!(
+            painted.contains("opening the copilot channel"),
+            "the conversation below must keep its rows:\n{painted}"
+        );
+    }
     #[test]
     fn preview_and_copilot_are_never_disabled() {
         let state = state_with(Vec::new(), false);
