@@ -170,12 +170,18 @@ fn resolved_hangar_home() -> String {
 /// Whether a daemon error means there is no daemon to talk to at all, as
 /// opposed to a daemon that answered and the exchange then went wrong.
 ///
-/// Only the first class may degrade. `NoHome` and `Token` are what
+/// `NoHome` and `Token` are what
 /// [`crate::fleet::bridge::daemon::DaemonClient::from_env`] reports when the
 /// home is unresolvable or the token file is absent, which is what a home no
 /// daemon has ever booted on looks like; `Connect` is the dial itself finding
-/// nothing listening. Everything else (`Rpc`, `Decode`, `Io`, `Timeout`) means
-/// the daemon IS there, so it stays a hard failure the user is told to act on.
+/// nothing listening.
+///
+/// This predicate is about REACHABILITY only. A daemon that answered is not
+/// unreachable, so `Rpc`, `Decode`, `Io` and `Timeout` all stay hard failures
+/// here. Exactly one of them degrades, and it is classified separately by
+/// [`daemon_store_unavailable`] rather than widened into this one, so that
+/// "nothing is listening" and "the store is busy" keep telling the user
+/// different things.
 fn daemon_unreachable(error: &crate::fleet::bridge::daemon::DaemonError) -> bool {
     use crate::fleet::bridge::daemon::DaemonError;
     matches!(
@@ -191,6 +197,41 @@ fn unreachable_daemon_warning(error: &crate::fleet::bridge::daemon::DaemonError)
     format!(
         "no Hangar daemon answered ({error}); launching this Codex session without shared \
          remote control - the phone and any other app-server client cannot join its conversation"
+    )
+}
+
+/// Whether the daemon answered that its store was too contended to serve.
+///
+/// One code, matched exactly. `STORE_UNAVAILABLE` is the daemon's word for "the
+/// request was fine, `SQLite` was busy, nothing was read or written" — a fault
+/// in a component that is load-bearing for the SHARED thread and nothing else,
+/// so it costs this session exactly what an absent daemon costs it.
+///
+/// Deliberately NOT `-32603`: that is the daemon's catch-all and also carries
+/// "Ainb Codex remote control unavailable: still starting", which must stay a
+/// hard failure the user acts on. Widening this to the catch-all would swallow
+/// it — `still_starting_stays_a_hard_failure` is the pin.
+///
+/// Matched on the code and never on the message: a busy store surfaces as
+/// `database is locked` under result code 5 on one platform and 517 on another,
+/// and 517 is a different bug class that this must not degrade over.
+fn daemon_store_unavailable(error: &crate::fleet::bridge::daemon::DaemonError) -> bool {
+    use crate::fleet::bridge::daemon::DaemonError;
+    matches!(error, DaemonError::Rpc { code, .. } if *code == ainb_hangar_proto::STORE_UNAVAILABLE)
+}
+
+/// What the user is told when the daemon's store is too busy to serve.
+///
+/// Names the cause and the consequence, and offers NO retry: the launch it is
+/// attached to SUCCEEDED without shared remote control, so there is nothing to
+/// try again. Retrying is what used to run the failed-session cleanup over a
+/// worktree that had just been cloned.
+fn busy_store_warning(error: &crate::fleet::bridge::daemon::DaemonError) -> String {
+    format!(
+        "the Hangar store is too busy to answer ({error}); this Codex session started WITHOUT \
+         shared remote control - the phone and any other app-server client cannot join its \
+         conversation. Nothing to retry: the session is running. Restart the Hangar daemon to \
+         restore shared remote control for later sessions"
     )
 }
 
@@ -279,6 +320,18 @@ where
             warn!("{}", unreachable_daemon_warning(&error));
             Ok(None)
         }
+        // The daemon answered, and answered that it could not reach its store.
+        // Same cost as no daemon at all (the shared thread, nothing else), so
+        // the same degrade: a wedged store must not turn a launch into a
+        // failure whose cleanup deletes the worktree the launch just cloned.
+        Err(error) if daemon_store_unavailable(&error) => {
+            warn!("{}", busy_store_warning(&error));
+            Ok(None)
+        }
+        // The daemon answered, and answered that it could not reach its store.
+        // Same cost as no daemon at all (the shared thread, nothing else), so
+        // the same degrade: a wedged store must not turn a launch into a
+        // failure whose cleanup deletes the worktree the launch just cloned.
         Err(error) => {
             let message = format_codex_remote_control_failure(&error.to_string());
             warn!(error = %error, "{message}");
@@ -5032,6 +5085,102 @@ trust_level = "trusted"
         assert!(
             failure.to_string().contains("Codex unavailable"),
             "the user must get the short next action: {failure:#}"
+        );
+    }
+
+    /// A daemon whose STORE is wedged costs the session its shared thread and
+    /// nothing else, so the launch continues.
+    ///
+    /// This is the failure that hit a real machine after the connect degrade
+    /// shipped: the daemon was running and its socket was bound, so nothing
+    /// looked unreachable, but every write timed out on a held `SQLite` write
+    /// lock. The RPC error became "Codex remote control unavailable ... then
+    /// retry", and that retry is what runs the failed-session cleanup over a
+    /// worktree the launch had just cloned.
+    ///
+    /// Asserting the LAUNCH, not just the classification: a degrade that is
+    /// computed and then ignored still passes a classifier-only test.
+    #[tokio::test]
+    async fn a_wedged_store_launches_codex_without_a_remote_thread() {
+        use crate::cli::hangar::DaemonAutostart;
+        use crate::fleet::bridge::daemon::DaemonError;
+
+        let error = DaemonError::Rpc {
+            code: ainb_hangar_proto::STORE_UNAVAILABLE,
+            message: "read Interactive Codex thread: error returned from database: \
+                      (code: 5) database is locked"
+                .to_string(),
+        };
+        let warning = super::busy_store_warning(&error);
+
+        let remote = super::ensure_codex_remote_thread_with(
+            // A durable home and a daemon that started, so neither the
+            // ephemeral degrade nor the unreachable degrade can be what
+            // rescues this launch.
+            || DaemonAutostart::Started,
+            || panic!("a durable home must not be reported as ephemeral"),
+            || async { Err(error) },
+        )
+        .await
+        .unwrap_or_else(|failure| panic!("a wedged store must not fail the launch: {failure:#}"));
+
+        assert!(
+            remote.is_none(),
+            "the session must launch with no shared remote thread: {warning}"
+        );
+        assert!(
+            warning.contains("too busy"),
+            "the warning must name the cause: {warning}"
+        );
+        assert!(
+            warning.contains("shared remote control"),
+            "the warning must name what the session loses: {warning}"
+        );
+        assert!(
+            warning.contains("Nothing to retry"),
+            "the launch SUCCEEDED, so the warning must say so outright: {warning}"
+        );
+        // The advice forms the other branches use, none of which may appear
+        // here: retrying is what runs the cleanup over the cloned worktree.
+        for advice in ["then retry", "Retry session", "retry in"] {
+            assert!(
+                !warning.contains(advice),
+                "the warning must not advise a retry ({advice:?}): {warning}"
+            );
+        }
+    }
+
+    /// A daemon whose Codex transport is still warming up stays a HARD failure.
+    ///
+    /// The pin on the degrade. `still starting` is answered with the daemon's
+    /// catch-all `-32603`, one code away from the store-unavailable degrade,
+    /// and it is genuinely worth retrying in a few seconds. A future widening
+    /// of `daemon_store_unavailable` to the catch-all would swallow it and
+    /// hand the user a session whose shared thread never appears.
+    #[tokio::test]
+    async fn still_starting_stays_a_hard_failure() {
+        use crate::cli::hangar::DaemonAutostart;
+        use crate::fleet::bridge::daemon::DaemonError;
+
+        let failure = super::ensure_codex_remote_thread_with(
+            || DaemonAutostart::Started,
+            || panic!("a durable home must not be reported as ephemeral"),
+            || async {
+                Err(DaemonError::Rpc {
+                    // -32603, the daemon's INTERNAL_ERROR: deliberately NOT the
+                    // code the degrade admits.
+                    code: -32603,
+                    message: "Ainb Codex remote control unavailable: still starting".to_string(),
+                })
+            },
+        )
+        .await
+        .expect_err("a warming-up Codex transport must still fail the launch");
+
+        assert!(
+            failure.to_string().contains("Retry session in 5 seconds"),
+            "the user must be told to retry, which is only safe because this is NOT \
+             the wedged-store path: {failure:#}"
         );
     }
 }
