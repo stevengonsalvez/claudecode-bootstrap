@@ -34,6 +34,18 @@ pub use ainb_hangar_core::channel::{Channel, ChannelSet};
 /// The JSON-RPC protocol version string carried by every envelope.
 pub const JSONRPC_VERSION: &str = "2.0";
 
+/// Application-defined error code for "the daemon's store could not be
+/// reached": the request was well-formed and would have succeeded, but `SQLite`
+/// reported lock contention, so nothing was read or written.
+///
+/// Lives here rather than in the daemon because a CLIENT branches on it. It is
+/// deliberately NOT the spec's `-32603` internal error: that code is the
+/// daemon's catch-all and also carries faults a caller must surface loudly, so
+/// a caller willing to degrade over a busy store needs a code that means only
+/// that. Callers must match the code, never the `SQLite` message text, which
+/// varies by platform and extended result code.
+pub const STORE_UNAVAILABLE: i32 = -32006;
+
 /// The default `jsonrpc` member value (`"2.0"`) for [`RpcRequest`] /
 /// [`RpcResponse`].
 ///

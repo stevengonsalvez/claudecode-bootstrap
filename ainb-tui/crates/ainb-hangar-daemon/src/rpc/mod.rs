@@ -83,6 +83,21 @@ const INTERNAL_ERROR: i32 = -32603;
 /// implementation-defined server-error band, deliberately distinct from
 /// `INVALID_PARAMS` so a UI can tell "you may not" from "you asked wrong".
 const PERMISSION_DENIED: i32 = -32000;
+/// Application-defined "the store could not be reached": the request was
+/// well-formed and would have succeeded, but `SQLite` reported lock contention
+/// (see [`ainb_hangar_store::repo::fleet::is_lock_contention`]) so nothing was
+/// read or written.
+///
+/// Distinct from [`INTERNAL_ERROR`] on purpose. `-32603` is this daemon's
+/// catch-all and also carries "Ainb Codex remote control unavailable: still
+/// starting", which a caller MUST keep treating as a loud, actionable failure.
+/// A caller that degrades needs to name the one condition it is willing to
+/// degrade over, and a wire code is the only signal that survives a `SQLite`
+/// message reword or an extended result code the text does not mention.
+///
+/// The number itself lives in `ainb-hangar-proto` because the TUI branches on
+/// it; this alias keeps the daemon's other codes reading alike.
+const STORE_UNAVAILABLE: i32 = ainb_hangar_proto::STORE_UNAVAILABLE;
 /// Soft cap on one request body. Snapshot requests are tiny.
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 
@@ -3682,7 +3697,7 @@ async fn handle_codex_session_ensure(
     .bind(&params.session_id)
     .fetch_optional(pool)
     .await
-    .map_err(|error| internal(&format!("read Interactive Codex thread: {error}")))?;
+    .map_err(|error| store_error("read Interactive Codex thread", &error))?;
     let thread_id = match existing {
         Some((Some(thread_id), resumable, _)) => {
             if let Some(requested) = params.thread_id.as_deref().filter(|id| !id.trim().is_empty())
@@ -3701,7 +3716,7 @@ async fn handle_codex_session_ensure(
                     .bind(&params.session_id)
                     .execute(pool)
                     .await
-                    .map_err(|error| internal(&format!("mark Codex thread resumable: {error}")))?;
+                    .map_err(|error| store_error("mark Codex thread resumable", &error))?;
                     Some(thread_id)
                 }
                 Err(error) if resumable == 0 && error.to_string().contains("no rollout found") => {
@@ -3715,7 +3730,7 @@ async fn handle_codex_session_ensure(
                     .bind(&params.session_id)
                     .execute(pool)
                     .await
-                    .map_err(|error| internal(&format!("reset empty Codex thread: {error}")))?;
+                    .map_err(|error| store_error("reset empty Codex thread", &error))?;
                     None
                 }
                 Err(error) => return Err(internal(&format!("resume Codex thread: {error}"))),
@@ -3754,7 +3769,7 @@ async fn handle_codex_session_ensure(
                 .bind(params.skip_permissions)
                 .execute(pool)
                 .await
-                .map_err(|error| internal(&format!("persist Interactive Codex thread: {error}")))?;
+                .map_err(|error| store_error("persist Interactive Codex thread", &error))?;
                 Some(thread_id.to_string())
             }
             None => {
@@ -11756,6 +11771,23 @@ fn internal(message: &str) -> RpcError {
     }
 }
 
+/// An error from a store call, coded by whether the store was reachable at all.
+///
+/// Lock contention becomes [`STORE_UNAVAILABLE`]; everything else keeps
+/// [`INTERNAL_ERROR`]. `context` names the call for the log either way, so the
+/// message a human reads does not change with the code a caller branches on.
+fn store_error(context: &str, error: &sqlx::Error) -> RpcError {
+    RpcError {
+        code: if ainb_hangar_store::repo::fleet::is_lock_contention(error) {
+            STORE_UNAVAILABLE
+        } else {
+            INTERNAL_ERROR
+        },
+        message: format!("{context}: {error}"),
+        data: None,
+    }
+}
+
 /// Map a [`SkillRepoError`] onto an RPC error: the cross-workspace guard is a
 /// client error (`INVALID_PARAMS`, the caller used a foreign id), every other
 /// fault is an internal store error.
@@ -13180,6 +13212,70 @@ async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A busy store is coded [`STORE_UNAVAILABLE`]; every other fault keeps
+    /// [`INTERNAL_ERROR`].
+    ///
+    /// The contention is REAL, not a hand-built error value: one connection
+    /// holds the write lock with `BEGIN IMMEDIATE` while a second, whose
+    /// `busy_timeout` is zero, tries to write. That is the only way to prove
+    /// the classifier reads the extended result code `SQLite` actually sets,
+    /// rather than a code a test author guessed.
+    ///
+    /// The `RowNotFound` half is the guard on the guard: if `store_error` ever
+    /// coded everything as unavailable, the TUI would degrade over genuine
+    /// faults and the shared thread would vanish with no explanation.
+    #[tokio::test]
+    async fn a_contended_store_is_coded_unavailable_and_other_faults_are_not() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("busy.db"))
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            // Zero, so the loser fails immediately instead of waiting: this
+            // test must not be timing-sensitive.
+            .busy_timeout(std::time::Duration::from_millis(0));
+
+        let holder = SqlitePool::connect_with(options.clone()).await.expect("holder pool");
+        sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            .execute(&holder)
+            .await
+            .expect("schema");
+        let mut held = holder.acquire().await.expect("hold a connection");
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *held)
+            .await
+            .expect("take the write lock");
+
+        let contender = SqlitePool::connect_with(options).await.expect("contender pool");
+        let busy = sqlx::query("INSERT INTO t (id) VALUES (1)")
+            .execute(&contender)
+            .await
+            .expect_err("the write lock is held, so this write must fail");
+
+        assert!(
+            ainb_hangar_store::repo::fleet::is_lock_contention(&busy),
+            "a held write lock must read as contention: {busy}"
+        );
+        let unavailable = store_error("read Interactive Codex thread", &busy);
+        assert_eq!(
+            unavailable.code, STORE_UNAVAILABLE,
+            "a busy store must not be indistinguishable from a real fault: {unavailable:?}"
+        );
+        assert!(
+            unavailable.message.contains("read Interactive Codex thread"),
+            "the log must still name the call: {}",
+            unavailable.message
+        );
+
+        let fault = store_error("read Interactive Codex thread", &sqlx::Error::RowNotFound);
+        assert_eq!(
+            fault.code, INTERNAL_ERROR,
+            "only contention may be coded unavailable: {fault:?}"
+        );
+    }
 
     #[test]
     fn codex_started_thread_claim_requires_fresh_tui_thread_in_exact_cwd() {
