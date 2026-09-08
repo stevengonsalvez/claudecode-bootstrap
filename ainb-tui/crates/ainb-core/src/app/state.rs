@@ -5947,7 +5947,7 @@ impl AppState {
                 continue;
             };
 
-            let stopped = Self::stopped_session_from_metadata(metadata);
+            let stopped = Self::stopped_session_from_metadata(metadata, &self.session_label_store);
             // Group by the actual source repository (matches Phase 1's
             // grouping above). The previous `worktree_path.parent()` key was
             // always the shared `~/.agents-in-a-box/worktrees/` dir, which
@@ -5978,8 +5978,12 @@ impl AppState {
 
     /// Build a `Session` model in `Stopped` state from persisted metadata.
     /// Used to render sessions whose tmux is dead but whose worktree is alive.
+    /// `labels` is threaded in rather than loaded here because this runs once
+    /// per stopped session inside a refresh loop, and a per-row file read is a
+    /// syscall per session for a store that only changes on rename.
     pub(crate) fn stopped_session_from_metadata(
         metadata: &crate::interactive::SessionMetadata,
+        labels: &crate::config::SessionLabelStore,
     ) -> crate::models::Session {
         use crate::models::{Session, SessionMode, SessionStatus};
 
@@ -6002,6 +6006,10 @@ impl AppState {
             session.branch_name = branch_name;
         }
         session.tmux_session_name = Some(metadata.tmux_session_name.clone());
+        // The durable label is keyed by tmux name and outlives the tmux
+        // session, so a stopped row keeps the same "<label> · <branch>" the
+        // running row had instead of dropping back to a bare branch.
+        session.display_name = labels.get(&metadata.tmux_session_name).cloned();
         session.status = SessionStatus::Stopped;
         session.created_at = metadata.created_at;
         session
