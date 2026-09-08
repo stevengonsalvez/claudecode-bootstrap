@@ -3420,11 +3420,14 @@ pub struct AppState {
     pub last_panel_close_version: Option<u64>,
     // Notification system
     pub notifications: Vec<Notification>,
-    /// Sessions already told they started without shared Codex remote control.
+    /// Sessions already told, on their CURRENT launch, that they started
+    /// without shared Codex remote control.
     ///
-    /// The dedup key for `notify_codex_degraded`. Kept here rather than checked
-    /// against the live notification list because notifications EXPIRE: a
-    /// message-equality check would let the same fact reappear minutes later.
+    /// The dedup key for `notify_codex_degraded`, cleared by
+    /// `begin_codex_launch` so the scope is one launch and not the session's
+    /// whole life. Kept here rather than checked against the live notification
+    /// list because notifications EXPIRE: a message-equality check would let
+    /// the same fact reappear minutes later.
     codex_degrade_announced: std::collections::HashSet<Uuid>,
     // Pending event to be processed in next loop iteration
     pub pending_event: Option<crate::app::events::AppEvent>,
@@ -10228,6 +10231,10 @@ impl AppState {
             session_id, trigger_key
         );
 
+        // A resume is a new launch on an id this session already had, so the
+        // previous launch's notice must not silence this one.
+        self.begin_codex_launch(session_id);
+
         // Resolve metadata up-front so we can audit even if subsequent steps fail.
         let store = SessionStore::load();
         let metadata = store.sessions().values().find(|m| m.session_id == session_id).cloned();
@@ -11660,16 +11667,31 @@ impl AppState {
         self.add_notification(Notification::info(message));
     }
 
-    /// Say ONCE, on screen, that a Codex session started without shared remote
+    /// Start a new launch for this session, so its degrade can be announced
+    /// again.
+    ///
+    /// The dedup in [`Self::notify_codex_degraded`] is per LAUNCH, not per
+    /// session, and resume and restart both reuse the session id they were
+    /// handed. Without this reset, a user who saw the notice, restarted the
+    /// Hangar daemon and relaunched into a STILL-wedged store would be told
+    /// nothing at all — silence reading as success on the one action they took
+    /// to fix it. Only `create` is exempt, and only because it mints a fresh
+    /// id, so per-session and per-launch already coincide there.
+    pub fn begin_codex_launch(&mut self, session_id: Uuid) {
+        self.codex_degrade_announced.remove(&session_id);
+    }
+
+    /// Say ONCE per launch, on screen, that a Codex session started without shared remote
     /// control, and why.
     ///
     /// Informational, not an error: the session DID start. The launch is not
     /// retried and nothing was lost except the shared thread, so an error
     /// notification would misdescribe an outcome the user can simply live with.
     ///
-    /// Once per session, enforced here rather than at the call sites, so a
+    /// Once per LAUNCH, enforced here rather than at the call sites, so a
     /// future poll loop that reaches this cannot turn a one-off fact into a
-    /// recurring banner. A notice that repeats is one the user learns to skip.
+    /// recurring banner. A notice that repeats within one launch is one the
+    /// user learns to skip; a launch that degrades in silence is worse.
     pub fn notify_codex_degraded(
         &mut self,
         session_id: Uuid,
@@ -12602,6 +12624,12 @@ impl AppState {
         use crate::config::CliProvider;
         use crate::interactive::InteractiveSessionManager;
         use crate::models::session::SessionAgentType;
+
+        // A restart is a new launch on an id this session already had. This is
+        // the exact sequence the reset exists for: the user saw the notice,
+        // restarted the Hangar daemon, and hit restart. If the store is still
+        // wedged they must be told again, not met with silence.
+        self.begin_codex_launch(session_id);
 
         let session = self
             .find_session(session_id)
@@ -14952,13 +14980,15 @@ mod codex_degrade_notice_tests {
         );
     }
 
-    /// Announced once per session, however many times the launch path runs.
+    /// Announced once per LAUNCH, however many times that launch's path runs.
     ///
     /// This is the regression the dedup exists for: a notice that reappears on
     /// every pass trains the user to dismiss it unread, which is worse than
-    /// never showing it. Driving the call twice stands in for the second pass.
+    /// never showing it. Driving the call three times stands in for those
+    /// passes; `a_relaunch_of_the_same_session_is_announced_again` pins the
+    /// other side, that the dedup does not outlive the launch.
     #[test]
-    fn a_degraded_launch_is_announced_once_per_session() {
+    fn a_degraded_launch_is_announced_once_within_one_launch() {
         let mut state = AppState::new();
         let session = Uuid::new_v4();
         let before = state.notifications.len();
@@ -14980,6 +15010,46 @@ mod codex_degrade_notice_tests {
             added[0].message.contains(SharedThreadDegrade::StoreBusy.cause()),
             "the single notice must still name the cause: {}",
             added[0].message
+        );
+    }
+
+    /// A RELAUNCH of the same session announces again.
+    ///
+    /// The sequence this exists for, in the user's order: the store is wedged
+    /// and the notice fires; the user reads it and restarts the Hangar daemon;
+    /// the user hits restart on the session; the store is still wedged, because
+    /// the write lock has been seen holding for the better part of an hour.
+    ///
+    /// Resume and restart both reuse the session id they are handed
+    /// (`AsyncAction::ResumeSession(session_id, ..)`, `restart_cli_in_tmux(
+    /// session_id)`), so a dedup keyed on the session alone would answer that
+    /// second launch with silence — and silence, right after the one action the
+    /// user took to fix it, reads as success.
+    #[test]
+    fn a_relaunch_of_the_same_session_is_announced_again() {
+        let mut state = AppState::new();
+        let session = Uuid::new_v4();
+        let before = state.notifications.len();
+
+        // Launch 1: degraded, announced, and not re-announced within itself.
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+
+        // The user restarts the daemon and relaunches the SAME session.
+        state.begin_codex_launch(session);
+
+        // Launch 2: still degraded, so it must be announced again.
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+
+        let announced = state.notifications[before..]
+            .iter()
+            .filter(|n| n.message.contains("without shared remote control"))
+            .count();
+        assert_eq!(
+            announced, 2,
+            "two launches that both degraded must produce two notices, one each; \
+             got {announced}"
         );
     }
 
