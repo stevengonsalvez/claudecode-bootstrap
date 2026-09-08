@@ -3741,7 +3741,7 @@ pub struct AppState {
     ///
     /// Same shape as [`Self::attention_error_since`]: stamped once, reused
     /// while the chip stays that kind, dropped when it does not.
-    pub attention_local_since: HashMap<(Uuid, AttentionKind), i64>,
+    pub attention_local_since: HashMap<(Uuid, AttentionKind, Option<String>), i64>,
 }
 
 /// Result of background workspace loading
@@ -11808,23 +11808,27 @@ impl AppState {
             // It arrives as a `PermissionRequest`, which classifies APPROVE and
             // would then have approve/deny synthesised onto it — the wrong two
             // words on the majority of permission chips, since 540 of 718 such
-            // records are this tool. Carrying the real options also stops the
-            // pane offering a free-text box as the only way to answer a prompt
-            // that already has four named answers.
-            if let Some((question, options)) =
-                payload.as_ref().and_then(ainb_plugin_notifyd::ask_user_question)
-            {
+            // records are this tool. Worse, `cli/fleet/atc.rs` excludes this
+            // tool from the blocking approve round-trip, so no waiter is ever
+            // parked and every approve/deny send failed at an empty broker.
+            //
+            // Marked NativePicker HERE rather than inferred later from a
+            // non-empty option list: a payload that carried no options is still
+            // the agent's own picker, and inferring from the list let exactly
+            // those rows fall back to a composer that types at it.
+            if let Some(ask) = payload.as_ref().and_then(ainb_plugin_notifyd::ask_user_question) {
                 return Some(
                     SessionAttention::local(AttentionKind::Ask, rec.ts)
-                        .with_detail(question)
+                        .with_detail(ask.question.unwrap_or_default())
                         .with_options(
-                            options
+                            ask.options
                                 .into_iter()
                                 .map(|(label, description)| {
                                     crate::fleet::attention::AttentionOption { label, description }
                                 })
                                 .collect(),
-                        ),
+                        )
+                        .unanswerable(crate::fleet::attention::Unanswerable::NativePicker),
                 );
             }
             return Some(
@@ -12062,8 +12066,15 @@ impl AppState {
             if matches!(chip.answerable, Answerable::Daemon { .. }) {
                 continue;
             }
-            let first_seen =
-                *self.attention_local_since.entry((id, chip.kind)).or_insert(chip.since_ms);
+            // Keyed by the DETAIL as well as the kind. Two different
+            // questions of the same kind are two different waits: an
+            // `AskUserQuestion` firing while an idle prompt is still open used
+            // to inherit that prompt's first-seen instant, so a question
+            // seconds old rendered as "40m" and its `request_id`
+            // (`ASK:<since_ms>`) collided with the older one — which is how a
+            // previous question's draft could land under a new one.
+            let key = (id, chip.kind, chip.detail.clone());
+            let first_seen = *self.attention_local_since.entry(key).or_insert(chip.since_ms);
             chip.since_ms = first_seen;
         }
     }
@@ -12144,17 +12155,17 @@ impl AppState {
         // A session that recovered (or vanished) must lose its ERR clock, or a
         // later failure would render with the age of the previous one.
         self.attention_error_since.retain(|id, _| live.contains(id));
-        self.attention_local_since.retain(|(id, _), _| live.contains(id));
+        self.attention_local_since.retain(|(id, ..), _| live.contains(id));
         // Every (session, kind) a LOCAL chip still claims this pass. Anything
         // else loses its clock below, so a question that closed and a later one
         // of the same kind do not share an instant.
-        let still_open: HashSet<(Uuid, AttentionKind)> = marks
+        let still_open: HashSet<(Uuid, AttentionKind, Option<String>)> = marks
             .iter()
             .flat_map(|(id, chips, ..)| {
                 chips
                     .iter()
                     .filter(|chip| !matches!(chip.answerable, Answerable::Daemon { .. }))
-                    .map(move |chip| (*id, chip.kind))
+                    .map(move |chip| (*id, chip.kind, chip.detail.clone()))
             })
             .collect();
         self.attention_local_since.retain(|key, _| still_open.contains(key));

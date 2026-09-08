@@ -490,23 +490,24 @@ pub fn route_answer(
             Answerable::No(Unanswerable::DaemonGone)
         };
     }
-    // A locally-lifted question that carries its OWN options is the agent's
-    // native picker, and only that picker can take the pick.
+    // The agent is rendering its OWN picker, and only that picker takes the
+    // pick. Carried on the chip by its producer, not inferred from a non-empty
+    // option list: a payload that sent no options is still a native picker, and
+    // inferring from the list let exactly those rows fall through to a composer
+    // that types literal text at it.
     //
-    // The options came out of an `AskUserQuestion` hook payload, so ainb knows
-    // exactly what is being asked and can show it — but the pane is waiting on
-    // the picker's own keys, and `resolve_and_send_typed` delivers literal
-    // text. Typing "staging" at a picker is not choosing `staging`. Offering a
-    // composer here would look like an answer and deliver nothing, which is
-    // strictly worse than saying where the answer goes.
+    // `resolve_and_send_typed` delivers text; typing "staging" at a picker is
+    // not choosing `staging`. Offering a composer here would look like an
+    // answer and deliver nothing.
     //
-    // A DAEMON row is exempt and handled above: it carries an attention id and
-    // `attention/answer` really does deliver a structured pick.
-    if chip.kind == AttentionKind::Ask
-        && chip.source == AttentionSource::Local
-        && !chip.options.is_empty()
-    {
-        return Answerable::No(Unanswerable::NativePicker);
+    // Still requires a PANE, because the refusal names one: telling an operator
+    // to attach to a session whose pane is gone is its own wrong answer, and
+    // `NoTransport` is what that actually is. A DAEMON row is exempt and
+    // handled above — `attention/answer` really does deliver a structured pick.
+    if matches!(chip.answerable, Answerable::No(Unanswerable::NativePicker)) {
+        return tmux_session.map_or(Answerable::No(Unanswerable::NoTransport), |_| {
+            Answerable::No(Unanswerable::NativePicker)
+        });
     }
     // A local permission request goes to the broker, never to the pane: the
     // hook is blocked in `client_await` and reads nothing typed at the
@@ -539,11 +540,12 @@ mod tests {
     /// deliver nothing.
     #[test]
     fn a_local_question_carrying_its_own_options_refuses_to_pretend() {
-        let chip =
-            SessionAttention::local(AttentionKind::Ask, 0).with_options(vec![AttentionOption {
+        let chip = SessionAttention::local(AttentionKind::Ask, 0)
+            .with_options(vec![AttentionOption {
                 label: "staging".into(),
                 description: String::new(),
-            }]);
+            }])
+            .unanswerable(Unanswerable::NativePicker);
         let route = route_answer(&chip, Some("some-pane"), Some("s-1"), true);
         assert_eq!(
             route,
@@ -552,9 +554,32 @@ mod tests {
         );
         let reason = Unanswerable::NativePicker.reason();
         assert!(reason.contains("own picker"), "{reason}");
+        // `contains('a')` would pass on any English sentence and guard
+        // nothing; the point is that the refusal names the KEY.
         assert!(
-            reason.contains('a'),
-            "it must say how to get there: {reason}"
+            reason.contains("`a`"),
+            "it must name the key that gets there: {reason}"
+        );
+    }
+
+    /// With NO pane, the refusal must not tell anyone to attach to one.
+    ///
+    /// A session whose pane was killed still carries its last question. Saying
+    /// "attach with `a`" points at nothing, and `NoTransport` is what that
+    /// actually is.
+    #[test]
+    fn a_native_picker_with_no_pane_reports_no_transport_instead() {
+        let chip =
+            SessionAttention::local(AttentionKind::Ask, 0).unanswerable(Unanswerable::NativePicker);
+        assert_eq!(
+            route_answer(&chip, None, Some("s-1"), true),
+            Answerable::No(Unanswerable::NoTransport),
+            "there is nothing to attach to, so do not say attach"
+        );
+        assert_eq!(
+            route_answer(&chip, Some("pane"), Some("s-1"), true),
+            Answerable::No(Unanswerable::NativePicker),
+            "with a pane, naming the picker is the right refusal"
         );
     }
 
