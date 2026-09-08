@@ -634,6 +634,62 @@ impl Store {
         Ok(out)
     }
 
+    /// One session's non-dismissed notifications, newest first.
+    ///
+    /// The per-session half of [`Self::recent_since`], and the reason it exists
+    /// is a query plan. The `log` tab used to read the newest `limit * 20` rows
+    /// fleet-wide and keep the handful for one cwd, which on a real store meant
+    /// materialising 4000 rows and ~8 MB of payload text to render 60 lines.
+    ///
+    /// `+agent` is not a typo: it is SQLite's "do not use an index for this
+    /// term". Without it the planner prefers `idx_notifications_agent` — which
+    /// every row matches, since a host usually runs one agent — abandons
+    /// `idx_notifications_ts` and sorts the whole table in a temp b-tree.
+    /// Measured on a 546 MB store that plan cost 378-672 ms; forced onto the
+    /// `ts` index the same query is 5-18 ms.
+    pub fn recent_for_cwd(
+        &self,
+        cwd: &str,
+        agent: Option<&str>,
+        since_ms: i64,
+        limit: u32,
+    ) -> Result<Vec<NotificationRecord>, StoreError> {
+        let cwd = cwd.trim_end_matches('/');
+        // Both spellings, because the column is stored verbatim: a hook that
+        // fired in `/w/` and one that fired in `/w` are the same directory and
+        // must land in the same pane.
+        let with_slash = format!("{cwd}/");
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, ts, agent, session_id, cwd, project, raw_event, payload, read, dismissed
+             FROM notifications
+             WHERE ts > ?1 AND dismissed = 0
+               AND (+cwd = ?2 OR +cwd = ?3)
+               AND (?4 IS NULL OR +agent = ?4)
+             ORDER BY ts DESC
+             LIMIT ?5",
+        )?;
+        let rows = stmt.query_map(params![since_ms, cwd, with_slash, agent, limit], |r| {
+            Ok(NotificationRecord {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                agent: r.get(2)?,
+                session_id: r.get(3)?,
+                cwd: r.get(4)?,
+                project: r.get(5)?,
+                raw_event: r.get(6)?,
+                payload_json: r.get(7)?,
+                read: r.get::<_, i64>(8)? != 0,
+                dismissed: r.get::<_, i64>(9)? != 0,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     // --- event-sourcing (Wave 2) --------------------------------------------
 
     /// Append one event to the append-only `events` log. `row.seq` is

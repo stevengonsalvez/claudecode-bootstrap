@@ -1,12 +1,13 @@
 // ABOUTME: The sessions screen's right-pane tab strip — the switchboard that
 // turns one preview pane into the whole attention surface.
 //
-// Five tabs over one rect: `preview` (the tmux mirror that was always there),
-// `ask` (answer what is blocking), `thread` (this session's chat), `copilot`
-// (the ainb assistant) and `log` (this session's notification history).
+// Six tabs over one rect: `preview` (the tmux mirror that was always there),
+// `ask` (answer what is blocking), `err` (what failed, and why), `thread` (this
+// session's chat), `copilot` (the ainb assistant) and `log` (this session's
+// notification history).
 //
 // The strip is the reason `Enter` stops being ambiguous. `Enter` used to mean
-// "attach" everywhere, which is the wrong verb on four of these five panes, so
+// "attach" everywhere, which is the wrong verb on five of these six panes, so
 // it becomes scoped to the ACTIVE TAB and each tab declares its own verb here.
 // Attach digits are deliberately NOT scoped: `1`-`9` attach from every tab,
 // because "jump to that session" is the one action that means the same thing
@@ -31,6 +32,13 @@ pub enum SessionTab {
     Preview,
     /// Answer the selected row's ASK or APPROVE.
     Ask,
+    /// What failed on the selected row, and the reason the producer gave.
+    ///
+    /// Sits beside `ask` rather than at the end of the strip because it answers
+    /// the same question — something on this row wants a human — and the chip
+    /// that sends an operator looking is one tab away from the pane that
+    /// explains it.
+    Err,
     /// This session's own chat thread, scope `session:<key>`.
     Thread,
     /// The general ainb assistant, plus its channels.
@@ -40,9 +48,10 @@ pub enum SessionTab {
 }
 
 /// Every tab, in strip order.
-pub const ALL_TABS: [SessionTab; 5] = [
+pub const ALL_TABS: [SessionTab; 6] = [
     SessionTab::Preview,
     SessionTab::Ask,
+    SessionTab::Err,
     SessionTab::Thread,
     SessionTab::Copilot,
     SessionTab::Log,
@@ -83,6 +92,7 @@ impl SessionTab {
         match self {
             Self::Preview => "preview",
             Self::Ask => "ask",
+            Self::Err => "err",
             Self::Thread => "thread",
             Self::Copilot => "copilot",
             Self::Log => "log",
@@ -139,9 +149,10 @@ impl SessionTab {
     #[must_use]
     pub fn enter_refusal(self, state: &AppState) -> Option<String> {
         match self {
-            // Attaching asks nothing of the pane, and a history pane has no
-            // verb to refuse in the first place.
-            Self::Preview | Self::Log => None,
+            // Attaching asks nothing of the pane, and neither a history nor a
+            // post-mortem has a verb to refuse in the first place: `err` shows
+            // what already failed, and there is nothing to send back at it.
+            Self::Preview | Self::Err | Self::Log => None,
             // The chip's own refusal. A native picker is answered in the
             // agent's terminal, and nothing typed here ever reaches it.
             Self::Ask => selected_blocking(state)
@@ -162,7 +173,10 @@ impl SessionTab {
             Self::Preview => "attach",
             Self::Ask => "send answer",
             Self::Thread | Self::Copilot => "send message",
-            Self::Log => "",
+            // Neither pane takes an answer: one is a history, the other a
+            // post-mortem. An advertised verb that did nothing is the surprise
+            // the scoping exists to remove.
+            Self::Err | Self::Log => "",
         }
     }
 
@@ -188,6 +202,15 @@ impl SessionTab {
                 }
             }
             Self::Log => (!has_session).then_some("select a session first"),
+            Self::Err => {
+                if !has_session {
+                    Some("select a session first")
+                } else if selected_errors(state).is_empty() {
+                    Some("nothing has failed on this session")
+                } else {
+                    None
+                }
+            }
             Self::Thread => {
                 // Checked rows win over the cursor, the same rule `Enter` and
                 // `r` follow on this screen. A broadcast is about the checked
@@ -228,6 +251,35 @@ pub fn selected_blocking(state: &AppState) -> Option<&crate::fleet::attention::S
         .live_attention
         .iter()
         .find(|chip| chip.kind.blocks())
+}
+
+/// Every error the selected session has, newest first — INCLUDING the ones too
+/// old to still light a chip on the row.
+///
+/// Reads `errors`, not `live_attention`. The row's chip list is windowed
+/// (`[ui] attention_err_window_hours`) because "something needs me now" expires;
+/// "what went wrong" does not, and a pane that expired with the chip would put
+/// the operator back where they started — an ERR they can see and cannot read.
+#[must_use]
+pub fn selected_errors(state: &AppState) -> &[crate::fleet::attention::SessionAttention] {
+    state.get_selected_session().map_or(&[], |session| session.errors.as_slice())
+}
+
+/// Whether the selected row is still LIGHTING an ERR chip.
+///
+/// Asked of the row itself rather than by re-deriving the window here: the two
+/// would then be two separate pieces of arithmetic that can disagree, and the
+/// pane would tell an operator a chip is showing when it is not. The pane says
+/// WHY a failure it lists is no longer on the row, which is what stops retiring
+/// the chip from trading one silent surface for another.
+#[must_use]
+pub fn selected_err_is_on_the_row(state: &AppState) -> bool {
+    state.get_selected_session().is_some_and(|session| {
+        session
+            .live_attention
+            .iter()
+            .any(|chip| chip.kind == crate::fleet::attention::AttentionKind::Err)
+    })
 }
 
 /// Move `from` to the next available tab, forward or backward, skipping the
@@ -567,6 +619,92 @@ pub fn render_ask(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
+/// Render the `err` pane: what failed on this session, and the reason whoever
+/// raised it gave.
+///
+/// The reason is the whole point. `SessionStatus::Error` has always carried a
+/// sentence and the chip has always dropped it, so the only place an operator
+/// could read WHY a row said ERR was the bottom logs strip — which scrolls, and
+/// is not per-session. Both producers land here: a local failure's status text
+/// and a daemon `error`/`escalation` row's payload.
+pub fn render_err(frame: &mut Frame, area: Rect, state: &AppState) {
+    use crate::fleet::attention::AttentionSource;
+    use ratatui::widgets::{Paragraph, Wrap};
+
+    let errors = selected_errors(state);
+    if errors.is_empty() {
+        // Unreachable through the strip (the tab is dimmed), reachable through
+        // a race: the session recovers between the frame that enabled the tab
+        // and this one.
+        frame.render_widget(
+            Paragraph::new("nothing has failed on this session")
+                .style(Style::default().fg(MUTED_GRAY)),
+            area,
+        );
+        return;
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let on_the_row = selected_err_is_on_the_row(state);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for (index, chip) in errors.iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::raw(""));
+        }
+        lines.push(Line::from(vec![
+            Span::styled(
+                chip.kind.label(),
+                Style::default().fg(chip_color(chip.kind)).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                crate::fleet::attention::format_age(now_ms, chip.since_ms),
+                Style::default().fg(MUTED_GRAY),
+            ),
+            Span::raw("  "),
+            // Which producer said so. A local failure is ainb's own view of the
+            // process; a daemon row is something the agent itself raised, and
+            // an operator chasing a failure needs to know which of the two they
+            // are reading.
+            Span::styled(
+                match chip.source {
+                    AttentionSource::Local => "local",
+                    AttentionSource::Daemon => "daemon",
+                },
+                Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+        lines.push(Line::raw(""));
+        match chip.detail.as_deref() {
+            Some(reason) => lines.push(Line::styled(
+                reason.to_string(),
+                Style::default().fg(SOFT_WHITE),
+            )),
+            // Honest, not manufactured. A producer that raised an error with no
+            // text said nothing, and inventing "the session failed" here would
+            // read as something ainb had actually observed.
+            None => lines.push(Line::styled(
+                "the failure carried no reason text",
+                Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC),
+            )),
+        }
+    }
+
+    // Why the row is quiet about a failure this pane is still showing. Without
+    // it, retiring the chip just moves the mystery: the operator now has an
+    // error on screen and no idea why nothing is flagged.
+    if !on_the_row {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            "older than the ERR window, so it no longer lights the row \u{b7} \
+             change it at [ui] attention_err_window_hours",
+            Style::default().fg(MUTED_GRAY),
+        ));
+    }
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+}
+
 /// `①`-style option markers, falling back to a plain number past nine.
 fn circled(index: usize) -> String {
     const CIRCLED: [&str; 9] = [
@@ -583,8 +721,36 @@ fn circled(index: usize) -> String {
 /// Per-session, not fleet-wide. The cross-session view the host Inbox used to
 /// provide lives on in the hangar plugin's `I` tab; recreating it here would
 /// rebuild the duplication this screen exists to delete.
-pub fn render_log(frame: &mut Frame, area: Rect, rows: &[LogRow]) {
-    use ratatui::widgets::{List, ListItem};
+///
+/// The read happens on [`crate::fleet::session_log`]'s worker, so this takes
+/// what the worker last published — including the two states that are NOT
+/// "there is no history": the first frame after the cursor moved, and a store
+/// that could not be read at all.
+pub fn render_log(frame: &mut Frame, area: Rect, log: &crate::fleet::session_log::Log) {
+    use crate::fleet::session_log::Log;
+    use ratatui::widgets::{List, ListItem, Paragraph};
+
+    let rows = match log {
+        Log::Rows(rows) => rows.as_slice(),
+        Log::Reading => {
+            frame.render_widget(
+                Paragraph::new("reading this session's history\u{2026}")
+                    .style(Style::default().fg(MUTED_GRAY)),
+                area,
+            );
+            return;
+        }
+        // Named, not swallowed. A store that cannot be opened rendered as the
+        // empty state is how an operator concludes their notifications are
+        // gone rather than that a path is wrong.
+        Log::Failed(reason) => {
+            frame.render_widget(
+                Paragraph::new(format!("\u{26a0} {reason}")).style(Style::default().fg(ALERT_RED)),
+                area,
+            );
+            return;
+        }
+    };
 
     if rows.is_empty() {
         frame.render_widget(
@@ -632,38 +798,30 @@ pub struct LogRow {
     pub detail: String,
 }
 
-/// Read one session's notification history out of the notifyd store.
+/// Keep one session's rows out of a batch the store already returned.
 ///
-/// Opens the store per call rather than holding a handle, matching how the chip
-/// producer reads it: the query is microseconds, it only runs while the `log`
-/// tab is actually open, and it keeps the daemon as the database's sole
-/// long-lived owner.
+/// PURE, and deliberately not a store read: the read runs on
+/// [`crate::fleet::session_log`]'s worker thread, because doing it here — which
+/// is inside `terminal.draw` — is what made the `log` tab cost a second a
+/// frame. This is the half that has to happen for whatever the worker fetched.
 #[must_use]
-pub fn read_log(cwd: &str, agent: Option<&str>, limit: u32) -> Vec<LogRow> {
-    let Ok(paths) = ainb_plugin_notifyd::Paths::from_home() else {
-        return Vec::new();
-    };
-    if !paths.db.exists() {
-        return Vec::new();
-    }
-    let Ok(store) = ainb_plugin_notifyd::Store::open(&paths.db) else {
-        return Vec::new();
-    };
+pub fn log_rows(
+    records: &[ainb_plugin_notifyd::NotificationRecord],
+    cwd: &str,
+    agent: Option<&str>,
+    limit: usize,
+) -> Vec<LogRow> {
     let cwd = cwd.trim_end_matches('/');
-    // Window and limit deliberately generous: this is a history pane an
-    // operator opens on purpose, not a per-frame read.
-    let Ok(rows) = store.recent_since(0, limit.saturating_mul(20)) else {
-        return Vec::new();
-    };
-    rows.into_iter()
+    records
+        .iter()
         .filter(|row| {
             row.cwd.trim_end_matches('/') == cwd && agent.is_none_or(|agent| row.agent == agent)
         })
-        .take(limit as usize)
+        .take(limit)
         .map(|row| LogRow {
             ts: row.ts,
             event: row.raw_event.clone(),
-            detail: log_detail(&row),
+            detail: log_detail(row),
         })
         .collect()
 }
@@ -1303,17 +1461,142 @@ mod tests {
     use crate::models::{Session, SessionStatus, Workspace};
 
     fn state_with(chips: Vec<SessionAttention>, select: bool) -> AppState {
+        state_with_errors(chips, Vec::new(), select)
+    }
+
+    /// `chips` is what the ROW lights; `errors` is what the `err` pane keeps,
+    /// which is deliberately a superset — a failure past the window leaves the
+    /// first and stays in the second.
+    fn state_with_errors(
+        chips: Vec<SessionAttention>,
+        errors: Vec<SessionAttention>,
+        select: bool,
+    ) -> AppState {
         let mut state = AppState::new();
         state.workspaces.clear();
         let mut workspace = Workspace::new("proj".to_string(), "/work/proj".into());
         let mut session = Session::new("proj".to_string(), "/work/proj".to_string());
         session.status = SessionStatus::Idle;
         session.live_attention = chips;
+        session.errors = errors;
         workspace.add_session(session);
         state.workspaces.push(workspace);
         state.selected_workspace_index = Some(0);
         state.selected_session_index = select.then_some(0);
         state
+    }
+
+    /// The rendered text of a pane, so a test asserts what an operator reads.
+    fn rendered<F: FnOnce(&mut Frame, Rect)>(width: u16, height: u16, draw: F) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                draw(frame, area);
+            })
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer.cell((x, y)).map_or(" ", |c| c.symbol()).to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn err_chip(since_ms: i64, detail: Option<&str>) -> SessionAttention {
+        let chip = SessionAttention::local(AttentionKind::Err, since_ms);
+        match detail {
+            Some(detail) => chip.with_detail(detail),
+            None => chip,
+        }
+    }
+
+    #[test]
+    fn err_needs_something_to_have_failed() {
+        let none = state_with(Vec::new(), false);
+        assert_eq!(
+            SessionTab::Err.disabled_reason(&none),
+            Some("select a session first")
+        );
+        let quiet = state_with(Vec::new(), true);
+        assert_eq!(
+            SessionTab::Err.disabled_reason(&quiet),
+            Some("nothing has failed on this session")
+        );
+        // A RETIRED error still opens the pane. That is the whole point: the
+        // chip is gone from the row and the reason must not go with it.
+        let retired = state_with_errors(Vec::new(), vec![err_chip(0, Some("boom"))], true);
+        assert!(SessionTab::Err.enabled(&retired));
+    }
+
+    /// The reason the pane exists. `SessionStatus::Error` has always carried a
+    /// sentence; before this it reached no per-session surface at all.
+    #[test]
+    fn the_err_pane_shows_the_reason_the_producer_gave() {
+        let state = state_with_errors(
+            vec![err_chip(0, Some("adapter exited 1: no such model"))],
+            vec![err_chip(0, Some("adapter exited 1: no such model"))],
+            true,
+        );
+        let text = rendered(70, 8, |frame, area| render_err(frame, area, &state));
+        assert!(
+            text.contains("adapter exited 1"),
+            "the err pane must show the reason:\n{text}"
+        );
+        assert!(text.contains("ERR"), "and name the state:\n{text}");
+    }
+
+    /// A producer that raised an error with no text said nothing, and the pane
+    /// says so rather than inventing a sentence that reads like the agent's.
+    #[test]
+    fn an_err_with_no_text_says_so_rather_than_inventing_one() {
+        let state = state_with_errors(vec![err_chip(0, None)], vec![err_chip(0, None)], true);
+        let text = rendered(70, 8, |frame, area| render_err(frame, area, &state));
+        assert!(text.contains("carried no reason text"), "{text}");
+    }
+
+    /// Retiring the chip must not just move the mystery: the pane says WHY the
+    /// row is quiet about a failure it is still showing, and where to change it.
+    #[test]
+    fn a_retired_err_says_why_the_row_no_longer_lights() {
+        let live = state_with_errors(
+            vec![err_chip(0, Some("boom"))],
+            vec![err_chip(0, Some("boom"))],
+            true,
+        );
+        let live_text = rendered(70, 10, |frame, area| render_err(frame, area, &live));
+        assert!(
+            !live_text.contains("no longer lights"),
+            "a chip that IS on the row must not claim it has retired:\n{live_text}"
+        );
+
+        let retired = state_with_errors(Vec::new(), vec![err_chip(0, Some("boom"))], true);
+        let retired_text = rendered(70, 10, |frame, area| render_err(frame, area, &retired));
+        assert!(
+            retired_text.contains("no longer lights"),
+            "a retired failure must say why nothing is flagged:\n{retired_text}"
+        );
+        assert!(
+            retired_text.contains("attention_err_window_hours"),
+            "and name the knob that decides it:\n{retired_text}"
+        );
+    }
+
+    /// `Tab` skips a dimmed pane rather than stopping on it, and the new one is
+    /// no exception.
+    #[test]
+    fn tab_skips_the_err_pane_when_nothing_has_failed() {
+        let state = state_with(Vec::new(), true);
+        assert!(!SessionTab::Err.enabled(&state));
+        assert_ne!(
+            cycle(&state, SessionTab::Ask, true),
+            SessionTab::Err,
+            "Tab must not land on a pane that cannot say anything"
+        );
     }
 
     /// Everything the footer actually paints, as one line of text.
@@ -1582,7 +1865,9 @@ mod tests {
         assert_eq!(SessionTab::Copilot.enter_verb_in(&state), "");
 
         // And the tabs with nothing to refuse say so rather than defaulting.
-        for tab in [SessionTab::Preview, SessionTab::Log] {
+        // `err` is one of them: it shows what already failed, so there is no
+        // send for it to decline.
+        for tab in [SessionTab::Preview, SessionTab::Err, SessionTab::Log] {
             assert_eq!(tab.enter_refusal(&state), None, "{tab:?}");
         }
     }
@@ -1664,7 +1949,13 @@ mod tests {
 
     #[test]
     fn cycling_visits_every_tab_when_everything_is_available() {
-        let mut state = state_with(vec![SessionAttention::local(AttentionKind::Ask, 0)], true);
+        let mut state = state_with_errors(
+            vec![SessionAttention::local(AttentionKind::Ask, 0)],
+            // `err` needs a failure to show before it is reachable, the same
+            // way `ask` needs a question.
+            vec![SessionAttention::local(AttentionKind::Err, 0).with_detail("boom")],
+            true,
+        );
         // The thread needs a scope before it is reachable.
         state.workspaces[0].sessions[0].provider_session_id = Some("hook-sess-1".to_string());
         let state = state;
@@ -1690,7 +1981,13 @@ mod tests {
     }
 
     #[test]
-    fn the_strip_always_renders_all_five_labels() {
+    fn the_strip_always_renders_every_label_in_strip_order() {
+        // Declaration order IS strip order and `Tab` order, so pinning it here
+        // is what stops the rendered strip and the key that walks it drifting.
+        assert_eq!(
+            ALL_TABS.iter().map(|tab| tab.label()).collect::<Vec<_>>(),
+            vec!["preview", "ask", "err", "thread", "copilot", "log"],
+        );
         // Dimmed, never hidden — otherwise the strip reflows under the cursor
         // every time a session answers a question.
         for select in [true, false] {
@@ -1716,7 +2013,7 @@ mod tests {
             let verb = tab.enter_verb();
             assert_eq!(
                 verb.is_empty(),
-                tab == SessionTab::Log,
+                matches!(tab, SessionTab::Err | SessionTab::Log),
                 "{tab:?} must declare a verb unless Enter is a no-op there"
             );
         }

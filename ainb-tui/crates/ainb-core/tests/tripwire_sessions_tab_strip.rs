@@ -4,7 +4,7 @@
 //! Phases 1 and 2 put chips on rows. This is the pane that answers them. What
 //! has to be true on a real screen, and is not provable from a unit test:
 //!
-//! 1. all five labels render, with the unavailable ones DIMMED rather than
+//! 1. all six labels render, with the unavailable ones DIMMED rather than
 //!    hidden — a strip that reflows as sessions change state is a strip nobody
 //!    learns;
 //! 2. `Tab` walks it and skips what is unavailable;
@@ -380,7 +380,10 @@ fn the_tab_strip_opens_every_pane_and_enter_stops_meaning_attach() {
             capture_pane(&tui_tmux)
         );
     };
-    for label in ["preview", "ask", "thread", "copilot", "log"] {
+    // `err` included deliberately: it is dimmed on this fixture (nothing has
+    // failed) and must still be VISIBLE, which is the rule this list exists to
+    // hold. `tripwire_sessions_err_pane` is where it is opened.
+    for label in ["preview", "ask", "err", "thread", "copilot", "log"] {
         assert!(
             strip.contains(label),
             "the strip must show every tab, dimmed rather than hidden — `{label}` \

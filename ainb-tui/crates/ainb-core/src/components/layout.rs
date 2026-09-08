@@ -150,15 +150,26 @@ impl LayoutComponent {
                 }
                 session_tabs::render_ask(frame, inner, state);
             }
+            SessionTab::Err => session_tabs::render_err(frame, inner, state),
             SessionTab::Log => {
-                let rows = state.get_selected_session().map_or_else(Vec::new, |session| {
-                    session_tabs::read_log(
-                        &session.workspace_path,
-                        AppState::agent_hook_name(session.agent_type),
-                        200,
-                    )
-                });
-                session_tabs::render_log(frame, inner, &rows);
+                // Started here rather than at construction, for the same reason
+                // the attention poller is: an `ainb` invocation that never opens
+                // this pane never opens the notifications store. `spawn` is
+                // idempotent.
+                crate::fleet::session_log::spawn(&state.session_log, &state.session_log_running);
+                // The read itself belongs to that worker. Asking for it here —
+                // inside `terminal.draw` — is what made this pane cost up to
+                // 948 ms a frame on a real store.
+                let log = state.get_selected_session().map_or(
+                    crate::fleet::session_log::Log::Rows(Vec::new()),
+                    |session| {
+                        state.session_log.read(&crate::fleet::session_log::LogKey::new(
+                            &session.workspace_path,
+                            AppState::agent_hook_name(session.agent_type),
+                        ))
+                    },
+                );
+                session_tabs::render_log(frame, inner, &log);
             }
             // The copilot carries a HEADER the thread does not: its engine,
             // model and guardrail dial. The conversation under it is the same

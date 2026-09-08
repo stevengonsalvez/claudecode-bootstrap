@@ -31,6 +31,7 @@ pub mod daemon_cta;
 pub mod daemons;
 pub mod plumbing;
 pub mod read;
+pub mod session_log;
 pub mod unit_program;
 
 pub use ainb_fleet_core::fleet::{discover, enrich_cache, send, types};

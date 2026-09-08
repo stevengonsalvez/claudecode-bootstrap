@@ -2588,6 +2588,134 @@ mod tests {
         );
     }
 
+    /// The line the ERR chip used to throw away.
+    ///
+    /// `SessionStatus::Error` has always carried the sentence explaining what
+    /// broke; `SessionAttention::local` sets `detail: None`, so the only place
+    /// an operator could read it was the bottom logs strip — which is not
+    /// per-session and scrolls away. The `err` pane reads this field.
+    #[test]
+    fn an_err_chip_carries_the_failure_reason() {
+        use crate::fleet::attention::AttentionKind;
+        use crate::models::SessionStatus;
+        let mut state = state_with_session_at("/work/broken", Some("tmux_proj"));
+        state.workspaces[0].sessions[0].status =
+            SessionStatus::Error("adapter exited 1: no such model".to_string());
+
+        state.refresh_attention_markers(2_000);
+
+        let chip = state.workspaces[0].sessions[0]
+            .live_attention
+            .iter()
+            .find(|chip| chip.kind == AttentionKind::Err)
+            .expect("a failed session raises an ERR chip");
+        assert_eq!(
+            chip.detail.as_deref(),
+            Some("adapter exited 1: no such model"),
+            "the reason must ride the chip, not die in the status enum"
+        );
+    }
+
+    /// A failure past the window leaves the ROW and stays in the PANE.
+    ///
+    /// `SessionStatus::Error` never clears by itself, so before this one
+    /// failure lit a chip for as long as the session existed and a whole screen
+    /// eventually read as broken. Retiring it would be a regression on its own
+    /// — the operator could no longer see what failed — which is why `errors`
+    /// keeps it.
+    #[test]
+    fn an_err_past_the_window_leaves_the_row_but_not_the_pane() {
+        use crate::fleet::attention::AttentionKind;
+        use crate::models::SessionStatus;
+        let _lock = crate::config::tunables::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Pin the window rather than inheriting whatever this machine's
+        // config.toml says, or the test asserts against the developer's
+        // settings instead of the shipped default.
+        let mut config = crate::config::AppConfig::default();
+        config.ui.attention_err_window_hours = 2;
+        crate::config::tunables::install_snapshot(config);
+
+        let mut state = state_with_session_at("/work/broken", Some("tmux_proj"));
+        state.workspaces[0].sessions[0].status =
+            SessionStatus::Error("worktree vanished".to_string());
+
+        // First observation stamps the clock.
+        let raised_at = 1_000_000_000_000;
+        state.refresh_attention_markers(raised_at);
+        assert!(
+            state.workspaces[0].sessions[0]
+                .live_attention
+                .iter()
+                .any(|chip| chip.kind == AttentionKind::Err),
+            "a fresh failure must light the row"
+        );
+
+        // Three hours later, still failed, still the same failure.
+        state.refresh_attention_markers(raised_at + 3 * 60 * 60 * 1000);
+
+        let session = &state.workspaces[0].sessions[0];
+        assert!(
+            !session.live_attention.iter().any(|chip| chip.kind == AttentionKind::Err),
+            "an error older than the window must stop lighting the row"
+        );
+        let kept = session
+            .errors
+            .iter()
+            .find(|chip| chip.kind == AttentionKind::Err)
+            .expect("the err pane keeps what the row dropped");
+        assert_eq!(kept.detail.as_deref(), Some("worktree vanished"));
+        assert_eq!(
+            kept.since_ms, raised_at,
+            "and it keeps the TRUE first-observed instant, not the retirement"
+        );
+
+        crate::config::tunables::install_snapshot(crate::config::AppConfig::default());
+    }
+
+    /// The window is one rule, applied once, so both producers obey it.
+    #[test]
+    fn the_window_retires_a_daemon_error_too() {
+        use crate::fleet::attention::{AttentionKind, SessionAttention};
+        let _lock = crate::config::tunables::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut config = crate::config::AppConfig::default();
+        config.ui.attention_err_window_hours = 2;
+        crate::config::tunables::install_snapshot(config);
+
+        let cwd = "/work/escalated";
+        let mut state = state_with_session_at(cwd, Some("tmux_proj"));
+        let raised_at = 1_000_000_000_000;
+        install_daemon_row(
+            &state,
+            cwd,
+            SessionAttention::daemon(AttentionKind::Err, raised_at, "att-err".into())
+                .with_detail("the agent escalated: cannot reach the API"),
+        );
+
+        state.refresh_attention_markers(raised_at + 5 * 60 * 60 * 1000);
+
+        let session = &state.workspaces[0].sessions[0];
+        assert!(
+            !session.live_attention.iter().any(|chip| chip.kind == AttentionKind::Err),
+            "a five-hour-old escalation must not still be lighting the row"
+        );
+        assert_eq!(
+            session.errors.len(),
+            1,
+            "but the pane still has it: {:?}",
+            session.errors
+        );
+        assert_eq!(
+            session.errors[0].detail.as_deref(),
+            Some("the agent escalated: cannot reach the API")
+        );
+
+        crate::config::tunables::install_snapshot(crate::config::AppConfig::default());
+    }
+
     #[test]
     fn a_daemon_row_for_a_cwd_on_no_row_is_counted_elsewhere() {
         use crate::fleet::attention::{AttentionKind, SessionAttention};

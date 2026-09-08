@@ -380,6 +380,17 @@ pub struct UiConfig {
     #[serde(default = "default_session_lookback_hours")]
     pub session_lookback_hours: u32,
 
+    /// Rolling window (hours) a failure keeps lighting an `ERR` chip on a
+    /// session row.
+    ///
+    /// `ERR` had no clock at all: `SessionStatus::Error` never clears by
+    /// itself, so one failure lit a chip for as long as the session existed and
+    /// a whole screen of rows eventually read as broken. Past this window the
+    /// chip retires; the `err` tab still shows the failure, so retiring it
+    /// hides the alarm, never the reason.
+    #[serde(default = "default_attention_err_window_hours")]
+    pub attention_err_window_hours: u32,
+
     /// Rows the Inbox screen lists. Kept small because the query runs every
     /// render.
     #[serde(default = "default_inbox_list_limit")]
@@ -403,6 +414,9 @@ fn default_session_query_limit() -> u32 {
 fn default_session_lookback_hours() -> u32 {
     6
 }
+fn default_attention_err_window_hours() -> u32 {
+    2
+}
 fn default_inbox_list_limit() -> u32 {
     200
 }
@@ -417,6 +431,7 @@ impl Default for UiConfig {
             app_tick_ms: default_app_tick_ms(),
             session_query_limit: default_session_query_limit(),
             session_lookback_hours: default_session_lookback_hours(),
+            attention_err_window_hours: default_attention_err_window_hours(),
             inbox_list_limit: default_inbox_list_limit(),
             double_click_ms: default_double_click_ms(),
         }
