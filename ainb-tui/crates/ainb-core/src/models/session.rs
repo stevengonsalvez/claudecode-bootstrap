@@ -664,6 +664,20 @@ pub struct Session {
     #[serde(skip)]
     pub live_attention: Vec<crate::fleet::attention::SessionAttention>,
 
+    /// Every ERR observed for this session, INCLUDING the ones too old to still
+    /// light a chip on the row.
+    ///
+    /// The row and the `err` tab answer different questions. The row asks "does
+    /// something need me now", which expires (see
+    /// `[ui] attention_err_window_hours`); the pane asks "what went wrong",
+    /// which does not. Kept as a separate list rather than by un-filtering
+    /// `live_attention` at render time, so a retired failure is still
+    /// inspectable without ever being re-promoted onto the row.
+    ///
+    /// Transient — never persisted; set in `AppState::refresh_attention_markers`.
+    #[serde(skip)]
+    pub errors: Vec<crate::fleet::attention::SessionAttention>,
+
     /// The agent's OWN session id, as its hooks report it.
     ///
     /// Not ainb's `id` and not the tmux name: this is the identity the daemon
@@ -902,6 +916,7 @@ impl Session {
             preview_content: None,
             is_attached: false,
             live_attention: Vec::new(),
+            errors: Vec::new(),
             provider_session_id: None,
         }
     }
@@ -932,6 +947,7 @@ impl Session {
             preview_content: None,
             is_attached: false,
             live_attention: Vec::new(),
+            errors: Vec::new(),
             provider_session_id: None,
         }
     }

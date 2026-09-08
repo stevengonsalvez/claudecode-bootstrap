@@ -12075,9 +12075,18 @@ impl AppState {
         // Every cwd a row on screen consumed, so the rows that matched nothing
         // can be counted rather than dropped.
         let mut claimed: HashSet<String> = HashSet::new();
+        // How long a failure keeps lighting a chip. Read once per refresh
+        // rather than per session: it is a lock-free `Arc` clone, but the whole
+        // pass has to agree on one window or two rows of the same age would
+        // disagree about whether they have retired.
+        let err_window_ms =
+            i64::from(crate::config::tunables::snapshot().ui.attention_err_window_hours)
+                * 60
+                * 60
+                * 1000;
 
         // Phase 1 — read-only compute (no mutable borrow of self).
-        let mut marks: Vec<(Uuid, Vec<SessionAttention>, bool, bool)> = Vec::new();
+        let mut marks: Vec<(Uuid, Vec<SessionAttention>, bool, Option<String>)> = Vec::new();
         for ws in &self.workspaces {
             for s in &ws.sessions {
                 if s.is_attached {
@@ -12086,7 +12095,7 @@ impl AppState {
                     // row for the session under the cursor would be reported as
                     // waiting somewhere else.
                     claimed.insert(s.workspace_path.trim_end_matches('/').to_string());
-                    marks.push((s.id, Vec::new(), true, false));
+                    marks.push((s.id, Vec::new(), true, None));
                     continue;
                 }
                 let generating = matches!(s.status, crate::models::SessionStatus::Running);
@@ -12118,8 +12127,15 @@ impl AppState {
                     claimed.insert(cwd.clone());
                     chips.extend(daemon_rows.iter().cloned());
                 }
-                let failed = matches!(s.status, crate::models::SessionStatus::Error(_));
-                marks.push((s.id, chips, false, failed));
+                // The REASON, not a boolean. `SessionStatus::Error` has always
+                // carried the sentence explaining what broke, and the ERR chip
+                // has always thrown it away — which is why the only surface an
+                // operator could read it on was the bottom logs strip.
+                let failure = match &s.status {
+                    crate::models::SessionStatus::Error(reason) => Some(reason.clone()),
+                    _ => None,
+                };
+                marks.push((s.id, chips, false, failure));
             }
         }
 
@@ -12146,12 +12162,12 @@ impl AppState {
             })
             .collect();
         self.attention_local_since.retain(|key, _| still_open.contains(key));
-        for (id, mut chips, attached, failed) in marks {
+        for (id, mut chips, attached, failure) in marks {
             if attached {
                 self.attention_baseline.insert(id, now_ms);
             }
             self.stamp_local_since(id, &mut chips);
-            if failed {
+            if let Some(reason) = failure {
                 // ERR is a SECOND, independent chip, not a competitor: a
                 // session that failed and then asked a question is both, and
                 // hiding the ASK behind the ERR is what left the operator with
@@ -12160,11 +12176,27 @@ impl AppState {
                 // every later one reuses it — the age must not restart at 0s
                 // five times a minute.
                 let since = *self.attention_error_since.entry(id).or_insert(now_ms);
-                chips.push(SessionAttention::local(AttentionKind::Err, since));
+                chips.push(SessionAttention::local(AttentionKind::Err, since).with_detail(reason));
             } else {
                 self.attention_error_since.remove(&id);
             }
             let mut chips = crate::fleet::attention::normalise(chips);
+            // Split the errors off BEFORE the window is applied, and from the
+            // normalised list so both producers are covered by one rule.
+            //
+            // Two different questions are being answered here. The ROW asks
+            // "does something need me now", and a failure from this morning
+            // does not — an ERR that never retires eventually paints the whole
+            // screen red and stops meaning anything. The `err` PANE asks "what
+            // went wrong", which has no expiry, so it reads this unwindowed
+            // list. Retiring the chip therefore hides the alarm and never the
+            // reason.
+            let errors: Vec<SessionAttention> =
+                chips.iter().filter(|chip| chip.kind == AttentionKind::Err).cloned().collect();
+            chips.retain(|chip| {
+                chip.kind != AttentionKind::Err
+                    || now_ms.saturating_sub(chip.since_ms) <= err_window_ms
+            });
             // Route each surviving chip against the session it landed on. Done
             // here, after the merge, because only the session row knows whether
             // there is a pane to type into — and only now is it settled which
@@ -12210,6 +12242,10 @@ impl AppState {
             if let Some(s) = self.find_session_mut(id) {
                 if s.live_attention != chips {
                     s.live_attention = chips;
+                    changed = true;
+                }
+                if s.errors != errors {
+                    s.errors = errors;
                     changed = true;
                 }
             }
