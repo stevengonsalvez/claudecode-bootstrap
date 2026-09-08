@@ -23,7 +23,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::components::session_tabs::LogRow;
 
@@ -31,15 +31,21 @@ use crate::components::session_tabs::LogRow;
 ///
 /// A notification history is not a live stream — a row that appears half a
 /// second late is indistinguishable from instant. A CHANGE of session does not
-/// wait for this: the render path signals the condvar, so switching rows
-/// repaints as fast as the query returns.
+/// wait for this: an unanswered key outranks the interval in [`next_action`],
+/// and [`Shared::read`] signals the condvar so a worker already asleep on it
+/// wakes rather than serving the switch up to `REFRESH` late.
 const REFRESH: Duration = Duration::from_millis(750);
 
-/// How long the worker sleeps before retrying after a failed read.
+/// How long the worker waits before retrying after a failed read.
 ///
 /// Longer than [`REFRESH`] on purpose: the usual failure is "the store does not
 /// exist on this machine", which will still be true 750 ms from now, and
 /// retrying it at the refresh cadence is a syscall per second forever.
+///
+/// Enforced by `next_attempt`, NOT by how long the worker happens to sleep. It
+/// used to be a `wait_timeout` argument, which the render path could defeat
+/// without meaning to: every frame raises `asked` and signals, so a failing
+/// store was re-opened on every keystroke and the backoff never happened.
 const RETRY: Duration = Duration::from_secs(5);
 
 /// Which session's history is wanted.
@@ -76,26 +82,44 @@ struct Published {
     have: Option<LogKey>,
     /// The rows for `have`.
     rows: Vec<LogRow>,
-    /// Why the last read failed, for the one line the pane shows instead of
-    /// pretending the session has no history.
-    error: Option<String>,
-    /// Whether the render path has asked for rows since the last read.
+    /// The key a read FAILED for, and why.
+    ///
+    /// Keyed for the same reason `rows` is. An un-keyed reason is a failure
+    /// about one session rendered under whichever session the cursor is on
+    /// next: move off a row whose store read failed and the healthy row beside
+    /// it paints the red "could not be read" line, on evidence that was never
+    /// about it.
+    error: Option<(LogKey, String)>,
+    /// Whether the render path has asked for rows since the last attempt.
     ///
     /// This is what stops the worker outliving the pane. Set by every frame
-    /// that wants the log, cleared by every read the worker completes: once the
+    /// that wants the log, cleared by every attempt the worker makes: once the
     /// operator leaves the tab nothing sets it again, the worker parks on the
     /// condvar, and a session nobody is looking at stops costing a query every
     /// 750 ms for the rest of the process's life.
     asked: bool,
+    /// The earliest the worker may attempt a read again.
+    ///
+    /// Where both cadences actually live: `REFRESH` after a success, `RETRY`
+    /// after a failure. Held here rather than in the worker's sleep duration
+    /// because the render path can end that sleep at any moment, and a backoff
+    /// a keystroke can cancel is not a backoff.
+    next_attempt: Option<Instant>,
 }
 
 /// The cell the render loop reads and the worker writes.
 #[derive(Debug, Default)]
 pub struct Shared {
     published: Mutex<Published>,
-    /// Signalled when `want` changes, so a session switch does not wait out
-    /// [`REFRESH`].
+    /// Signalled when the wanted key changes or a frame starts asking again.
     wake: Condvar,
+    /// How many times [`Shared::read`] has signalled the worker.
+    ///
+    /// Test-only: the alternative is asserting on a condvar, and a missed
+    /// signal is invisible from the outside until it shows up as a pane that
+    /// took 750 ms to notice the cursor moved.
+    #[cfg(test)]
+    signals: std::sync::atomic::AtomicUsize,
 }
 
 /// What the `log` pane has to paint right now.
@@ -123,25 +147,79 @@ impl Shared {
     #[must_use]
     pub fn read(&self, key: &LogKey) -> Log {
         let mut published = self.guard();
-        if published.want.as_ref() != Some(key) {
+        let switched = published.want.as_ref() != Some(key);
+        if switched {
             published.want = Some(key.clone());
         }
-        if !published.asked {
-            published.asked = true;
-            // Woken while this lock is still held; the worker simply blocks on
-            // the mutex until the guard drops at the end of the function. Only
-            // on the FALSE->TRUE edge, because that is the only transition a
-            // parked worker is waiting for — notifying on every frame would be
-            // eighty wakeups a second telling it something it already knows.
+        let woke = !published.asked;
+        published.asked = true;
+        // BOTH edges. `woke` alone is not enough: a switch that happens while a
+        // frame is already asking leaves the worker asleep on the refresh
+        // interval, so the new session's history arrives up to `REFRESH` late
+        // on the one action where the delay is visible. Signalled while this
+        // lock is still held; the worker simply blocks on the mutex until the
+        // guard drops at the end of the function.
+        if switched || woke {
+            #[cfg(test)]
+            self.signals.fetch_add(1, Ordering::Relaxed);
             self.wake.notify_one();
         }
         if published.have.as_ref() == Some(key) {
             return Log::Rows(published.rows.clone());
         }
         match &published.error {
-            Some(reason) => Log::Failed(reason.clone()),
-            None => Log::Reading,
+            Some((failed, reason)) if failed == key => Log::Failed(reason.clone()),
+            // A failure recorded against a DIFFERENT session says nothing about
+            // this one, so this one is still simply unread.
+            _ => Log::Reading,
         }
+    }
+
+    /// How many times a `read` has signalled the worker.
+    #[cfg(test)]
+    fn signals(&self) -> usize {
+        self.signals.load(Ordering::Relaxed)
+    }
+}
+
+/// What the worker should do next.
+#[derive(Debug, PartialEq, Eq)]
+enum Action {
+    /// Read this key now.
+    Read(LogKey),
+    /// Nothing is due yet; sleep at most this long.
+    Wait(Duration),
+    /// Nobody is looking at the pane. Sleep until signalled.
+    Park,
+}
+
+/// Decide the worker's next move.
+///
+/// Pure, and separate from the loop, because every one of the three cadences
+/// this balances — park when unwatched, refresh while watched, back off after a
+/// failure — is a rule about state rather than about threading, and each is
+/// only checkable in isolation.
+fn next_action(published: &Published, now: Instant) -> Action {
+    if !published.asked {
+        return Action::Park;
+    }
+    let Some(want) = published.want.clone() else {
+        // Asked with nothing to ask FOR. Not reachable through `read`, which
+        // always sets a key; treated as "wait" rather than as a spin.
+        return Action::Wait(REFRESH);
+    };
+    // Neither an answer nor a failure for this key yet — this is a session the
+    // worker has never served, so it outranks whatever interval is running. The
+    // failure half matters: without it, a key that just failed would look
+    // unanswered forever and retry in a tight loop.
+    let answered = published.have.as_ref() == Some(&want);
+    let failed = published.error.as_ref().is_some_and(|(key, _)| *key == want);
+    if !answered && !failed {
+        return Action::Read(want);
+    }
+    match published.next_attempt {
+        Some(at) if at > now => Action::Wait(at.saturating_duration_since(now)),
+        _ => Action::Read(want),
     }
 }
 
@@ -188,51 +266,42 @@ fn worker(shared: &Shared) {
     // schema or checkpoint its WAL.
     let mut store: Option<ainb_plugin_notifyd::Store> = None;
     loop {
-        let (want, asked) = {
+        let action = {
             let published = shared.guard();
-            (published.want.clone(), published.asked)
-        };
-        let mut backoff = REFRESH;
-        if let (true, Some(key)) = (asked, want) {
-            match read_once(&mut store, &key) {
-                Ok(rows) => {
-                    let mut published = shared.guard();
-                    published.have = Some(key);
-                    published.rows = rows;
-                    published.error = None;
-                    published.asked = false;
+            let action = next_action(&published, Instant::now());
+            // Decided AND waited on under one guard, so a `read` landing in
+            // between cannot have its signal lost: `wait` releases the mutex
+            // atomically, and that `read` is still blocked on it.
+            match action {
+                Action::Park => {
+                    let _unused = shared.wake.wait(published);
+                    continue;
                 }
-                Err(reason) => {
-                    // Drop the handle: the usual causes (the file was replaced,
-                    // the daemon rebuilt it) are not fixed by reusing it.
-                    store = None;
-                    let mut published = shared.guard();
-                    published.error = Some(reason);
-                    published.asked = false;
-                    backoff = RETRY;
+                Action::Wait(interval) => {
+                    let _unused = shared.wake.wait_timeout(published, interval);
+                    continue;
                 }
+                Action::Read(key) => key,
             }
-        }
-        let published = shared.guard();
-        // A request that arrived while the read was in flight is served now
-        // rather than after a full interval — without this, the pane would show
-        // the previous session for up to `REFRESH` after the cursor moved.
-        if published.asked && published.want != published.have && published.error.is_none() {
-            continue;
-        }
-        if published.asked {
-            // The pane is open and satisfied: sleep the refresh interval, then
-            // read again.
-            let _unused = shared.wake.wait_timeout(published, backoff);
-        } else {
-            // Nobody has asked since the last read, so there is nothing to
-            // refresh FOR. Park until a frame asks again.
-            //
-            // Checked while holding the guard, and `wait` releases it
-            // atomically, so a `read` that lands between the check and the wait
-            // cannot have its notify lost — it would still be blocked on this
-            // mutex.
-            let _unused = shared.wake.wait(published);
+        };
+        match read_once(&mut store, &action) {
+            Ok(rows) => {
+                let mut published = shared.guard();
+                published.have = Some(action);
+                published.rows = rows;
+                published.error = None;
+                published.asked = false;
+                published.next_attempt = Some(Instant::now() + REFRESH);
+            }
+            Err(reason) => {
+                // Drop the handle: the usual causes (the file was replaced, the
+                // daemon rebuilt it) are not fixed by reusing it.
+                store = None;
+                let mut published = shared.guard();
+                published.error = Some((action, reason));
+                published.asked = false;
+                published.next_attempt = Some(Instant::now() + RETRY);
+            }
         }
     }
 }
@@ -364,13 +433,143 @@ mod tests {
     #[test]
     fn a_failed_read_is_reported_rather_than_rendered_as_no_history() {
         let shared = Shared::default();
+        let key = LogKey::new("/tmp/a", None);
         {
             let mut published = shared.guard();
-            published.error = Some("no notification store yet".to_string());
+            published.error = Some((key.clone(), "no notification store yet".to_string()));
         }
         assert_eq!(
-            shared.read(&LogKey::new("/tmp/a", None)),
+            shared.read(&key),
             Log::Failed("no notification store yet".to_string())
         );
+    }
+
+    /// A failure is evidence about the session it was observed on, and about no
+    /// other. Un-keyed, the red "could not be read" line followed the cursor
+    /// onto healthy rows — an outcome painted under the wrong subject, which is
+    /// the class of bug this whole surface exists to remove.
+    #[test]
+    fn a_failure_on_one_session_is_not_reported_against_another() {
+        let shared = Shared::default();
+        let broken = LogKey::new("/tmp/broken", None);
+        let healthy = LogKey::new("/tmp/healthy", None);
+        {
+            let mut published = shared.guard();
+            published.error = Some((broken.clone(), "no notification store yet".to_string()));
+        }
+        assert_eq!(
+            shared.read(&broken),
+            Log::Failed("no notification store yet".to_string()),
+            "the session it actually happened to still reports it"
+        );
+        assert_eq!(
+            shared.read(&healthy),
+            Log::Reading,
+            "and the session beside it is unread, not broken"
+        );
+    }
+
+    /// A switch has to wake a worker that is already asleep on the interval.
+    /// Signalling only on the asked edge leaves it sleeping, so the new
+    /// session's history lands up to `REFRESH` late on the one action where the
+    /// operator is watching for it.
+    #[test]
+    fn a_session_switch_signals_the_worker_even_while_a_frame_is_already_asking() {
+        let shared = Shared::default();
+        let a = LogKey::new("/tmp/a", None);
+        let b = LogKey::new("/tmp/b", None);
+
+        let _unused = shared.read(&a);
+        assert_eq!(shared.signals(), 1, "the first frame wakes a parked worker");
+        let _unused = shared.read(&a);
+        assert_eq!(
+            shared.signals(),
+            1,
+            "and every frame after it says nothing new"
+        );
+
+        let _unused = shared.read(&b);
+        assert_eq!(
+            shared.signals(),
+            2,
+            "but moving the cursor does, or the switch waits out the interval"
+        );
+    }
+
+    /// The backoff has to be a fact about STATE, not about how long the worker
+    /// happens to sleep. Held in the sleep duration, the render path cancelled
+    /// it without meaning to: every frame raises `asked` and signals, so a
+    /// missing store was re-opened on every keystroke.
+    #[test]
+    fn a_failed_read_backs_off_even_while_frames_keep_asking() {
+        let now = Instant::now();
+        let key = LogKey::new("/tmp/a", None);
+        let published = Published {
+            want: Some(key.clone()),
+            have: None,
+            rows: Vec::new(),
+            error: Some((key, "no notification store yet".to_string())),
+            // A frame asked again immediately, which is what the render loop
+            // does four times a second.
+            asked: true,
+            next_attempt: Some(now + RETRY),
+        };
+        match next_action(&published, now) {
+            Action::Wait(left) => assert!(
+                left > REFRESH,
+                "a failed read must wait out RETRY, not the refresh interval: {left:?}"
+            ),
+            other => panic!("a failing store must not be re-opened per frame, got {other:?}"),
+        }
+    }
+
+    /// The other side of the same rule: once the window has passed, the retry
+    /// actually happens.
+    #[test]
+    fn the_retry_fires_once_the_backoff_has_elapsed() {
+        let now = Instant::now();
+        let key = LogKey::new("/tmp/a", None);
+        let published = Published {
+            want: Some(key.clone()),
+            have: None,
+            rows: Vec::new(),
+            error: Some((key.clone(), "no notification store yet".to_string())),
+            asked: true,
+            next_attempt: Some(now - Duration::from_millis(1)),
+        };
+        assert_eq!(next_action(&published, now), Action::Read(key));
+    }
+
+    /// A session the worker has never served outranks whatever interval is
+    /// running: the switch is the one moment the delay is visible.
+    #[test]
+    fn an_unanswered_session_is_read_before_the_interval_elapses() {
+        let now = Instant::now();
+        let switched_to = LogKey::new("/tmp/b", None);
+        let published = Published {
+            want: Some(switched_to.clone()),
+            have: Some(LogKey::new("/tmp/a", None)),
+            rows: vec![row(1)],
+            error: None,
+            asked: true,
+            // Mid-refresh for the PREVIOUS session.
+            next_attempt: Some(now + REFRESH),
+        };
+        assert_eq!(next_action(&published, now), Action::Read(switched_to));
+    }
+
+    /// And an unwatched pane parks, whatever the intervals say.
+    #[test]
+    fn an_unwatched_pane_parks() {
+        let now = Instant::now();
+        let published = Published {
+            want: Some(LogKey::new("/tmp/a", None)),
+            have: None,
+            rows: Vec::new(),
+            error: None,
+            asked: false,
+            next_attempt: None,
+        };
+        assert_eq!(next_action(&published, now), Action::Park);
     }
 }
