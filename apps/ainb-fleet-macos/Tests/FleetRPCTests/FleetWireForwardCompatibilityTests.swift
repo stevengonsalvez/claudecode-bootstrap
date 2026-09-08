@@ -139,6 +139,67 @@ final class FleetWireForwardCompatibilityTests: XCTestCase {
         XCTAssertTrue(FleetRosterPresentation.matches(session, search: "opus", filters: .all))
     }
 
+    // MARK: - ACP session create
+
+    /// An attach names NEITHER half, and the frame must carry neither key.
+    ///
+    /// The absence IS the request: the daemon reads an absent `provider` and an
+    /// absent `cwd` as "whatever this scope already runs, wherever it already
+    /// runs it". A `null` would be a different frame for a daemon that decodes
+    /// this by key presence, and naming either half is what got this client
+    /// refused `ScopeHeld` by a session opened from a worktree while the app
+    /// named the operator's home directory.
+    func testAnAttachFrameCarriesTheScopeAndNothingElse() throws {
+        let params = FleetAcpSessionCreateParams(provider: nil, cwd: nil, scopeKey: "channel:c1")
+        let encoded = try Self.encodedObject(params)
+        XCTAssertEqual(encoded.keys.sorted(), ["scope_key"])
+        XCTAssertEqual(encoded["scope_key"] as? String, "channel:c1")
+    }
+
+    /// The legacy rung still produces the shape it always did, key for key: it
+    /// is the frame a daemon built before either field became optional expects,
+    /// and that daemon cannot be asked to be tolerant.
+    func testANamedCreateStillProducesTheOlderFrame() throws {
+        let params = FleetAcpSessionCreateParams(
+            provider: "claude-agent-acp",
+            cwd: "/Users/operator",
+            scopeKey: "channel:c1"
+        )
+        let encoded = try Self.encodedObject(params)
+        XCTAssertEqual(encoded.keys.sorted(), ["cwd", "provider", "scope_key"])
+        XCTAssertEqual(encoded["provider"] as? String, "claude-agent-acp")
+        XCTAssertEqual(encoded["cwd"] as? String, "/Users/operator")
+        XCTAssertEqual(encoded["scope_key"] as? String, "channel:c1")
+    }
+
+    /// The encoded frame as its keys and values, so these tests pin the WIRE
+    /// rather than Foundation's slash escaping or key ordering.
+    private static func encodedObject(_ value: some Encodable) throws -> [String: Any] {
+        let data = try FleetWire.encoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// The turn deadline is optional in both directions: a daemon built before
+    /// it omits the key, and nil must mean "this daemon said nothing" rather
+    /// than a decode failure or an invented 30 minutes.
+    func testAcpCreateResultDecodesWithAndWithoutTheTurnDeadline() throws {
+        let without = try FleetWire.decoder().decode(
+            FleetAcpSessionCreateResult.self,
+            from: Data(#"{"session_key":"acp:01J0KEY","scope_key":"channel:c1"}"#.utf8)
+        )
+        XCTAssertEqual(without.sessionKey, "acp:01J0KEY")
+        XCTAssertEqual(without.scopeKey, "channel:c1")
+        XCTAssertNil(without.turnDeadlineMs, "an absent deadline is not a default one")
+
+        let with = try FleetWire.decoder().decode(
+            FleetAcpSessionCreateResult.self,
+            from: Data(
+                #"{"session_key":"acp:01J0KEY","scope_key":"channel:c1","turn_deadline_ms":1800000}"#.utf8
+            )
+        )
+        XCTAssertEqual(with.turnDeadlineMs, 1_800_000)
+    }
+
     private static func sessionJSON(extra: String = "") -> String {
         """
         {"session_key":"claude:s1","provider":"claude","provider_session_id":null,

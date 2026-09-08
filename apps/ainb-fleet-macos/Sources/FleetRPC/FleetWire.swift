@@ -1093,25 +1093,55 @@ struct FleetMessageEventParams: Codable, Equatable {
     let message: FleetMessage
 }
 
-/// Adapter token the copilot channel's ACP session is opened with.
+/// Adapter token named ONLY on the legacy rung of the mint ladder.
 ///
-/// The same string the TUI uses (`COPILOT_DEFAULT_PROVIDER`). The daemon binds
-/// a scope to the adapter the FIRST `fleet/acp_session_create` names, so two
-/// clients naming different providers for `#copilot` means whichever opened the
-/// chat first decides and the other is refused.
+/// The same string the TUI keeps for the same reason (`LEGACY_DAEMON_ADAPTER`):
+/// a daemon built before `provider` became optional refuses an absent one, and
+/// this is what this client sent before that. It is NOT what a normal attach
+/// names. The daemon binds a scope to the adapter the FIRST
+/// `fleet/acp_session_create` names, so naming a guess reverts an engine the
+/// operator swapped and is refused outright once the scope is held by another.
 let copilotDefaultProvider = "claude-agent-acp"
 
+/// Parameters for `fleet/acp_session_create`.
+///
+/// Both `provider` and `cwd` are OMITTED from the frame when nil, never sent as
+/// `null`: absent is what the daemon reads as "whatever this scope already
+/// runs, wherever it already runs it", and that is the only shape that attaches
+/// to a session opened from a directory this client cannot know.
 struct FleetAcpSessionCreateParams: Encodable, Equatable {
-    let provider: String
-    let cwd: String
+    let provider: String?
+    let cwd: String?
     let scopeKey: String?
+
     private enum CodingKeys: String, CodingKey { case provider, cwd, scopeKey = "scope_key" }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(provider, forKey: .provider)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
+        try container.encodeIfPresent(scopeKey, forKey: .scopeKey)
+    }
 }
 
 struct FleetAcpSessionCreateResult: Codable, Equatable {
     let sessionKey: String
     let scopeKey: String
-    private enum CodingKeys: String, CodingKey { case sessionKey = "session_key", scopeKey = "scope_key" }
+    /// The pool's wall-clock ceiling on ONE turn, in milliseconds.
+    ///
+    /// Daemon-private otherwise: it lives on the daemon's pool config, so a
+    /// client reading the environment variable that moves it would be reading
+    /// its own process. Absent from a daemon built before it, and absent is not
+    /// 30 minutes: a pane that gets nil says nothing about a deadline rather
+    /// than inventing one. Nothing displays it yet; decoding it is what pins
+    /// the contract before the pane that bounds a PENDING leg needs it.
+    let turnDeadlineMs: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionKey = "session_key"
+        case scopeKey = "scope_key"
+        case turnDeadlineMs = "turn_deadline_ms"
+    }
 }
 
 struct FleetChannel: Codable, Equatable {
