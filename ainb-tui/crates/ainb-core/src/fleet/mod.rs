@@ -27,6 +27,7 @@ pub mod broadcast;
 pub mod chat_host;
 pub mod control;
 pub mod copilot_dial;
+pub mod daemon_cta;
 pub mod daemons;
 pub mod plumbing;
 pub mod read;

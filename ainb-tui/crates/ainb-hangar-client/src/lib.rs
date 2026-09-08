@@ -84,6 +84,41 @@ pub enum DaemonError {
     Decode(String),
 }
 
+impl DaemonError {
+    /// Whether this failure means NOTHING IS SERVING, so starting a daemon is
+    /// the fix.
+    ///
+    /// The distinction a caller offering a "start the daemon" action needs, and
+    /// the reason it is decided here rather than by reading the `Display` text:
+    /// a surface that offers to start a daemon which is already running, and
+    /// merely slow or wedged, is a lie of exactly the kind the offer exists to
+    /// remove.
+    ///
+    /// Wildcard-free, so a new variant has to declare which side it falls on
+    /// instead of inheriting "not running" from whichever arm is last.
+    ///
+    /// * [`Self::Connect`] is the unambiguous case: the socket was dialled and
+    ///   nothing accepted.
+    /// * [`Self::Token`] fails BEFORE any dial. The token file is written by
+    ///   the daemon's own start path, so an unreadable one is the never-started
+    ///   host. A token that a start genuinely cannot fix (one owned by another
+    ///   user) is indistinguishable from here, and the start reports its own
+    ///   refusal verbatim rather than this guessing on its behalf.
+    /// * [`Self::NoHome`] is NOT it: there is no hangar home to serve, and no
+    ///   daemon start creates one.
+    /// * Everything else means something ANSWERED — slowly, wrongly, or with a
+    ///   frame this build could not decode. A second daemon is not the remedy.
+    #[must_use]
+    pub const fn means_not_running(&self) -> bool {
+        match self {
+            Self::Token(_) | Self::Connect { .. } => true,
+            Self::NoHome | Self::Io(_) | Self::Timeout(_) | Self::Rpc { .. } | Self::Decode(_) => {
+                false
+            }
+        }
+    }
+}
+
 /// The daemon unix socket path (`{hangar_home}/hangar.sock`).
 #[must_use]
 pub fn socket_path() -> Option<PathBuf> {
@@ -810,6 +845,40 @@ mod tests {
     use super::*;
     use ainb_hangar_proto::fleet::{FleetEvent, FleetProvenance};
     use tokio::net::UnixListener;
+
+    /// The one classification a "start the daemon" offer is allowed to rest on.
+    ///
+    /// A timeout is the case this exists to exclude: the daemon answered the
+    /// dial and then took too long, so it IS running and offering to start it
+    /// would put a second lie on the surface the offer was added to fix.
+    #[test]
+    fn only_a_dead_socket_and_a_missing_token_read_as_not_running() {
+        assert!(
+            DaemonError::Connect {
+                path: "/tmp/hangar.sock".to_string(),
+                source: std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+            }
+            .means_not_running()
+        );
+        assert!(DaemonError::Token("No such file or directory".to_string()).means_not_running());
+
+        for answered in [
+            DaemonError::Timeout(Duration::from_secs(5)),
+            DaemonError::Io("broken pipe".to_string()),
+            DaemonError::Rpc {
+                code: -32601,
+                message: "method not found".to_string(),
+            },
+            DaemonError::Decode("unknown field".to_string()),
+            // No home to serve: no start creates one.
+            DaemonError::NoHome,
+        ] {
+            assert!(
+                !answered.means_not_running(),
+                "{answered} must not be read as a stopped daemon"
+            );
+        }
+    }
 
     async fn write_test_frame(writer: &mut OwnedWriteHalf, value: &Value) {
         let body = serde_json::to_vec(value).expect("test frame serializes");

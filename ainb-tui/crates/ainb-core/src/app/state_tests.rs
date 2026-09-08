@@ -2571,6 +2571,7 @@ mod tests {
             by_cwd,
             reachable: false,
             error: Some("attention/list via /x/hangar.sock: refused".into()),
+            not_running: true,
         };
 
         state.refresh_attention_markers(2_000);
