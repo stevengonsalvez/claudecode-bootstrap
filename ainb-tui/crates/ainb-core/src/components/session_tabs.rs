@@ -105,27 +105,53 @@ impl SessionTab {
         if self == Self::Copilot && state.copilot_daemon_cta_armed() {
             return std::borrow::Cow::Borrowed(START_DAEMON_VERB);
         }
-        // A refused ask has NO verb. The footer is the last thing an operator
-        // reads before pressing the key, so "send answer" over a row that
-        // cannot send is the advertisement that makes the whole pane a lie —
-        // the same defect as a green tick over a failed send.
-        if self == Self::Ask
-            && selected_blocking(state).is_some_and(|chip| chip.answerable.refusal().is_some())
-        {
+        // A pane that cannot act advertises NO verb. The footer is the last
+        // thing an operator reads before pressing the key, so a verb over a
+        // pane that will decline it is the advertisement that makes the whole
+        // surface a lie — the same defect as a green tick over a failed send.
+        if self.enter_refusal(state).is_some() {
             return std::borrow::Cow::Borrowed("");
         }
         let targets = state.broadcast_targets().len();
         if self == Self::Thread && targets > 0 {
             return std::borrow::Cow::Owned(format!("broadcast to {targets}"));
         }
-        // A pane that cannot send advertises NO verb. `send message` printed
-        // over a composer reading "nothing to send to" is a footer promising a
-        // key that does nothing, which is the same dead end as a greyed chip
-        // with no reason — and it was on screen at the same time as the reason.
-        if state.session_tab_send_block(self).is_some() {
-            return std::borrow::Cow::Borrowed("");
-        }
         std::borrow::Cow::Borrowed(self.enter_verb())
+    }
+
+    /// Why `Enter` on this tab cannot do its ordinary job right now, in the
+    /// refusing surface's OWN words, or `None` when it can.
+    ///
+    /// ONE place, exhaustive over the tabs, rather than a branch per surface
+    /// that discovered the problem for itself. `ask` learned it from a native
+    /// picker it cannot answer and `thread`/`copilot` from a chat host with
+    /// nothing to send to, and those are the same rule wearing two faces: a
+    /// footer must never advertise a verb the pane will decline. Two adjacent
+    /// special cases invite a third, and the third is the one that gets
+    /// forgotten.
+    ///
+    /// Wildcard-free, so a sixth tab has to answer here rather than inherit
+    /// whichever arm happens to be last.
+    ///
+    /// The REASON, not a bool: both sources already have a sentence, and it is
+    /// the sentence the pane itself prints — dropping it at this boundary would
+    /// leave the footer and the pane deriving the same fact twice.
+    #[must_use]
+    pub fn enter_refusal(self, state: &AppState) -> Option<String> {
+        match self {
+            // Attaching asks nothing of the pane, and a history pane has no
+            // verb to refuse in the first place.
+            Self::Preview | Self::Log => None,
+            // The chip's own refusal. A native picker is answered in the
+            // agent's terminal, and nothing typed here ever reaches it.
+            Self::Ask => selected_blocking(state)
+                .and_then(|chip| chip.answerable.refusal())
+                .map(ToString::to_string),
+            // The LIVE conversation's answer, not an inference from the tab.
+            // `send_block` already yields to a broadcast, whose composer is not
+            // the chat host's and is never blocked by it.
+            Self::Thread | Self::Copilot => state.session_tab_send_block(self),
+        }
     }
 
     /// What `Enter` does on this tab. One sentence, shown in the footer, so the
@@ -1518,6 +1544,46 @@ mod tests {
                 ticked, painted,
                 "{tab:?} ticks one conversation and paints another"
             );
+        }
+    }
+
+    /// Both refusals go through the ONE predicate, in the refusing surface's
+    /// own words.
+    ///
+    /// They arrived as two adjacent special cases — an `ask` whose picker is
+    /// native, and a chat host with nothing to send to — and a third tab
+    /// needing this must extend the match rather than add a fourth branch to
+    /// the footer. Asserted on the REASON, so a predicate that answered `true`
+    /// for the wrong surface would not pass.
+    #[test]
+    fn one_predicate_carries_every_reason_a_tab_refuses_enter() {
+        use crate::fleet::attention::{Answerable, Unanswerable};
+
+        // The `ask` case, which landed on main: a native picker is answered in
+        // the agent's own terminal.
+        let mut refused = SessionAttention::local(AttentionKind::Ask, 0);
+        refused.answerable = Answerable::No(Unanswerable::NativePicker);
+        let mut state = state_with(vec![refused], true);
+        assert_eq!(
+            SessionTab::Ask.enter_refusal(&state).as_deref(),
+            Some(Unanswerable::NativePicker.reason()),
+            "the ask tab must carry the chip's own refusal, not a paraphrase"
+        );
+        assert_eq!(SessionTab::Ask.enter_verb_in(&state), "");
+
+        // The chat case: a copilot whose scope the daemon never minted.
+        state.session_tab = SessionTab::Copilot;
+        state.copilot_chat = Some(crate::fleet::chat_host::ChatHost::copilot());
+        with_daemon(&mut state, true, false);
+        assert!(
+            SessionTab::Copilot.enter_refusal(&state).is_some(),
+            "a copilot with no scope has nothing to send to"
+        );
+        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), "");
+
+        // And the tabs with nothing to refuse say so rather than defaulting.
+        for tab in [SessionTab::Preview, SessionTab::Log] {
+            assert_eq!(tab.enter_refusal(&state), None, "{tab:?}");
         }
     }
 
