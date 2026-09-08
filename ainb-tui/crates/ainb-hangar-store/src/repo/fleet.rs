@@ -74,7 +74,14 @@ where
 /// 6 `SQLITE_LOCKED`, 261 `SQLITE_BUSY_RECOVERY`, 262 `SQLITE_LOCKED_SHAREDCACHE`,
 /// 517 `SQLITE_BUSY_SNAPSHOT`. Everything else (constraint violations, decode
 /// faults, corruption) must surface unchanged on the first attempt.
-fn is_lock_contention(error: &sqlx::Error) -> bool {
+///
+/// Public because the daemon classifies with it too: `codex/session_ensure`
+/// answers a contended store with its own wire code so a caller can tell "the
+/// store is busy" from "the request was wrong", and the one place the code list
+/// lives has to be this one. Duplicating it is how the two halves drift and a
+/// caller starts treating a real fault as transient.
+#[must_use]
+pub fn is_lock_contention(error: &sqlx::Error) -> bool {
     let Some(database) = error.as_database_error() else {
         return false;
     };
