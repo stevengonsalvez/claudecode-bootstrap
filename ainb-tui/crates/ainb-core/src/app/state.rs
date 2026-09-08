@@ -3715,6 +3715,17 @@ pub struct AppState {
     /// start one without having to remember whether it already did.
     pub attention_poll_running: Arc<std::sync::atomic::AtomicBool>,
 
+    /// The `log` tab's history, filled by [`crate::fleet::session_log`] on its
+    /// own thread.
+    ///
+    /// Read on the render path, never QUERIED there: the store read used to
+    /// live inside `terminal.draw` and cost a real store up to 948 ms a frame.
+    pub session_log: Arc<crate::fleet::session_log::Shared>,
+
+    /// Whether the session-log worker is alive. Same idempotence flag, and the
+    /// same reason, as [`Self::attention_poll_running`].
+    pub session_log_running: Arc<std::sync::atomic::AtomicBool>,
+
     /// Daemon attention rows whose cwd matched no row on this screen, counted
     /// for the header so the ONE attention surface never silently swallows a
     /// request it could not place.
@@ -4217,6 +4228,8 @@ impl Default for AppState {
                 crate::fleet::attention::DaemonAttention::default(),
             )),
             attention_poll_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            session_log: Arc::new(crate::fleet::session_log::Shared::default()),
+            session_log_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             attention_elsewhere: 0,
             session_tab: crate::components::session_tabs::SessionTab::default(),
             ask_state: crate::fleet::answer::AskState::default(),

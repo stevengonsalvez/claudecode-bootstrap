@@ -515,8 +515,36 @@ fn circled(index: usize) -> String {
 /// Per-session, not fleet-wide. The cross-session view the host Inbox used to
 /// provide lives on in the hangar plugin's `I` tab; recreating it here would
 /// rebuild the duplication this screen exists to delete.
-pub fn render_log(frame: &mut Frame, area: Rect, rows: &[LogRow]) {
-    use ratatui::widgets::{List, ListItem};
+///
+/// The read happens on [`crate::fleet::session_log`]'s worker, so this takes
+/// what the worker last published — including the two states that are NOT
+/// "there is no history": the first frame after the cursor moved, and a store
+/// that could not be read at all.
+pub fn render_log(frame: &mut Frame, area: Rect, log: &crate::fleet::session_log::Log) {
+    use crate::fleet::session_log::Log;
+    use ratatui::widgets::{List, ListItem, Paragraph};
+
+    let rows = match log {
+        Log::Rows(rows) => rows.as_slice(),
+        Log::Reading => {
+            frame.render_widget(
+                Paragraph::new("reading this session's history\u{2026}")
+                    .style(Style::default().fg(MUTED_GRAY)),
+                area,
+            );
+            return;
+        }
+        // Named, not swallowed. A store that cannot be opened rendered as the
+        // empty state is how an operator concludes their notifications are
+        // gone rather than that a path is wrong.
+        Log::Failed(reason) => {
+            frame.render_widget(
+                Paragraph::new(format!("\u{26a0} {reason}")).style(Style::default().fg(ALERT_RED)),
+                area,
+            );
+            return;
+        }
+    };
 
     if rows.is_empty() {
         frame.render_widget(
@@ -564,38 +592,30 @@ pub struct LogRow {
     pub detail: String,
 }
 
-/// Read one session's notification history out of the notifyd store.
+/// Keep one session's rows out of a batch the store already returned.
 ///
-/// Opens the store per call rather than holding a handle, matching how the chip
-/// producer reads it: the query is microseconds, it only runs while the `log`
-/// tab is actually open, and it keeps the daemon as the database's sole
-/// long-lived owner.
+/// PURE, and deliberately not a store read: the read runs on
+/// [`crate::fleet::session_log`]'s worker thread, because doing it here — which
+/// is inside `terminal.draw` — is what made the `log` tab cost a second a
+/// frame. This is the half that has to happen for whatever the worker fetched.
 #[must_use]
-pub fn read_log(cwd: &str, agent: Option<&str>, limit: u32) -> Vec<LogRow> {
-    let Ok(paths) = ainb_plugin_notifyd::Paths::from_home() else {
-        return Vec::new();
-    };
-    if !paths.db.exists() {
-        return Vec::new();
-    }
-    let Ok(store) = ainb_plugin_notifyd::Store::open(&paths.db) else {
-        return Vec::new();
-    };
+pub fn log_rows(
+    records: &[ainb_plugin_notifyd::NotificationRecord],
+    cwd: &str,
+    agent: Option<&str>,
+    limit: usize,
+) -> Vec<LogRow> {
     let cwd = cwd.trim_end_matches('/');
-    // Window and limit deliberately generous: this is a history pane an
-    // operator opens on purpose, not a per-frame read.
-    let Ok(rows) = store.recent_since(0, limit.saturating_mul(20)) else {
-        return Vec::new();
-    };
-    rows.into_iter()
+    records
+        .iter()
         .filter(|row| {
             row.cwd.trim_end_matches('/') == cwd && agent.is_none_or(|agent| row.agent == agent)
         })
-        .take(limit as usize)
+        .take(limit)
         .map(|row| LogRow {
             ts: row.ts,
             event: row.raw_event.clone(),
-            detail: log_detail(&row),
+            detail: log_detail(row),
         })
         .collect()
 }
