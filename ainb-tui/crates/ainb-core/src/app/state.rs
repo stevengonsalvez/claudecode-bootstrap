@@ -3420,6 +3420,12 @@ pub struct AppState {
     pub last_panel_close_version: Option<u64>,
     // Notification system
     pub notifications: Vec<Notification>,
+    /// Sessions already told they started without shared Codex remote control.
+    ///
+    /// The dedup key for `notify_codex_degraded`. Kept here rather than checked
+    /// against the live notification list because notifications EXPIRE: a
+    /// message-equality check would let the same fact reappear minutes later.
+    codex_degrade_announced: std::collections::HashSet<Uuid>,
     // Pending event to be processed in next loop iteration
     pub pending_event: Option<crate::app::events::AppEvent>,
 
@@ -4111,6 +4117,7 @@ impl Default for AppState {
             previous_screen: None,
             last_panel_close_version: None,
             notifications: Vec::new(),
+            codex_degrade_announced: std::collections::HashSet::new(),
             pending_event: None,
 
             // Initialize quick commit state
@@ -10300,6 +10307,7 @@ impl AppState {
             // control is unavailable on this hangar home". Both resume the
             // session with plain provider argv; the degrade reason rides back
             // so the resume can say WHY on screen, not only in the log.
+            let mut codex_degrade = None;
             let mut codex_remote = if metadata.agent_type == SessionAgentType::Codex {
                 let outcome = crate::interactive::session_manager::ensure_codex_remote_thread(
                     metadata.session_id,
@@ -10310,6 +10318,7 @@ impl AppState {
                     metadata.codex_thread_id.clone(),
                 )
                 .await?;
+                codex_degrade = outcome.degrade();
                 outcome.thread()
             } else {
                 None
@@ -10340,6 +10349,7 @@ impl AppState {
                     &metadata.tmux_session_name,
                 )
                 .await?;
+                codex_degrade = outcome.degrade().or(codex_degrade);
                 codex_remote = outcome.thread();
             }
             if let Some(thread_id) =
@@ -10349,6 +10359,9 @@ impl AppState {
                     metadata.session_id,
                     thread_id.to_string(),
                 )?;
+            }
+            if let Some(degrade) = codex_degrade {
+                self.notify_codex_degraded(metadata.session_id, degrade);
             }
 
             // Re-register live tmux handle and flip status to Running.
@@ -11646,6 +11659,28 @@ impl AppState {
     pub fn add_info_notification(&mut self, message: String) {
         self.add_notification(Notification::info(message));
     }
+
+    /// Say ONCE, on screen, that a Codex session started without shared remote
+    /// control, and why.
+    ///
+    /// Informational, not an error: the session DID start. The launch is not
+    /// retried and nothing was lost except the shared thread, so an error
+    /// notification would misdescribe an outcome the user can simply live with.
+    ///
+    /// Once per session, enforced here rather than at the call sites, so a
+    /// future poll loop that reaches this cannot turn a one-off fact into a
+    /// recurring banner. A notice that repeats is one the user learns to skip.
+    pub fn notify_codex_degraded(
+        &mut self,
+        session_id: Uuid,
+        degrade: crate::interactive::session_manager::SharedThreadDegrade,
+    ) {
+        if !self.codex_degrade_announced.insert(session_id) {
+            return;
+        }
+        self.add_info_notification(degrade.notice());
+    }
+
     /// Explain that a read-only preview cannot provide tmux copy-mode without
     /// filling the notification queue while a scroll key repeats.
     pub fn notify_live_preview_no_scrollback(&mut self) {
@@ -12618,6 +12653,7 @@ impl AppState {
         // is unavailable on this hangar home". Both restart the session with
         // plain provider argv; the degrade reason rides back so the restart can
         // say WHY on screen, not only in the log.
+        let mut codex_degrade = None;
         let mut codex_remote = if agent_type == SessionAgentType::Codex {
             let outcome = crate::interactive::session_manager::ensure_codex_remote_thread(
                 session_id,
@@ -12628,6 +12664,7 @@ impl AppState {
                 metadata.and_then(|m| m.codex_thread_id.clone()),
             )
             .await?;
+            codex_degrade = outcome.degrade();
             outcome.thread()
         } else {
             None
@@ -12664,6 +12701,7 @@ impl AppState {
                 &tmux_session_name,
             )
             .await?;
+            codex_degrade = outcome.degrade().or(codex_degrade);
             codex_remote = outcome.thread();
         }
         if let Some(thread_id) =
@@ -12673,6 +12711,9 @@ impl AppState {
                 session_id,
                 thread_id.to_string(),
             )?;
+        }
+        if let Some(degrade) = codex_degrade {
+            self.notify_codex_degraded(session_id, degrade);
         }
 
         if let Some(session) = self.find_session_mut(session_id) {
@@ -14850,5 +14891,115 @@ mod docker_probe_shared_static_test {
         }
 
         invalidate_docker_probe_cache(&DOCKER_PROBE);
+    }
+}
+
+#[cfg(test)]
+mod codex_degrade_notice_tests {
+    //! The on-screen half of the Codex degrade: a session that starts without
+    //! shared remote control says so, says WHY, and says it exactly once.
+    //!
+    //! The classification these sit on top of is pinned in `session_manager`.
+    //! What is pinned here is the thing a classifier test cannot show: that the
+    //! fact reaches the notification strip, and that a second pass over the
+    //! same session does not add a second banner.
+
+    use uuid::Uuid;
+
+    use super::AppState;
+    use crate::interactive::session_manager::SharedThreadDegrade;
+
+    /// Every cause names both what happened and what it cost.
+    ///
+    /// "No shared remote control" on its own is the message that sent the user
+    /// to a 30 MB daemon log for a fact Ainb already had, so the cause is not
+    /// optional in any variant.
+    #[test]
+    fn every_degrade_notice_names_its_cause_and_its_cost() {
+        for degrade in [
+            SharedThreadDegrade::EphemeralHome,
+            SharedThreadDegrade::NoDaemon,
+            SharedThreadDegrade::StoreBusy,
+        ] {
+            let notice = degrade.notice();
+            assert!(
+                notice.contains(degrade.cause()),
+                "{degrade:?} must name its cause: {notice}"
+            );
+            assert!(
+                notice.contains("without shared remote control"),
+                "{degrade:?} must name what the session lost: {notice}"
+            );
+            assert!(
+                notice.contains("cannot join this conversation"),
+                "{degrade:?} must say who is shut out: {notice}"
+            );
+        }
+        // The three causes must be distinguishable on screen, or naming the
+        // cause buys nothing.
+        let causes = [
+            SharedThreadDegrade::EphemeralHome.cause(),
+            SharedThreadDegrade::NoDaemon.cause(),
+            SharedThreadDegrade::StoreBusy.cause(),
+        ];
+        let mut unique = causes.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            causes.len(),
+            "each cause must read differently"
+        );
+    }
+
+    /// Announced once per session, however many times the launch path runs.
+    ///
+    /// This is the regression the dedup exists for: a notice that reappears on
+    /// every pass trains the user to dismiss it unread, which is worse than
+    /// never showing it. Driving the call twice stands in for the second pass.
+    #[test]
+    fn a_degraded_launch_is_announced_once_per_session() {
+        let mut state = AppState::new();
+        let session = Uuid::new_v4();
+        let before = state.notifications.len();
+
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+        state.notify_codex_degraded(session, SharedThreadDegrade::StoreBusy);
+
+        let added: Vec<_> = state.notifications[before..]
+            .iter()
+            .filter(|n| n.message.contains("without shared remote control"))
+            .collect();
+        assert_eq!(
+            added.len(),
+            1,
+            "three passes over one session must leave ONE notice, got: {added:?}"
+        );
+        assert!(
+            added[0].message.contains(SharedThreadDegrade::StoreBusy.cause()),
+            "the single notice must still name the cause: {}",
+            added[0].message
+        );
+    }
+
+    /// The dedup is per session, not global: a second degraded session is a
+    /// second fact the user has not been told yet.
+    #[test]
+    fn a_second_session_gets_its_own_notice() {
+        let mut state = AppState::new();
+        let before = state.notifications.len();
+
+        state.notify_codex_degraded(Uuid::new_v4(), SharedThreadDegrade::NoDaemon);
+        state.notify_codex_degraded(Uuid::new_v4(), SharedThreadDegrade::NoDaemon);
+
+        let added = state.notifications[before..]
+            .iter()
+            .filter(|n| n.message.contains("without shared remote control"))
+            .count();
+        assert_eq!(
+            added, 2,
+            "two distinct sessions must each be announced once"
+        );
     }
 }
