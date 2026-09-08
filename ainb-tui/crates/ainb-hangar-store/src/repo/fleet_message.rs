@@ -317,7 +317,13 @@ impl FleetMessageRepo {
         .transpose()
     }
 
-    /// Page one scope's messages after a `seq` cursor, oldest first.
+    /// Walk one scope's messages FORWARD from a `seq` cursor, oldest first.
+    ///
+    /// This is the cursored half of scope paging, for a caller that already
+    /// holds a row and wants what came after it. A caller that holds NOTHING
+    /// wants [`Self::tail_by_scope`] instead: starting this walk at 0 answers
+    /// with the beginning of the conversation, which for any scope longer than
+    /// one page is not what a chat surface is asking for.
     pub async fn list_by_scope(
         pool: &SqlitePool,
         scope_key: &str,
@@ -334,6 +340,39 @@ impl FleetMessageRepo {
         .fetch_all(pool)
         .await?;
         rows.iter().map(message_from).collect()
+    }
+
+    /// The NEWEST page of one scope, returned oldest first.
+    ///
+    /// What an uncursored read of a conversation means. A client opening a chat
+    /// pane holds no cursor and wants the end of the thread, the way every chat
+    /// surface ever built opens on the latest message; walking forward from 0
+    /// hands it the first hundred messages instead, and past that hundred the
+    /// live tail is unreachable by paging at all. Both the notch and the
+    /// terminal client read this way, and both were blind past their limit.
+    ///
+    /// Selected `seq DESC` so the index does the work and only `limit` rows are
+    /// read, then REVERSED so the response ordering is identical to the
+    /// cursored walk. Callers already rely on ascending commit order, and a
+    /// read that returned the same rows backwards would be a wire change
+    /// wearing the clothes of a bug fix.
+    pub async fn tail_by_scope(
+        pool: &SqlitePool,
+        scope_key: &str,
+        limit: i64,
+    ) -> Result<Vec<FleetMessageRow>, sqlx::Error> {
+        let rows = sqlx::query(&format!(
+            "SELECT {MESSAGE_COLUMNS} FROM fleet_message \
+             WHERE scope_key = ? ORDER BY seq DESC LIMIT ?"
+        ))
+        .bind(scope_key)
+        .bind(limit.max(0))
+        .fetch_all(pool)
+        .await?;
+        let mut messages: Vec<FleetMessageRow> =
+            rows.iter().map(message_from).collect::<Result<_, _>>()?;
+        messages.reverse();
+        Ok(messages)
     }
 
     /// Page every message after a `seq` cursor, oldest first (the digest view
@@ -661,6 +700,57 @@ mod tests {
         assert_eq!(second.id, "msg-2");
     }
 
+    /// A scope LONGER than one page answers an uncursored read with its END,
+    /// and a cursored read still walks forward from where the caller is.
+    ///
+    /// The bug this pins is silent and total: an uncursored read that walks
+    /// forward from 0 hands a chat client the first page of the conversation
+    /// forever, so every message past the limit is unreachable, and a client
+    /// that also receives live pushes watches each new message appear and then
+    /// be wiped by its own next page.
+    #[tokio::test]
+    async fn an_uncursored_scope_read_answers_the_newest_page() {
+        let (_dir, store) = store().await;
+        for index in 1..=5 {
+            FleetMessageRepo::insert_message(
+                store.pool(),
+                &message(&format!("msg-{index}"), "session:s-1"),
+            )
+            .await
+            .unwrap();
+        }
+
+        let tail = FleetMessageRepo::tail_by_scope(store.pool(), "session:s-1", 2).await.unwrap();
+        assert_eq!(
+            tail.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["msg-4", "msg-5"],
+            "an uncursored read must answer the END of the conversation, ascending"
+        );
+
+        // And the forward walk is untouched: from the tail's own last row, the
+        // next page is empty, and from the start it is still the beginning.
+        let after_tail = FleetMessageRepo::list_by_scope(store.pool(), "session:s-1", 5, 2)
+            .await
+            .unwrap();
+        assert!(after_tail.is_empty(), "nothing is committed after the head");
+        let from_start = FleetMessageRepo::list_by_scope(store.pool(), "session:s-1", 0, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            from_start.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["msg-1", "msg-2"],
+            "a cursored walk from the start still pages forward"
+        );
+        let next = FleetMessageRepo::list_by_scope(store.pool(), "session:s-1", 2, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            next.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["msg-3", "msg-4"],
+            "and continues from the cursor it was given"
+        );
+    }
+
     #[tokio::test]
     async fn lists_page_by_seq_and_scope() {
         let (_dir, store) = store().await;
@@ -694,6 +784,13 @@ mod tests {
             .unwrap();
         assert_eq!(after.len(), 1, "the cursor pages by seq, not by id");
         assert_eq!(after[0].id, "msg-3");
+
+        let tail = FleetMessageRepo::tail_by_scope(store.pool(), "session:s-1", 10).await.unwrap();
+        assert_eq!(
+            tail.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["msg-1", "msg-3"],
+            "a scope shorter than the limit answers the same rows either way"
+        );
 
         assert_eq!(
             FleetMessageRepo::seq_for_id(store.pool(), "msg-3").await.unwrap(),

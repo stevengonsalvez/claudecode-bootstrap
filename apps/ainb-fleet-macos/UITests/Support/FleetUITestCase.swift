@@ -1,5 +1,37 @@
 import XCTest
 
+/// Base for the shell journeys, which drive the REAL app against a fixture
+/// daemon rather than a mock.
+///
+/// These do not run in CI, and the attempt is recorded here so nobody repeats
+/// it. A GitHub-hosted macOS runner has no usable GUI session for a real app:
+/// the launch hangs for around two minutes and then fails with "Application
+/// 'dev.ainb.fleet' does not have a process ID", and it does so for every
+/// journey, including ones that pass locally in seconds. Signing is not the
+/// problem, and a UI runner does need signing, so the step cannot simply borrow
+/// the CODE_SIGNING_ALLOWED=NO the unit step above it uses.
+///
+/// Run them by hand, from the repository root:
+///
+///     xcodebuild test \
+///       -project apps/ainb-fleet-macos/AINBFleet.xcodeproj \
+///       -scheme FleetUITests \
+///       -destination 'platform=macOS'
+///
+/// Two things the machine needs first. The terminal invoking xcodebuild must be
+/// allowed under Privacy and Security, Accessibility, or every journey dies at
+/// "Timed out while enabling automation mode" before a single test is selected.
+/// And when that timeout appears anyway on a machine that has the permission,
+/// `testmanagerd` is wedged: kill it by its exact process id, let launchd
+/// restart it, and re-run. That happened twice in one session while these
+/// journeys were being written.
+///
+/// The fixture daemon binary is resolved as
+/// `<repo>/ainb-tui/target/debug/examples/fleet_fixture_daemon`, so build it
+/// first. `AINB_FLEET_FIXTURE_DAEMON` is read by the runner process but does
+/// NOT survive being set in the shell that invokes xcodebuild; symlink the
+/// binary into place instead.
+
 class FleetUITestCase: XCTestCase {
     var fixture: FleetFixtureDaemon!
     var app: XCUIApplication!

@@ -42,7 +42,16 @@ final class MenuBarRosterJourneyTests: FleetUITestCase {
         let notch = app.buttons["fleet.notch"]
         waitFor(notch)
         notch.click()
-        app.segmentedControls["fleet.notch.route"].buttons["Needs you"].click()
+        // A RADIO GROUP, not a segmented control. A SwiftUI `Picker` with
+        // `.pickerStyle(.segmented)` is published to the accessibility tree as
+        // a `RadioGroup` of `RadioButton`s on this platform, and
+        // `app.segmentedControls` matches nothing at all, which is why this
+        // line used to fail with "No match" while the control was on screen,
+        // correctly identified and correctly labelled. The route control was
+        // never broken; the query was.
+        let route = app.radioGroups["fleet.notch.route"].radioButtons["Needs you"]
+        waitFor(route)
+        route.click()
         waitFor(app.buttons["fleet.notch.row.codex:ask"])
         XCTAssertFalse(app.buttons["fleet.notch.row.claude:active"].exists)
         waitFor(app.staticTexts["fleet.notch.detail.codex:ask"])

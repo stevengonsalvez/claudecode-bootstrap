@@ -596,7 +596,264 @@ final class FleetChatPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Live chat events folded into the surface
+
+    /// A message committed in the scope on screen lands in the timeline, in
+    /// commit order, without a page.
+    func testALiveMessageForTheShownScopeAppendsToTheTimeline() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.message(try Self.liveMessage(id: "01J0B", body: "second")))
+
+        XCTAssertEqual(surface.messages.map(\.id), ["01J0A", "01J0B"])
+        XCTAssertEqual(surface.messages.last?.body, "second")
+    }
+
+    /// A message for a DIFFERENT scope is dropped, never rendered.
+    ///
+    /// This is the whole reason the fold reads the scope: the daemon's message
+    /// forwarder is fleet-wide, so a broadcast channel's traffic and every
+    /// other copilot conversation arrive on the same socket. A pane that
+    /// rendered them would attribute another conversation's message to this one
+    /// and offer the operator a reply that goes somewhere else.
+    func testALiveMessageForAnotherScopeIsDropped() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.message(try Self.liveMessage(id: "01J0B", body: "elsewhere", scope: "channel:other")))
+
+        XCTAssertEqual(surface.messages.map(\.id), ["01J0A"])
+    }
+
+    /// The same id twice REPLACES.
+    ///
+    /// The daemon's forwarder replays from a cursor, so a message can arrive
+    /// live and again in the page that follows. Appending both would show the
+    /// operator their own message twice with no way to tell which one the
+    /// copilot answered.
+    func testALiveMessageThatAlreadyExistsReplacesRatherThanDuplicates() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.message(try Self.liveMessage(id: "01J0A", body: "edited")))
+
+        XCTAssertEqual(surface.messages.map(\.id), ["01J0A"])
+        XCTAssertEqual(surface.messages.first?.body, "edited")
+    }
+
+    /// Nothing is folded before a page has resolved a scope.
+    ///
+    /// An event that arrives between `fleet/message_subscribe` and the first
+    /// page has nothing to be compared against, and a surface with no scope
+    /// cannot prove the event belongs to it. The page that follows carries it.
+    func testAnEventArrivingBeforeAScopeIsResolvedIsDropped() throws {
+        var surface = FleetChatSurface()
+        surface.apply(.message(try Self.liveMessage(id: "01J0B", body: "early")))
+
+        XCTAssertEqual(surface.messages, [])
+    }
+
+    /// The timeline stays inside the page's own ceiling, dropping the oldest.
+    ///
+    /// A pane left open all day would otherwise grow without bound, and the
+    /// bound that matters is the one a fresh page would show.
+    func testTheTimelineStaysBoundedByThePageCeiling() throws {
+        var surface = try Self.shownSurface()
+        for index in 0..<Int(fleetMessageListMax) {
+            surface.apply(.message(try Self.liveMessage(id: "live-\(index)", body: "row \(index)")))
+        }
+
+        XCTAssertEqual(surface.messages.count, Int(fleetMessageListMax))
+        XCTAssertEqual(
+            surface.messages.first?.id, "live-0",
+            "the ceiling drops the OLDEST row, which is the page's first one"
+        )
+        XCTAssertEqual(surface.messages.last?.id, "live-\(Int(fleetMessageListMax) - 1)")
+    }
+
+    /// A confirm card is upserted by its id, and an ANSWERED card is kept in
+    /// its new state rather than dropped.
+    ///
+    /// `fleet/confirm_list` only returns OPEN cards, so dropping an answered
+    /// one here would make the card vanish the instant it was approved, with
+    /// nothing to say the approval was what removed it.
+    func testALiveConfirmUpsertsByIDAndKeepsAnAnsweredCard() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(Self.liveConfirm(id: "01J0CARD", state: "open"))
+        XCTAssertEqual(surface.confirms.map(\.id), ["01J0CARD"])
+        XCTAssertTrue(surface.confirms[0].isAnswerable)
+
+        surface.apply(Self.liveConfirm(id: "01J0CARD", state: "approved"))
+        XCTAssertEqual(surface.confirms.map(\.id), ["01J0CARD"], "the answer must not add a second card")
+        XCTAssertEqual(surface.confirms[0].stateLabel, "APPROVED")
+        XCTAssertFalse(surface.confirms[0].isAnswerable)
+    }
+
+    /// A live card this build cannot decode still reaches the pane, as an
+    /// UNANSWERABLE row.
+    ///
+    /// The tolerance the paged list has always had, now on the live path too.
+    /// The alternative is the one shape of card the operator never sees: the
+    /// page renders it as unrecognised, so a stream that dropped it would make
+    /// a card appear only on the safety net, half a minute late, having been
+    /// silently withheld in between.
+    func testALiveConfirmThisBuildCannotDecodeStillRendersUnanswerable() throws {
+        var surface = try Self.shownSurface()
+        let broken = Self.brokenConfirmValue(id: "01J0BAD", scope: "channel:copilot")
+
+        surface.apply(.confirm(card: FleetChatConfirmCard.decode(broken), scopeKey: "channel:copilot"))
+
+        XCTAssertEqual(surface.confirms.map(\.id), ["01J0BAD"], "the card was withheld entirely")
+        XCTAssertFalse(surface.confirms[0].isAnswerable, "a card this build cannot read must never be approvable")
+        XCTAssertEqual(surface.confirms[0].stateLabel, "UNRECOGNISED")
+    }
+
+    /// A confirm card for another scope is dropped, like every other event.
+    func testALiveConfirmForAnotherScopeIsDropped() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(Self.liveConfirm(id: "01J0CARD", state: "open", scope: "channel:other"))
+
+        XCTAssertEqual(surface.confirms, [])
+    }
+
+    /// Activity APPENDS, oldest first, because that is the order its page
+    /// returns (`ORDER BY seq ASC`). A feed with one half ascending and the
+    /// other descending cannot be read at all.
+    func testALiveActivityAppendsInPageOrderAndStaysBounded() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.activity(try Self.liveActivity(seq: 2)))
+        surface.apply(.activity(try Self.liveActivity(seq: 3)))
+
+        XCTAssertEqual(surface.activity.map(\.seq), [1, 2, 3])
+
+        for seq in 4...(Int64(fleetActivityListMax) + 1) {
+            surface.apply(.activity(try Self.liveActivity(seq: seq)))
+        }
+        XCTAssertEqual(surface.activity.count, Int(fleetActivityListMax))
+        XCTAssertEqual(surface.activity.first?.seq, 2, "the ceiling drops the oldest row")
+        XCTAssertEqual(surface.activity.last?.seq, Int64(fleetActivityListMax) + 1)
+    }
+
+    /// The same `seq` twice replaces rather than duplicating, so a replayed
+    /// row cannot show one tool call as two.
+    func testALiveActivityRowIsUpsertedBySeq() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.activity(try Self.liveActivity(seq: 1, tool: "kill_session")))
+
+        XCTAssertEqual(surface.activity.map(\.seq), [1])
+        XCTAssertEqual(surface.activity.first?.tool, "kill_session")
+    }
+
+    /// Every event type reports the scope it was filed under, which is what
+    /// makes a fleet-wide stream safe to render in a scoped pane. Exhaustive
+    /// over the enum on purpose: a fourth event shape must fail here.
+    func testEveryLiveEventNamesItsScope() throws {
+        let events: [FleetChatEvent] = [
+            .message(try Self.liveMessage(id: "01J0B", body: "b")),
+            Self.liveConfirm(id: "01J0CARD", state: "open"),
+            .activity(try Self.liveActivity(seq: 9)),
+        ]
+
+        XCTAssertEqual(events.map(\.scopeKey), Array(repeating: "channel:copilot", count: events.count))
+    }
+
+    // MARK: - The chat route's way back
+
+    /// Closing the chat pane returns the operator to the route they came from,
+    /// not to Sessions.
+    ///
+    /// The pane is a route rather than a presentation, so Close has to name a
+    /// destination rather than dismissing one. Always answering Sessions throws
+    /// away whatever the operator had set up before they went to read the
+    /// conversation, which for anybody who lives in Needs you is every time.
+    @MainActor
+    func testClosingChatReturnsToTheRouteItWasOpenedFrom() {
+        let navigation = FleetNotchNavigation()
+
+        navigation.route = .needsYou
+        navigation.route = .chat
+        XCTAssertEqual(navigation.routeBeforeChat, .needsYou)
+
+        navigation.route = navigation.routeBeforeChat
+        XCTAssertEqual(navigation.route, .needsYou)
+    }
+
+    /// Leaving chat does not make chat the way back.
+    ///
+    /// Without the guard, the route being left is recorded unconditionally, so
+    /// the first Close records chat and the next one returns to the pane it
+    /// just closed.
+    @MainActor
+    func testLeavingChatDoesNotMakeChatTheWayBack() {
+        let navigation = FleetNotchNavigation()
+
+        navigation.route = .usage
+        navigation.route = .chat
+        navigation.route = navigation.routeBeforeChat
+        // Second visit, from where the first one put them.
+        navigation.route = .chat
+
+        XCTAssertEqual(navigation.routeBeforeChat, .usage, "Close would have reopened the pane it just closed")
+    }
+
+    /// The default is the roster, for an operator whose first act is Chat.
+    @MainActor
+    func testChatOpenedFirstReturnsToTheRoster() {
+        let navigation = FleetNotchNavigation()
+
+        navigation.route = .chat
+
+        XCTAssertEqual(navigation.routeBeforeChat, .sessions)
+    }
+
     // MARK: - Helpers
+
+    /// A surface in the state a paged pane is in: one scope, one message, one
+    /// activity row.
+    private static func shownSurface() throws -> FleetChatSurface {
+        var surface = FleetChatSurface()
+        surface.scopeKey = "channel:copilot"
+        surface.targetSessionKey = "acp:1"
+        surface.messages = [FleetChatMessageRow(message: try liveMessage(id: "01J0A", body: "first"))]
+        surface.activity = [try liveActivity(seq: 1)]
+        return surface
+    }
+
+    /// Built from JSON in the shape the Rust struct defines, like every other
+    /// wire value in this suite: a renamed key fails here rather than being
+    /// renamed on both sides.
+    private static func liveMessage(id: String, body: String, scope: String = "channel:copilot") throws -> FleetMessage {
+        try FleetWire.decoder().decode(FleetMessage.self, from: Data("""
+        {"id":"\(id)","scope_key":"\(scope)","sender":"copilot",
+         "kind":"agent","body":"\(body)","created_at":1700000000000}
+        """.utf8))
+    }
+
+    /// One live confirm event, built the way the STORE builds one: raw JSON in,
+    /// through the page's own tolerant decode, with the scope read off the
+    /// frame. Anything less would test a path the app does not take.
+    private static func liveConfirm(id: String, state: String, scope: String = "channel:copilot") -> FleetChatEvent {
+        let raw = confirmValue(id: id, state: state, scope: scope)
+        return .confirm(card: FleetChatConfirmCard.decode(raw), scopeKey: scope)
+    }
+
+    /// A card whose `created_at` is the wrong TYPE, which is the failure a
+    /// tolerant enum does not cover and the row-by-row decode exists for.
+    private static func brokenConfirmValue(id: String, scope: String) -> JSONValue {
+        (try? FleetWire.decoder().decode(JSONValue.self, from: Data("""
+        {"confirm_id":"\(id)","scope_key":"\(scope)","tool":"spawn_session","arguments":{},
+         "state":"open","created_at":"not-a-number","expires_at":2}
+        """.utf8))) ?? .null
+    }
+
+    private static func confirmValue(id: String, state: String, scope: String, tool: String = "kill_session") -> JSONValue {
+        (try? FleetWire.decoder().decode(JSONValue.self, from: Data("""
+        {"confirm_id":"\(id)","scope_key":"\(scope)","tool":"\(tool)","arguments":{},
+         "state":"\(state)","created_at":1,"expires_at":2}
+        """.utf8))) ?? .null
+    }
+
+    private static func liveActivity(seq: Int64, tool: String = "list_sessions", scope: String = "channel:copilot") throws -> FleetActivityRow {
+        try FleetWire.decoder().decode(FleetActivityRow.self, from: Data("""
+        {"seq":\(seq),"id":"act-\(seq)","scope_key":"\(scope)","tool":"\(tool)",
+         "class":"read","outcome":"ok","created_at":1}
+        """.utf8))
+    }
 
     private static func deliveries(_ legs: String) throws -> [FleetMessageDelivery] {
         try FleetWire.decoder().decode(

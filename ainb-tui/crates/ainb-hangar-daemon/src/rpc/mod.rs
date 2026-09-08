@@ -1747,11 +1747,19 @@ fn require_fleet_capability(id: &str) -> Result<(), RpcError> {
 /// An id that resolves to no row is `invalid_params`, never start-of-log: a
 /// client paging with a stale or fabricated cursor must hear about it instead
 /// of silently receiving the whole log again.
-async fn message_cursor_for(pool: &SqlitePool, after_id: Option<&str>) -> Result<i64, RpcError> {
+async fn message_cursor_for(
+    pool: &SqlitePool,
+    after_id: Option<&str>,
+) -> Result<Option<i64>, RpcError> {
     use ainb_hangar_store::repo::fleet_message::FleetMessageRepo;
 
+    // `None`, not `Some(0)`. An ABSENT cursor and a cursor that happens to
+    // resolve to the start of the log are different questions: the first asks
+    // for the newest page of a conversation, the second walks forward from a
+    // row the caller already has. Collapsing them into 0 is what made every
+    // uncursored read answer with the beginning of the thread.
     let Some(after_id) = after_id else {
-        return Ok(0);
+        return Ok(None);
     };
     if after_id.trim().is_empty() {
         return Err(invalid_params("after_id must not be empty"));
@@ -1759,6 +1767,7 @@ async fn message_cursor_for(pool: &SqlitePool, after_id: Option<&str>) -> Result
     FleetMessageRepo::seq_for_id(pool, after_id)
         .await
         .map_err(|error| store_err(&error))?
+        .map(Some)
         .ok_or_else(|| invalid_params(&format!("after_id {after_id} is not a known message")))
 }
 
@@ -2480,12 +2489,16 @@ async fn handle_fleet_message_list(
         // The both-set case is rejected above, so this arm only ever sees a
         // thread filter on its own.
         (Some(origin_id), _) => {
-            FleetMessageRepo::list_by_origin(pool, origin_id, after_seq, limit).await
+            FleetMessageRepo::list_by_origin(pool, origin_id, after_seq.unwrap_or(0), limit).await
         }
-        (None, Some(scope_key)) => {
-            FleetMessageRepo::list_by_scope(pool, scope_key, after_seq, limit).await
-        }
-        (None, None) => FleetMessageRepo::list_all(pool, after_seq, limit).await,
+        // A scope read with NO cursor answers with the newest page, because
+        // that is what opening a conversation means. With a cursor it walks
+        // forward from that row exactly as before, so paging is untouched.
+        (None, Some(scope_key)) => match after_seq {
+            Some(seq) => FleetMessageRepo::list_by_scope(pool, scope_key, seq, limit).await,
+            None => FleetMessageRepo::tail_by_scope(pool, scope_key, limit).await,
+        },
+        (None, None) => FleetMessageRepo::list_all(pool, after_seq.unwrap_or(0), limit).await,
     }
     .map_err(|error| store_err(&error))?;
     let messages: Vec<_> = rows.iter().map(message_wire).collect();

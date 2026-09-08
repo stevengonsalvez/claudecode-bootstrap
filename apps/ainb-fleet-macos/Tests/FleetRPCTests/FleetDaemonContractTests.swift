@@ -458,6 +458,152 @@ final class FleetDaemonContractTests: XCTestCase {
         XCTAssertFalse(rooted.sessionKey.isEmpty)
     }
 
+    /// The whole point of PR B, against a real daemon: a message committed by
+    /// SOMEBODY ELSE arrives on this connection as a notification, with nothing
+    /// polled in between.
+    ///
+    /// Two connections, because one client sending to itself proves nothing
+    /// about a push: the sender already holds the result. The second connection
+    /// is the copilot, the TUI, the CLI, or another window, and the assertion
+    /// is that this one hears about it.
+    ///
+    /// The ack alone is deliberately not the assertion. `head_id` says the
+    /// daemon parsed the frame; only the event says it registered the forwarder
+    /// that makes the pane live, and that registration happens in `serve_conn`
+    /// AFTER the response is queued, i.e. in code the ack cannot reach.
+    func testRealDaemonPushesACommittedMessageToASubscribedConnection() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let reader = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await reader.close() } }
+        let writer = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await writer.close() } }
+
+        // The copilot conversation, and the ACP session that IS its membership:
+        // a `channel:` scope only accepts a send addressed to one of its
+        // members, and a copilot channel's member is the session on its scope.
+        let channel = try await writer.channelCreate(
+            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+        ).channel
+        let session = try await writer.acpSessionCreate(FleetAcpSessionCreateParams(
+            provider: copilotDefaultProvider,
+            cwd: "/work/worktree",
+            scopeKey: channel.scopeKey
+        ))
+
+        let stream = await reader.incoming()
+        let acknowledgement = try await reader.messageSubscribe()
+        XCTAssertNil(acknowledgement.headID, "an empty log has no head")
+
+        async let incoming = Self.nextMessageEvent(from: stream)
+        let sent = try await writer.messageSend(FleetMessageSendParams(
+            scopeKey: channel.scopeKey,
+            targets: [session.sessionKey],
+            originMessageID: nil,
+            text: "what is blocked?",
+            requestID: UUID().uuidString
+        ))
+        let event = try await incoming
+
+        XCTAssertEqual(event.message.id, sent.messageID)
+        XCTAssertEqual(event.message.scopeKey, channel.scopeKey)
+        XCTAssertEqual(event.message.body, "what is blocked?")
+        // The daemon's own record of who wrote it, which is what the pane
+        // attributes the row to. A push that lost this would render another
+        // client's message as unattributed.
+        XCTAssertEqual(event.message.sender, "operator")
+    }
+
+    /// The same connection carries the fleet subscription AND the chat one.
+    ///
+    /// They are separate forwarders over one writer daemon-side, and this is
+    /// the reason the notch does not need a second socket for live chat. A
+    /// daemon that started replacing one forwarder with the other would leave
+    /// the roster frozen the moment the chat pane opened, which is the kind of
+    /// regression nothing else here would catch.
+    func testRealDaemonServesFleetAndChatSubscriptionsOnOneConnection() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let first = try fixture.seed("both-1")
+        let reader = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await reader.close() } }
+        let writer = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await writer.close() } }
+
+        let channel = try await writer.channelCreate(
+            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+        ).channel
+        let session = try await writer.acpSessionCreate(FleetAcpSessionCreateParams(
+            provider: copilotDefaultProvider,
+            cwd: "/work/worktree",
+            scopeKey: channel.scopeKey
+        ))
+
+        let stream = await reader.incoming()
+        _ = try await reader.subscribe(afterRevision: first)
+        _ = try await reader.messageSubscribe()
+
+        async let messageEvent = Self.nextMessageEvent(from: stream)
+        _ = try await writer.messageSend(FleetMessageSendParams(
+            scopeKey: channel.scopeKey,
+            targets: [session.sessionKey],
+            originMessageID: nil,
+            text: "still here",
+            requestID: UUID().uuidString
+        ))
+        let chat = try await messageEvent
+        XCTAssertEqual(chat.message.body, "still here")
+
+        // And the fleet half is still live on the same socket afterwards.
+        async let fleetEvent = Self.nextFleetEvent(from: stream)
+        _ = try fixture.seed("both-2", eventType: "Stop")
+        let roster = try await fleetEvent
+        XCTAssertEqual(roster.eventID, "both-2")
+    }
+
+    /// The next `fleet/message_event`, or a FAILURE within `timeout`.
+    ///
+    /// Bounded, unlike its `nextFleetEvent` sibling, because the thing it waits
+    /// for is a push that has to be REGISTERED daemon-side: the failure mode
+    /// under test is one where the notification simply never comes, and an
+    /// unbounded await turns that into a suite that hangs instead of a test
+    /// that fails.
+    private static func nextMessageEvent(
+        from stream: AsyncStream<FleetIncoming>,
+        timeout: Duration = .seconds(5)
+    ) async throws -> FleetMessageEventParams {
+        try await withThrowingTaskGroup(of: FleetMessageEventParams?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                while let incoming = await iterator.next() {
+                    if case let .messageEvent(event) = incoming {
+                        return event
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            guard let event = first else {
+                throw MissingChatNotification()
+            }
+            return event
+        }
+    }
+
+    /// Named rather than reusing `FleetConnectionError.closed`, so the failure
+    /// says which subscription did not deliver instead of reading like a socket
+    /// that hung up.
+    private struct MissingChatNotification: Error, CustomStringConvertible {
+        var description: String {
+            "no fleet/message_event arrived on the subscribed connection"
+        }
+    }
+
     private static func nextFleetEvent(from stream: AsyncStream<FleetIncoming>) async throws -> FleetEvent {
         var iterator = stream.makeAsyncIterator()
         while let incoming = await iterator.next() {

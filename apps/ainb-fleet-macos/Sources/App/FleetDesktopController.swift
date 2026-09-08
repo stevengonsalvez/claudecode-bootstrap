@@ -23,7 +23,7 @@ final class FleetPresentationStore: ObservableObject {
 /// Interviews destination -- a tab that only re-showed the roster was a dead end
 /// in a nav that is meant to be the single one.
 enum FleetNotchRoute: String, CaseIterable, Identifiable {
-    case sessions, needsYou, usage, settings
+    case sessions, needsYou, chat, usage, settings
 
     var id: Self { self }
 
@@ -31,6 +31,7 @@ enum FleetNotchRoute: String, CaseIterable, Identifiable {
         switch self {
         case .sessions: "Sessions"
         case .needsYou: "Needs you"
+        case .chat: "Chat"
         case .usage: "Usage"
         case .settings: "Settings"
         }
@@ -40,7 +41,27 @@ enum FleetNotchRoute: String, CaseIterable, Identifiable {
 @MainActor
 final class FleetNotchNavigation: ObservableObject {
     @Published var isExpanded = false
-    @Published var route: FleetNotchRoute = .sessions
+    @Published var route: FleetNotchRoute = .sessions {
+        didSet { rememberRouteBeforeChat(oldValue) }
+    }
+
+    /// Where closing the chat pane puts the operator back.
+    ///
+    /// The pane is a route rather than a presentation, so its Close has to
+    /// choose a destination, and the only defensible one is where the operator
+    /// came from. Sending them to Sessions unconditionally silently discards a
+    /// filter or a route they had set up before they went to read the
+    /// conversation.
+    private(set) var routeBeforeChat: FleetNotchRoute = .sessions
+
+    /// Record the route being LEFT, unless it is the chat route itself.
+    ///
+    /// Leaving chat must not overwrite the answer with chat, or Close would
+    /// return to the pane it just closed.
+    private func rememberRouteBeforeChat(_ leaving: FleetNotchRoute) {
+        guard leaving != .chat else { return }
+        routeBeforeChat = leaving
+    }
 }
 
 @MainActor
@@ -63,7 +84,16 @@ final class FleetDesktopController: NSObject {
             let size = NSSize(width: 320, height: 38)
             let panel: NSWindow
             if FleetAppConfiguration.isUITest {
-                panel = NSWindow(
+                // A KEY-CAPABLE borderless window, not a plain one.
+                // `NSWindow.canBecomeKey` is false for a borderless window, so
+                // the plain one this branch used could never take keyboard
+                // focus: every text field in the notch was unfocusable under
+                // XCUITest, and typing into one failed with "Neither element
+                // nor any descendant has keyboard focus". The shipping panel
+                // does not have that problem, because `FleetNotchPanel`
+                // overrides the same property, so the harness was refusing an
+                // interaction the real app allows.
+                panel = FleetKeyableWindow(
                     contentRect: NSRect(origin: .zero, size: size),
                     styleMask: [.borderless],
                     backing: .buffered,
@@ -286,6 +316,17 @@ private struct FleetNotchView: View {
             switch navigation.route {
             case .sessions, .needsYou:
                 rosterContent
+            case .chat:
+                // A ROUTE, not a sheet. The notch is the only surface this app
+                // has, and its idiom for a large secondary view is already a
+                // route: Usage and Settings arrive the same way. A sheet would
+                // present from a borderless panel and, at the pane's 760 by 520
+                // minimum against a 920 by 720 notch, would cover its own host.
+                //
+                // Closing returns the operator to the route they came from,
+                // because there is no presentation to dismiss here and no
+                // reason to discard the view they had set up.
+                FleetChatPaneView(store: store, close: { navigation.route = navigation.routeBeforeChat })
             case .usage:
                 FleetUsageView(store: store, period: $usagePeriod)
             case .settings:
@@ -381,6 +422,16 @@ private struct FleetNotchView: View {
 }
 
 private final class FleetNotchPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+/// The UI-test stand-in for `FleetNotchPanel`, key-capable for the same reason.
+///
+/// A plain `NSWindow` is used under test rather than the panel because a
+/// non-activating panel does not receive synthesized events reliably, but the
+/// substitution has to keep the one behaviour a journey depends on: a window
+/// the composer can take focus in.
+private final class FleetKeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
