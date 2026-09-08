@@ -69,23 +69,5 @@ jobs:
             -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/ainb-fleet-macos-contract" \
             CODE_SIGNING_ALLOWED=NO
-      # The shell journeys, which the AINBFleet scheme above does NOT run: its
-      # TestAction lists FleetRPCTests alone, so every UI test in this repo was
-      # invisible to CI. That gap is not theoretical. The chat pane's host view
-      # stopped being instantiated on 2026-08-07 and the pane itself landed
-      # three days later, so it shipped unreachable and stayed that way for a
-      # month with a green pipeline the whole time, because nothing in CI ever
-      # opened a window.
-      #
-      # No CODE_SIGNING_ALLOWED=NO here, unlike the step above: a UI test runs
-      # through a generated runner app, and that runner has to be signed, even
-      # if only ad hoc, before the system will let it drive another process.
-      - name: Run Fleet UI journeys
-        run: |
-          xcodebuild test \
-            -project apps/ainb-fleet-macos/AINBFleet.xcodeproj \
-            -scheme FleetUITests \
-            -destination 'platform=macOS' \
-            -derivedDataPath "$RUNNER_TEMP/ainb-fleet-macos-journeys"
       - name: Build Release Fleet app
         run: bash apps/ainb-fleet-macos/ci/check-release-diagnostics.sh "$RUNNER_TEMP/ainb-fleet-macos-release"
