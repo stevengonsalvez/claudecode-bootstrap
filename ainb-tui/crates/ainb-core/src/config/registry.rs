@@ -654,6 +654,13 @@ pub static CONFIG_REGISTRY: &[Entry] = &[
         kind: RowKind::Number { min: 1, max: 8760 },
     }),
     Entry::Row(ConfigRow {
+        key: "ui.attention_err_window_hours",
+        category: C::Appearance,
+        label: "Error Chip Window",
+        help: "Hours a failure keeps lighting an ERR chip; the err tab still shows it after",
+        kind: RowKind::Number { min: 1, max: 8760 },
+    }),
+    Entry::Row(ConfigRow {
         key: "ui.inbox_list_limit",
         category: C::Appearance,
         label: "Inbox Row Limit",
@@ -1943,6 +1950,7 @@ mod tests {
                 app_tick_ms: 500,
                 session_query_limit: 250,
                 session_lookback_hours: 12,
+                attention_err_window_hours: 4,
                 inbox_list_limit: 100,
                 double_click_ms: 400,
             },
