@@ -269,13 +269,13 @@ impl ActionMenu {
 /// What a finished lifecycle action reported.
 #[derive(Debug, Clone)]
 pub struct ActionOutcome {
-    action: Action,
-    ok: bool,
+    pub(crate) action: Action,
+    pub(crate) ok: bool,
     /// One line for the row itself.
-    summary: String,
+    pub(crate) summary: String,
     /// Everything the command said: the argv, its exit status, and its output.
     /// This is what the error view shows, verbatim.
-    detail: String,
+    pub(crate) detail: String,
 }
 
 impl DaemonsState {
@@ -627,7 +627,7 @@ fn run_hook_action(intent: BinaryIntent) -> String {
 /// Runs on a throwaway thread. The captured argv, exit status, and output are
 /// what the row's error view shows verbatim — the operator sees the actual
 /// failure, not our summary of it.
-fn run_daemon_action(kind_id: &str, verb: &str, action: Action) -> ActionOutcome {
+pub(crate) fn run_daemon_action(kind_id: &str, verb: &str, action: Action) -> ActionOutcome {
     let argv = format!("ainb daemon {kind_id} {verb}");
     // Never self-exec a test harness: under `cargo test` current_exe() is the
     // test binary, and libtest treats the trailing argv as name filters, so
