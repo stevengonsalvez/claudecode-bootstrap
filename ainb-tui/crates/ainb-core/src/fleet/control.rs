@@ -219,31 +219,35 @@ pub fn chat_page_blocking(
         let cwd = std::env::current_dir()
             .map(|cwd| cwd.display().to_string())
             .unwrap_or_else(|_| ".".to_string());
-        let mint = |provider: Option<String>| {
+        let mint = |provider: Option<String>, cwd: Option<String>| {
             client.acp_session_create(ainb_hangar_proto::fleet::FleetAcpSessionCreateParams {
                 provider,
-                cwd: cwd.clone(),
+                cwd,
                 scope_key: Some(scope.clone()),
             })
         };
-        // Deliberately unnamed: this call wants THE copilot session, not a
-        // particular engine. Naming one reverted an adapter the operator had
-        // swapped, and once the scope was held by that other adapter the mint
-        // was refused outright, so opening the chat page after a swap failed
-        // instead of attaching.
-        let created = match mint(None).await {
-            // A daemon older than this binary still REQUIRES `provider`, and an
-            // absent one is a missing field it refuses. That is the ordinary
-            // upgrade-the-binary-keep-the-daemon window, and leaving it would
-            // make the copilot page unopenable across it. Retried once naming
-            // the built-in adapter, which is exactly what this call sent before
-            // the parameter became optional: no worse than it was, against a
-            // daemon that cannot do better.
-            Err(error) if names_the_provider_field(&error.to_string()) => {
-                mint(Some(LEGACY_DAEMON_ADAPTER.to_string())).await
-            }
-            other => other,
-        };
+        // Deliberately unnamed, BOTH halves: this call wants THE copilot
+        // session, not a particular engine rooted at a particular directory.
+        // Naming an adapter reverted one the operator had swapped, and naming a
+        // cwd was refused outright the moment the scope was held by a session
+        // opened from a different directory, which is every TUI launched from
+        // anywhere but the first one.
+        let mut created = mint(None, None).await;
+        // Rung 2: a daemon built before `cwd` became optional REQUIRES one, and
+        // a current daemon asks for it when the scope has no live session to
+        // take a root from. Both are answered by naming this process's own
+        // directory, which is exactly what this call sent before.
+        if matches!(&created, Err(error) if names_missing_field(&error.to_string(), "cwd")) {
+            created = mint(None, Some(cwd.clone())).await;
+        }
+        // Rung 3: older still, `provider` is required too. That is the ordinary
+        // upgrade-the-binary-keep-the-daemon window, and leaving it would make
+        // the copilot page unopenable across it. Named as the built-in adapter,
+        // which is what this call sent before the parameter became optional: no
+        // worse than it was, against a daemon that cannot do better.
+        if matches!(&created, Err(error) if names_missing_field(&error.to_string(), "provider")) {
+            created = mint(Some(LEGACY_DAEMON_ADAPTER.to_string()), Some(cwd.clone())).await;
+        }
         let (target_session_key, session_detail, turn_deadline_ms) = match created {
             // The pool's turn ceiling rides back on the mint and is the only
             // door it has onto a client, so it is carried through to the pane
@@ -755,21 +759,36 @@ pub fn copilot_configure_blocking(
 /// arbitrary.
 const LEGACY_DAEMON_ADAPTER: &str = "claude-agent-acp";
 
-/// Whether a daemon refusal is the older daemon rejecting an ABSENT `provider`.
+/// Whether a daemon refusal is that daemon asking for `field` to be NAMED.
 ///
 /// Matched on the wording because that is all a JSON-RPC `invalid_params`
-/// carries. Deliberately narrow: it gates one retry that is harmless when the
-/// guess is wrong, and a new daemon never produces this message at all, having
-/// made the field optional.
-fn names_the_provider_field(error: &str) -> bool {
+/// carries, and ANCHORED to the field name rather than looking for two loose
+/// substrings. That is not fussiness: `parse_params` formats every refusal as
+/// `expected {shape}: {serde error}` and the SHAPE HINT names every field, so
+/// a legacy daemon refusing an absent provider says
+/// `expected { provider, cwd, scope_key? }: missing field \`provider\``, which
+/// contains both "cwd" and "missing". A matcher looking for those two
+/// separately fires the cwd rung on a provider refusal, spending it on a
+/// request the daemon never made.
+///
+/// Exactly two shapes are accepted, and nothing else:
+///
+/// * ``missing field `<field>` ``, serde's own, from a daemon built before the
+///   field became optional. The backticks are part of the match: without them
+///   the shape hint alone satisfies it.
+/// * `<field> is required`, the current daemon's own refusal, which is not a
+///   skew at all but is answered by the same retry: name it.
+///
+/// Everything else propagates, which is the point. A scope already held names
+/// the field too (`... whose cwd is "/work/api"`), as does an unknown adapter,
+/// and both are real refusals whose wording is the operator's only clue. An
+/// `invalid type` arm is deliberately absent as well (a caller sending a number
+/// is a client bug, and retrying it with a guessed value would mask it).
+fn names_missing_field(error: &str, field: &str) -> bool {
     let error = error.to_ascii_lowercase();
-    // `missing` only. The field is `skip_serializing_if = "Option::is_none"`,
-    // so an omitted provider is absent from the frame rather than `null`, and
-    // an older daemon reports it as a MISSING field. An `invalid type` arm was
-    // unreachable from this call site and could only have masked a genuine
-    // client bug — a caller sending a number — by retrying it against the
-    // built-in adapter.
-    error.contains("provider") && error.contains("missing")
+    let field = field.to_ascii_lowercase();
+    error.contains(&format!("missing field `{field}`"))
+        || error.contains(&format!("{field} is required"))
 }
 
 #[cfg(test)]
@@ -829,33 +848,116 @@ mod tests {
     use super::*;
     use crate::fleet::types::{Session, SessionSource};
 
-    /// The retry fires for an older daemon's refusal of an absent `provider`,
-    /// and for nothing else — an unknown-adapter refusal names the provider too
-    /// and must NOT be retried with a different one.
+    /// The two refusals a REAL daemon sends when it wants `provider` named,
+    /// verbatim.
+    ///
+    /// Verbatim matters more than it looks. `parse_params` wraps every serde
+    /// error as `expected {shape}: {error}`, and the shape hint lists the other
+    /// fields, so these strings contain the word "cwd" as well. A matcher that
+    /// looked for "cwd" and "missing" separately called this a cwd refusal and
+    /// spent the cwd rung on it; the tests that said otherwise were feeding
+    /// messages no daemon emits.
+    const LEGACY_MISSING_PROVIDER: &str = "daemon rpc error -32602: expected { provider, cwd, scope_key? }: \
+         missing field `provider`";
+    const CWD_REQUIRED_DAEMON_MISSING_PROVIDER: &str = "daemon rpc error -32602: expected { provider?, cwd, scope_key? }: \
+         missing field `provider`";
+    /// What a daemon built before `cwd` became optional sends.
+    const LEGACY_MISSING_CWD: &str = "daemon rpc error -32602: expected { provider?, cwd, scope_key? }: \
+         missing field `cwd`";
+    /// What THIS daemon sends when the create has no live session to take a
+    /// root from. Not a skew, but answered by the same retry.
+    const CWD_REQUIRED: &str = "daemon rpc error -32602: cwd is required unless the named scope \
+         already has a live session to take its root from";
+
+    /// Rung 3 fires for a daemon that asks for `provider`, and for nothing
+    /// else. An unknown-adapter refusal names the provider too and must NOT be
+    /// retried with a different one.
     #[test]
     fn only_a_missing_provider_field_triggers_the_legacy_retry() {
-        assert!(names_the_provider_field(
-            "invalid params: missing field `provider`"
-        ));
         assert!(
-            !names_the_provider_field(
-                "invalid params: invalid type: number, expected a string at provider"
+            names_missing_field(LEGACY_MISSING_PROVIDER, "provider"),
+            "the daemon that requires both fields"
+        );
+        assert!(
+            names_missing_field(CWD_REQUIRED_DAEMON_MISSING_PROVIDER, "provider"),
+            "the daemon that made provider optional but still requires cwd"
+        );
+        assert!(
+            !names_missing_field(
+                "daemon rpc error -32602: expected { provider?, cwd?, scope_key? }: \
+                 invalid type: integer `7`, expected a string",
+                "provider"
             ),
             "a caller sending the wrong type is a client bug, not a daemon skew, \
              and must not be retried against a different adapter"
         );
         assert!(
-            !names_the_provider_field(
-                "unknown adapter \"gemini-acp\"; fleet/adapter_list names the ones this daemon can spawn"
+            !names_missing_field(
+                "unknown adapter \"gemini-acp\"; fleet/adapter_list names the ones this daemon can spawn",
+                "provider"
             ),
             "an adapter the daemon does not know is a real refusal, not a skew"
         );
         assert!(
-            !names_the_provider_field(
-                "scope_key \"channel:c1\" is already held by a session whose provider is codex-acp"
+            !names_missing_field(
+                "scope_key \"channel:c1\" is already held by a session whose provider is codex-acp",
+                "provider"
             ),
             "a held scope must not be retried with the built-in adapter"
         );
+    }
+
+    /// Rung 2 fires for BOTH daemons that want a cwd named: one built before
+    /// the field was optional, and a current one with no live session to take a
+    /// root from. Neither is answerable any other way.
+    #[test]
+    fn a_daemon_asking_for_a_cwd_triggers_the_second_rung_but_a_held_scope_does_not() {
+        assert!(
+            names_missing_field(LEGACY_MISSING_CWD, "cwd"),
+            "a daemon built before cwd became optional"
+        );
+        assert!(
+            names_missing_field(CWD_REQUIRED, "cwd"),
+            "the current daemon with nothing to resolve the root from"
+        );
+        assert!(
+            !names_missing_field(
+                "scope_key \"channel:c1\" is already held by a session whose cwd is \
+                 \"/work/api\", not \"/work/web\"; stop it before creating a different one",
+                "cwd"
+            ),
+            "a held scope is a real refusal whose wording is the operator's only clue"
+        );
+        assert!(
+            !names_missing_field("cwd must not be empty", "cwd"),
+            "a blank cwd is a client bug, not a daemon asking to be told"
+        );
+    }
+
+    /// The rungs do not answer each other's refusals.
+    ///
+    /// This is the assertion the loose matcher failed. Both legacy refusals
+    /// carry the word "cwd" inside `parse_params`'s shape hint, so a client
+    /// that read them as a cwd request would name a directory at a daemon that
+    /// asked for an adapter, get the same refusal, and only then climb to the
+    /// rung that would have worked.
+    #[test]
+    fn a_refusal_for_one_field_never_satisfies_the_other_rung() {
+        for refusal in [
+            LEGACY_MISSING_PROVIDER,
+            CWD_REQUIRED_DAEMON_MISSING_PROVIDER,
+        ] {
+            assert!(
+                !names_missing_field(refusal, "cwd"),
+                "the shape hint names cwd, but the daemon asked for a provider: {refusal}"
+            );
+        }
+        for refusal in [LEGACY_MISSING_CWD, CWD_REQUIRED] {
+            assert!(
+                !names_missing_field(refusal, "provider"),
+                "a daemon asking for a root must not be answered with an adapter: {refusal}"
+            );
+        }
     }
 
     fn seed_git_repository(path: &Path) -> (git2::Repository, git2::Oid) {

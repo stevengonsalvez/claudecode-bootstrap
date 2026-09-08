@@ -1209,6 +1209,229 @@ async fn a_create_with_no_provider_keeps_the_scopes_own_adapter() {
     );
 }
 
+/// A create that names NEITHER half attaches to the scope's standing session,
+/// keeping its adapter AND its root.
+///
+/// The cwd half is the one that made the macOS notch unusable: it named
+/// `$HOME` on every one-second poll while the live copilot scope was held by a
+/// session opened from a worktree, so every poll was refused `ScopeHeld`, the
+/// pane fell back to a copilot channel's (always empty) recipient list, and the
+/// composer had nobody to send to. A client attaching to a conversation cannot
+/// know where that conversation was opened, so the daemon answers it.
+#[tokio::test]
+async fn a_create_with_neither_half_attaches_to_the_standing_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, store, _sink) = start_server(dir.path()).await;
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let created = client
+        .call(
+            methods::FLEET_CHANNEL_CREATE,
+            json!({ "kind": "copilot", "name": "#copilot" }),
+        )
+        .await;
+    let scope = created["result"]["channel"]["scope_key"].as_str().unwrap().to_string();
+    // Held with a root NO client could guess, which is the live shape: the
+    // session was opened from a worktree, not from the attaching app's home.
+    let session = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "codex-acp", "cwd": "/work/worktree", "scope_key": scope }),
+        )
+        .await;
+    assert!(session["error"].is_null(), "{session}");
+    let session_key = session["result"]["session_key"].as_str().unwrap().to_string();
+
+    let attached = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "scope_key": scope }),
+        )
+        .await;
+    assert!(
+        attached["error"].is_null(),
+        "an attach that names neither half must not be refused: {attached}"
+    );
+    assert_eq!(
+        attached["result"]["session_key"], session_key,
+        "it must answer with the session the scope already holds"
+    );
+    let (provider, cwd): (String, String) =
+        sqlx::query_as("SELECT provider, cwd FROM fleet_acp_session WHERE session_key = ?")
+            .bind(&session_key)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(provider, "codex-acp", "the operator's adapter stands");
+    assert_eq!(cwd, "/work/worktree", "and so does the session's root");
+}
+
+/// An omitted cwd on a scope with NO live session is refused, because the
+/// daemon has no root to resolve and may not invent one.
+///
+/// Inventing one (the daemon's own working directory, or the caller's home)
+/// would mint a session whose every later prompt runs against a repository
+/// nobody chose, and the mint would answer 200 while doing it. The refusal is
+/// what tells a client to name a directory, and it is the rung the TUI and the
+/// notch both retry on.
+#[tokio::test]
+async fn an_omitted_cwd_on_a_fresh_scope_is_refused_rather_than_rooted_by_the_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, _store, _sink) = start_server(dir.path()).await;
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let created = client
+        .call(
+            methods::FLEET_CHANNEL_CREATE,
+            json!({ "kind": "copilot", "name": "#copilot" }),
+        )
+        .await;
+    let scope = created["result"]["channel"]["scope_key"].as_str().unwrap().to_string();
+
+    let refused = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "scope_key": scope }),
+        )
+        .await;
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    // The EXACT phrase, not "cwd" and "required" somewhere in the string. Both
+    // client ladders anchor on this, and `parse_params` puts the whole shape
+    // hint (which names every field) in front of any serde error, so a looser
+    // assertion here would pass against a message that names a different field.
+    assert!(
+        message.contains("cwd is required"),
+        "the refusal must carry the phrase both client ladders match on: {refused}"
+    );
+
+    // The same refusal, reached the OTHER way: no scope at all. A create with
+    // no scope mints a private one, so it can never have an incumbent, and a
+    // refusal that spoke of "the scope" would describe one that was never sent.
+    let unscoped = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "codex-acp" }),
+        )
+        .await;
+    assert_eq!(unscoped["error"]["code"], -32602, "{unscoped}");
+    let message = unscoped["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("cwd is required"),
+        "a private-scope create needs the same phrase: {unscoped}"
+    );
+    assert!(
+        !message.contains("the scope has no live session"),
+        "no scope was sent, so the refusal must not describe one: {unscoped}"
+    );
+
+    // A BLANK cwd is the same request spelled with whitespace, and gets the
+    // same refusal. It used to reach `ensure` as "cwd must not be empty", which
+    // neither client ladder can match, so a caller that sent one had no rung to
+    // spend and simply stuck.
+    let blank = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "cwd": "   ", "scope_key": scope }),
+        )
+        .await;
+    assert_eq!(blank["error"]["code"], -32602, "{blank}");
+    assert!(
+        blank["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("cwd is required"),
+        "a blank cwd must land on the rung a client can answer: {blank}"
+    );
+}
+
+/// A blank cwd on a HELD scope attaches, exactly as an absent one does.
+///
+/// The two fields obey one rule: blank is omitted. Before this they disagreed,
+/// and the disagreement was invisible until a client sent an empty string.
+#[tokio::test]
+async fn a_blank_cwd_attaches_to_the_standing_session_like_an_absent_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, _store, _sink) = start_server(dir.path()).await;
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let created = client
+        .call(
+            methods::FLEET_CHANNEL_CREATE,
+            json!({ "kind": "copilot", "name": "#copilot" }),
+        )
+        .await;
+    let scope = created["result"]["channel"]["scope_key"].as_str().unwrap().to_string();
+    let session = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "codex-acp", "cwd": "/work/worktree", "scope_key": scope }),
+        )
+        .await;
+    let session_key = session["result"]["session_key"].as_str().unwrap().to_string();
+
+    let attached = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "", "cwd": "", "scope_key": scope }),
+        )
+        .await;
+    assert!(attached["error"].is_null(), "{attached}");
+    assert_eq!(
+        attached["result"]["session_key"], session_key,
+        "blank must mean omitted for BOTH fields, not just the provider"
+    );
+}
+
+/// A create that names BOTH halves never reads the incumbent row.
+///
+/// The whole point of making the fields optional was taking load off a
+/// contended database, and a resolution that always reads the scope's live
+/// session would have added a SELECT to the call instead. `ensure` compares
+/// what it was given against the incumbent anyway, so the read is pure waste
+/// when there is nothing to resolve.
+///
+/// Proved through the OUTCOME rather than a query counter: a fully named create
+/// against a held scope still gets `ScopeHeld` naming the incumbent, which is
+/// the behaviour the read would otherwise have been serving.
+#[tokio::test]
+async fn a_create_that_names_both_halves_still_refuses_a_scope_held_by_another() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, _store, _sink) = start_server(dir.path()).await;
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let created = client
+        .call(
+            methods::FLEET_CHANNEL_CREATE,
+            json!({ "kind": "copilot", "name": "#copilot" }),
+        )
+        .await;
+    let scope = created["result"]["channel"]["scope_key"].as_str().unwrap().to_string();
+    let session = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "codex-acp", "cwd": "/work/worktree", "scope_key": scope }),
+        )
+        .await;
+    assert!(session["error"].is_null(), "{session}");
+
+    let refused = client
+        .call(
+            methods::FLEET_ACP_SESSION_CREATE,
+            json!({ "provider": "codex-acp", "cwd": "/elsewhere", "scope_key": scope }),
+        )
+        .await;
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("/work/worktree"),
+        "the refusal must still name the root that holds the scope: {refused}"
+    );
+    assert!(
+        !message.contains("cwd is required"),
+        "a named cwd is never the missing-field refusal: {refused}"
+    );
+}
+
 /// A swap whose replacement cannot be minted must leave the channel where it
 /// started, not with no live session at all.
 ///

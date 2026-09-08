@@ -567,18 +567,23 @@ pub enum AppEvent {
     SkillsSearchBackspace,  // Remove last char from search query
     SkillsSearchClose,      // Exit search mode (Esc)
     // Session recovery events
-    SessionRecoveryBack,           // Return to home screen (Esc)
-    SessionRecoveryNext,           // Navigate to next session (Down/j)
-    SessionRecoveryPrev,           // Navigate to previous session (Up/k)
-    SessionRecoveryResume,         // Resume selected session (r)
-    SessionRecoveryArchive,        // Archive/delete selected item (d)
-    SessionRecoveryRefresh,        // Refresh session list (R)
-    SessionRecoveryToggleView,     // Toggle view mode: Sessions/Worktrees/All (Tab)
-    SessionRecoveryRecoverAll,     // Recover all orphaned worktrees (Shift+A)
-    SessionRecoveryToggleSelect,   // Toggle multi-select on current item (Space)
-    SessionRecoveryDeleteSelected, // Delete all multi-selected items (Shift+D)
-    ToggleSelectSession,           // Toggle multi-select on current session (Space)
-    DeleteSelectedSessions,        // Bulk delete all multi-selected sessions (Shift+D)
+    SessionRecoveryBack,             // Return to home screen (Esc)
+    SessionRecoveryNext,             // Navigate to next session (Down/j)
+    SessionRecoveryPrev,             // Navigate to previous session (Up/k)
+    SessionRecoveryResume,           // Resume selected session (r)
+    SessionRecoveryArchive,          // Archive/delete selected item (d)
+    SessionRecoveryRefresh,          // Refresh session list (R)
+    SessionRecoveryToggleView,       // Toggle view mode: Sessions/Worktrees/All (Tab)
+    SessionRecoveryRecoverAll,       // Recover all orphaned worktrees (Shift+A)
+    SessionRecoveryToggleSelect,     // Toggle multi-select on current item (Space)
+    SessionRecoveryDeleteSelected,   // Delete all multi-selected items (Shift+D)
+    SessionRecoverySearchStart,      // Open the inline filter (/)
+    SessionRecoverySearchChar(char), // Append char to the filter query
+    SessionRecoverySearchBackspace,  // Remove last char from the filter query
+    SessionRecoverySearchClose,      // Close the bar, KEEP the filter applied (Enter)
+    SessionRecoverySearchCancel,     // Close the bar and drop the filter (Esc)
+    ToggleSelectSession,             // Toggle multi-select on current session (Space)
+    DeleteSelectedSessions,          // Bulk delete all multi-selected sessions (Shift+D)
     // Phase 5 (new-session redesign) Configure-screen events. Emitted by the
     // `configure::handle_key` outcome plumbing in `handle_new_session_keys`.
     /// Enter on Configure → record launch + start session. Carries the
@@ -1570,6 +1575,8 @@ impl EventHandler {
             && state.session_composer_captures_text();
         let skills_text_active =
             state.current_screen == screen_ids::SKILLS && state.skills_state.search_active;
+        let recovery_text_active = state.current_screen == screen_ids::SESSION_RECOVERY
+            && state.session_recovery_state.search_active;
         // SkillManager add-source / search prompt — when its input
         // overlay is open the user is typing a URI or filter, which
         // routinely contains `:` (e.g. `gh:owner/repo`,
@@ -1635,6 +1642,7 @@ impl EventHandler {
             || config_text_active
             || state.auth_provider_popup_state.show_popup
             || skills_text_active
+            || recovery_text_active
             || skill_manager_input_active
             || git_view_text_active
             || session_composer_active
@@ -1897,6 +1905,8 @@ impl EventHandler {
             let analytics_text_active = false;
             let skills_text_active =
                 state.current_screen == screen_ids::SKILLS && state.skills_state.search_active;
+            let recovery_text_active = state.current_screen == screen_ids::SESSION_RECOVERY
+                && state.session_recovery_state.search_active;
             let git_view_text_active = state.current_screen == screen_ids::GIT_VIEW
                 && state.git_view_state.as_ref().map(|gv| gv.is_in_commit_mode()).unwrap_or(false);
             let suppress_global_w = matches!(
@@ -1910,6 +1920,7 @@ impl EventHandler {
             ) || state.auth_provider_popup_state.show_popup
                 || analytics_text_active
                 || skills_text_active
+                || recovery_text_active
                 || git_view_text_active;
             if !suppress_global_w
                 && matches!(key_event.code, KeyCode::Char('W'))
@@ -3259,7 +3270,29 @@ impl EventHandler {
             };
         }
 
+        // Filter mode eats every printable key: without this, typing "d" into
+        // the query would archive a session instead of narrowing the list.
+        if state.session_recovery_state.search_active {
+            return match key_event.code {
+                KeyCode::Esc => Some(AppEvent::SessionRecoverySearchCancel),
+                KeyCode::Enter => Some(AppEvent::SessionRecoverySearchClose),
+                KeyCode::Backspace => Some(AppEvent::SessionRecoverySearchBackspace),
+                // Arrows still navigate while typing; j/k cannot, they are query text.
+                KeyCode::Up => Some(AppEvent::SessionRecoveryPrev),
+                KeyCode::Down => Some(AppEvent::SessionRecoveryNext),
+                KeyCode::Char(c) => Some(AppEvent::SessionRecoverySearchChar(c)),
+                _ => None,
+            };
+        }
+
         match key_event.code {
+            // Enter closes the bar but keeps the filter applied, and the empty
+            // state then tells the operator "Esc clears the filter". Esc has to
+            // actually do that before it leaves the screen, or the filter
+            // survives into the next visit with no way to drop it.
+            KeyCode::Esc if !state.session_recovery_state.search_query.is_empty() => {
+                Some(AppEvent::SessionRecoverySearchCancel)
+            }
             KeyCode::Esc => Some(AppEvent::SessionRecoveryBack),
             KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::SessionRecoveryPrev),
             KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::SessionRecoveryNext),
@@ -3270,6 +3303,7 @@ impl EventHandler {
             KeyCode::Char('A') => Some(AppEvent::SessionRecoveryRecoverAll),
             KeyCode::Char(' ') => Some(AppEvent::SessionRecoveryToggleSelect),
             KeyCode::Char('D') => Some(AppEvent::SessionRecoveryDeleteSelected),
+            KeyCode::Char('/') => Some(AppEvent::SessionRecoverySearchStart),
             _ => None,
         }
     }
@@ -7295,6 +7329,25 @@ impl EventHandler {
                 // Query is preserved so the filter stays applied after exit.
             }
             // Session recovery events
+            AppEvent::SessionRecoverySearchStart => {
+                // Reuse cancel to drop any prior query and re-anchor the
+                // selection, then take focus.
+                state.session_recovery_state.search_cancel();
+                state.session_recovery_state.search_active = true;
+            }
+            AppEvent::SessionRecoverySearchChar(c) => {
+                state.session_recovery_state.search_push(c);
+            }
+            AppEvent::SessionRecoverySearchBackspace => {
+                state.session_recovery_state.search_pop();
+            }
+            AppEvent::SessionRecoverySearchClose => {
+                // Query is preserved so the narrowed list stays actionable.
+                state.session_recovery_state.search_active = false;
+            }
+            AppEvent::SessionRecoverySearchCancel => {
+                state.session_recovery_state.search_cancel();
+            }
             AppEvent::SessionRecoveryBack => {
                 // If overlay is showing, dismiss it first
                 if state.session_recovery_state.recovery_overlay.is_some() {
@@ -8426,6 +8479,92 @@ fn is_known_screen_id(id: &str) -> bool {
 }
 
 #[cfg(test)]
+mod session_recovery_key_tests {
+    use super::*;
+    use crate::app::screens::ids;
+    use crossterm::event::{KeyEvent, KeyModifiers};
+
+    fn recovery_state() -> AppState {
+        let mut state = AppState::default();
+        state.current_screen = ids::SESSION_RECOVERY.to_string();
+        state.session_recovery_state.recovery_overlay = None;
+        state
+    }
+
+    fn key(state: &mut AppState, c: char) -> Option<AppEvent> {
+        EventHandler::handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE), state)
+    }
+
+    #[test]
+    fn slash_opens_the_recovery_filter() {
+        let mut state = recovery_state();
+        assert!(matches!(
+            key(&mut state, '/'),
+            Some(AppEvent::SessionRecoverySearchStart)
+        ));
+    }
+
+    /// While typing, the panel's single-key actions must not fire: `d`
+    /// archives, `D` deletes worktrees, `A` recovers everything.
+    #[test]
+    fn typing_a_query_does_not_trigger_panel_actions() {
+        let mut state = recovery_state();
+        state.session_recovery_state.search_active = true;
+        for c in ['d', 'D', 'A', 'r', 'R', ' ', 'j', 'k'] {
+            assert!(
+                matches!(key(&mut state, c), Some(AppEvent::SessionRecoverySearchChar(got)) if got == c),
+                "`{c}` leaked past the filter bar"
+            );
+        }
+    }
+
+    /// After Enter the bar is closed but the filter is still applied, and the
+    /// panel prints "Esc clears the filter." Esc must honour that instead of
+    /// walking off the screen with the query still set.
+    #[test]
+    fn escape_clears_an_applied_filter_before_leaving_the_screen() {
+        let mut state = recovery_state();
+        state.session_recovery_state.search_query = "zzzz".to_string();
+        state.session_recovery_state.search_active = false;
+
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(matches!(
+            EventHandler::handle_key_event(esc, &mut state),
+            Some(AppEvent::SessionRecoverySearchCancel)
+        ));
+
+        // Second Esc, with no filter left to drop, leaves as it always did.
+        state.session_recovery_state.search_query.clear();
+        assert!(matches!(
+            EventHandler::handle_key_event(esc, &mut state),
+            Some(AppEvent::SessionRecoveryBack)
+        ));
+    }
+
+    /// Esc cancels the filter rather than leaving the screen; Enter closes the
+    /// bar and keeps the narrowed list actionable.
+    #[test]
+    fn escape_cancels_and_enter_keeps_the_filter() {
+        let mut state = recovery_state();
+        state.session_recovery_state.search_active = true;
+        assert!(matches!(
+            EventHandler::handle_key_event(
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                &mut state
+            ),
+            Some(AppEvent::SessionRecoverySearchCancel)
+        ));
+        assert!(matches!(
+            EventHandler::handle_key_event(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                &mut state
+            ),
+            Some(AppEvent::SessionRecoverySearchClose)
+        ));
+    }
+}
+
+#[cfg(test)]
 mod session_list_key_tests {
     use super::*;
     use crate::app::screens::ids;
@@ -9272,6 +9411,7 @@ mod text_input_guard_tests {
             state.config_screen_state = Default::default();
             state.config_popup_state = Default::default();
             state.skills_state.search_active = false;
+            state.session_recovery_state.search_active = false;
             state.git_view_state = None;
         }
 
@@ -9395,6 +9535,15 @@ mod text_input_guard_tests {
         assert!(
             EventHandler::is_text_input_context(&state),
             "Skills search_active must be treated as text input"
+        );
+
+        // Session recovery filter bar.
+        reset_text_context_state(&mut state);
+        state.current_screen = screen_ids::SESSION_RECOVERY.to_string();
+        state.session_recovery_state.search_active = true;
+        assert!(
+            EventHandler::is_text_input_context(&state),
+            "Session recovery search_active must be treated as text input"
         );
 
         // GitView commit-message mode.

@@ -98,6 +98,86 @@ fn non_blank(subtype: Option<&str>) -> Option<&str> {
     subtype.map(str::trim).filter(|subtype| !subtype.is_empty())
 }
 
+/// The question and options a hook payload carries for an `AskUserQuestion`.
+///
+/// `Some` for EVERY `AskUserQuestion`, keyed on `tool_name` alone. The question
+/// text and the option list are both optional, because neither absence changes
+/// what the row IS: the agent is rendering its own picker either way, and the
+/// caller must be able to say so. Keying on the presence of a question, or of a
+/// non-empty option list, silently dropped those records back onto the
+/// permission path — where `cli/fleet/atc.rs` explicitly excludes this tool from
+/// the blocking approve round-trip, so no waiter is ever parked and every send
+/// fails at an empty broker.
+///
+/// The whole picker is already in the payload: 540 of 718 `PermissionRequest`
+/// records in one local log are `AskUserQuestion`, and every one carries
+/// `tool_input.questions`. They are stored too, because a permission request is
+/// user-facing — unlike `PreToolUse`, which the listener drops as telemetry. So
+/// this costs no new ingestion.
+///
+/// Reads BOTH payload shapes, like [`notification_subtype`]: without `jq` the
+/// hook cannot build nested JSON and stashes the whole input as a JSON *string*
+/// under `_raw`. Missing that left every jq-less machine on the old approve/deny
+/// rendering.
+///
+/// Only the FIRST question is lifted. A multi-question call is answered one
+/// question at a time in the native picker, and showing the second question's
+/// options under the first question's prompt would be worse than showing none.
+#[must_use]
+pub fn ask_user_question(payload: &serde_json::Value) -> Option<AskUserQuestion> {
+    read_ask_user_question(payload).or_else(|| {
+        let raw = payload.get("_raw")?.as_str()?;
+        let nested = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+        read_ask_user_question(&nested)
+    })
+}
+
+/// One `AskUserQuestion` as the row needs it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AskUserQuestion {
+    /// The question as the agent worded it, when it sent one.
+    pub question: Option<String>,
+    /// Each option's `(label, description)`, in the agent's own order. Empty
+    /// when the payload carried none — still an `AskUserQuestion`.
+    pub options: Vec<(String, String)>,
+}
+
+/// [`ask_user_question`] against one already-unwrapped payload.
+fn read_ask_user_question(payload: &serde_json::Value) -> Option<AskUserQuestion> {
+    if payload.get("tool_name")?.as_str()? != "AskUserQuestion" {
+        return None;
+    }
+    let first = payload
+        .get("tool_input")
+        .and_then(|input| input.get("questions"))
+        .and_then(|questions| questions.as_array())
+        .and_then(|questions| questions.first());
+    let Some(first) = first else {
+        return Some(AskUserQuestion::default());
+    };
+    let question = non_blank(first.get("question").and_then(|q| q.as_str())).map(str::to_string);
+    let options = first
+        .get("options")
+        .and_then(|options| options.as_array())
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    let label = non_blank(option.get("label").and_then(|l| l.as_str()))?;
+                    let description = option
+                        .get("description")
+                        .and_then(|d| d.as_str())
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    Some((label.to_string(), description))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(AskUserQuestion { question, options })
+}
+
 /// The `notification_type` a hook payload carries, if any.
 ///
 /// One accessor so the OS-notification path and the TUI chip path cannot

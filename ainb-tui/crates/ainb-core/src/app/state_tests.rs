@@ -599,7 +599,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
         assert_eq!(session.id, metadata.session_id);
         assert!(matches!(session.status, SessionStatus::Stopped));
         assert_eq!(
@@ -639,7 +642,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
         assert!(
             !session.skip_permissions,
             "Some(false) must be preserved, not defaulted to yolo"
@@ -675,7 +681,10 @@ mod tests {
             codex_thread_id: None,
         };
 
-        let session = AppState::stopped_session_from_metadata(&metadata);
+        let session = AppState::stopped_session_from_metadata(
+            &metadata,
+            &crate::config::SessionLabelStore::default(),
+        );
 
         assert_eq!(session.branch_name, "feature");
         assert_ne!(session.branch_name, "ainb/fpl");
@@ -2087,6 +2096,159 @@ mod tests {
             kind_of(CWD, Some("claude"), false, 0, NOW, &[done, question]),
             Some(AttentionKind::Ask),
             "the question is still open; a finished build says nothing about it"
+        );
+    }
+
+    /// An `AskUserQuestion` shows ITS OWN options, not approve/deny.
+    ///
+    /// It arrives as a `PermissionRequest`, which classifies APPROVE, and the
+    /// approve/deny pair would then be synthesised onto it. That is the wrong
+    /// vocabulary on the majority of permission chips: 540 of 718 such records
+    /// in one local log are this tool, each carrying its real question and a
+    /// full option list that was being thrown away.
+    #[test]
+    fn an_ask_user_question_carries_its_own_question_and_options() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json = r#"{
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{
+                "header": "Environment",
+                "question": "Which environment ship to?",
+                "options": [
+                    {"label": "staging", "description": "Safe test env before prod."},
+                    {"label": "prod", "description": "Live user-facing env."},
+                    {"label": "canary", "description": "Small subset traffic first."}
+                ]
+            }]}
+        }"#
+        .to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("the question marks the row");
+        assert_eq!(
+            chip.kind,
+            AttentionKind::Ask,
+            "a question is not an approval, whatever hook carried it"
+        );
+        assert_eq!(chip.detail.as_deref(), Some("Which environment ship to?"));
+        assert_eq!(
+            chip.options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(),
+            vec!["staging", "prod", "canary"],
+            "the operator picks the agent's own answers, in the agent's own order"
+        );
+        assert_eq!(
+            chip.options[0].description, "Safe test env before prod.",
+            "each option keeps the explanation that makes it choosable"
+        );
+    }
+
+    /// An AskUserQuestion with NO options is STILL the agent's picker.
+    ///
+    /// Detection keys on `tool_name`, never on the option list being non-empty.
+    /// Inferring it from the list let exactly these records fall back to a
+    /// composer that types literal text at a pane sitting on a native picker.
+    #[test]
+    fn an_ask_user_question_without_options_is_still_a_native_picker() {
+        use crate::fleet::attention::{Answerable, AttentionKind, Unanswerable};
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json =
+            r#"{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Now what?"}]}}"#
+                .to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("the question marks the row");
+        assert_eq!(chip.kind, AttentionKind::Ask);
+        assert!(chip.options.is_empty());
+        assert_eq!(
+            chip.answerable,
+            Answerable::No(Unanswerable::NativePicker),
+            "no options does not make it typeable"
+        );
+    }
+
+    /// A blank question does not drop it back onto the approve/deny path.
+    ///
+    /// `cli/fleet/atc.rs` excludes AskUserQuestion from the blocking approve
+    /// round-trip, so no waiter is ever parked for it: falling back to APPROVE
+    /// gave the operator two words that could never be delivered.
+    #[test]
+    fn an_ask_user_question_without_a_question_is_not_an_approval() {
+        use crate::fleet::attention::{Answerable, AttentionKind, Unanswerable};
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json = r#"{"tool_name":"AskUserQuestion","tool_input":{}}"#.to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("the row is still marked");
+        assert_eq!(chip.kind, AttentionKind::Ask);
+        assert_eq!(chip.answerable, Answerable::No(Unanswerable::NativePicker));
+    }
+
+    /// The jq-less hook shape carries the picker too.
+    ///
+    /// Without `jq` the hook cannot build nested JSON and stashes the whole
+    /// input as a JSON string under `_raw`. Reading only the top level left
+    /// every jq-less machine on the old approve/deny rendering.
+    #[test]
+    fn an_ask_user_question_is_found_in_the_jq_less_raw_payload() {
+        use crate::fleet::attention::AttentionKind;
+        let inner = r#"{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Ship where?","options":[{"label":"prod","description":"live"}]}]}}"#;
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json = serde_json::json!({ "_raw": inner }).to_string();
+        let chip = AppState::attention_for_session(CWD, Some("claude"), false, 0, NOW, &[record])
+            .expect("the nested payload still marks the row");
+        assert_eq!(chip.kind, AttentionKind::Ask);
+        assert_eq!(chip.detail.as_deref(), Some("Ship where?"));
+        assert_eq!(
+            chip.options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(),
+            vec!["prod"]
+        );
+    }
+
+    /// A NEW question must not inherit an older question's age.
+    ///
+    /// `attention_local_since` is keyed by the chip's DETAIL as well as its
+    /// kind. Keying on kind alone meant an `AskUserQuestion` firing while an
+    /// idle prompt was still open took that prompt's first-seen instant: a
+    /// question seconds old rendered as the older one's age, and `request_id`
+    /// (`ASK:<since_ms>`) collided, which is how one question's draft could
+    /// surface under another. Before these chips shared a kind, they could not
+    /// collide at all.
+    #[test]
+    fn a_new_question_does_not_inherit_an_older_questions_clock() {
+        use crate::fleet::attention::{AttentionKind, SessionAttention};
+        let mut state = state_with_session_at("/work/two-questions", Some("tmux_proj"));
+        let id = state.workspaces[0].sessions[0].id;
+        let mut chips = vec![
+            SessionAttention::local(AttentionKind::Ask, 1_000).with_detail("Which sqlite path?"),
+        ];
+        state.stamp_local_since(id, &mut chips);
+        assert_eq!(chips[0].since_ms, 1_000, "first sighting stamps the clock");
+
+        // The same question again, re-reported later: it keeps its first age.
+        let mut repeat = vec![
+            SessionAttention::local(AttentionKind::Ask, 9_000).with_detail("Which sqlite path?"),
+        ];
+        state.stamp_local_since(id, &mut repeat);
+        assert_eq!(repeat[0].since_ms, 1_000, "a repeat must not reset the age");
+
+        // A DIFFERENT question, same kind, same session: its own clock.
+        let mut fresh =
+            vec![SessionAttention::local(AttentionKind::Ask, 9_000).with_detail("Ship where?")];
+        state.stamp_local_since(id, &mut fresh);
+        assert_eq!(
+            fresh[0].since_ms, 9_000,
+            "a different question is a different wait and starts its own clock"
+        );
+    }
+
+    /// An ordinary permission request is untouched: it is still an approval.
+    #[test]
+    fn a_plain_tool_permission_request_stays_an_approval() {
+        use crate::fleet::attention::AttentionKind;
+        let mut record = rec("claude", CWD, "PermissionRequest", NOW - 1000);
+        record.payload_json =
+            r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#.to_string();
+        assert_eq!(
+            kind_of(CWD, Some("claude"), false, 0, NOW, &[record]),
+            Some(AttentionKind::Approve),
         );
     }
 

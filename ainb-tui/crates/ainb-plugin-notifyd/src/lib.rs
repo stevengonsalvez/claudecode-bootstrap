@@ -50,7 +50,9 @@ pub use install::{
     install_under_home, prompt_state, repair_hooks, repair_or_install_hooks, status, uninstall,
 };
 pub use listener::{RunConfig, run_daemon};
-pub use osnotify::{AlertKind, classify_attention, notification_subtype};
+pub use osnotify::{
+    AlertKind, AskUserQuestion, ask_user_question, classify_attention, notification_subtype,
+};
 pub use paths::Paths;
 pub use pid::PidFile;
 pub use procs::{ClassifiedDaemon, DaemonClass, NotifydProc, scan as scan_daemons};
