@@ -92,6 +92,9 @@ pub enum AppEvent {
     SessionAskSend,
     /// `Enter` on a composer tab (`thread` / `copilot`): send the message.
     SessionTabComposerSend,
+    /// `Enter` on the `copilot` tab while it is offering to start the hangar
+    /// daemon it needs.
+    SessionStartHangarDaemon,
     /// Toggle the sessions sidebar between full width and the thin rail —
     /// the keyboard twin ('B') of clicking the [-]/[+] glyph on its border.
     ToggleSessionsSidebar,
@@ -2391,6 +2394,14 @@ impl EventHandler {
                 match crate::components::session_tabs::resolve(state, state.session_tab) {
                     SessionTab::Preview => {}
                     SessionTab::Ask => return Some(AppEvent::SessionAskSend),
+                    // The copilot pane offering to start the daemon is not a
+                    // composer, and Enter on it is the offer's own key. Checked
+                    // against the same predicate the pane paints from, so the
+                    // footer's verb, the line on screen and the key that fires
+                    // are one fact.
+                    SessionTab::Copilot if state.copilot_daemon_cta_open() => {
+                        return Some(AppEvent::SessionStartHangarDaemon);
+                    }
                     SessionTab::Thread | SessionTab::Copilot => {
                         return Some(AppEvent::SessionTabComposerSend);
                     }
@@ -4466,6 +4477,14 @@ impl EventHandler {
             // Enter was pressed with no composer open.
             AppEvent::SessionTabComposerSend => {
                 state.add_info_notification("open a conversation first".to_string());
+            }
+            // Answered in the pane, not by sending the operator to another
+            // screen: the offer exists because the way out of a copilot that
+            // cannot open was to already know it was the hangar daemon, and to
+            // go and find the row that starts it.
+            AppEvent::SessionStartHangarDaemon => {
+                state.daemon_start_cta.start();
+                state.ui_needs_refresh = true;
             }
             AppEvent::SwitchPaneFocus => {
                 use crate::app::state::FocusedPane;
