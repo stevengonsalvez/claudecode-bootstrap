@@ -92,6 +92,9 @@ pub enum AppEvent {
     SessionAskSend,
     /// `Enter` on a composer tab (`thread` / `copilot`): send the message.
     SessionTabComposerSend,
+    /// `Enter` on the `copilot` tab while it is offering to start the hangar
+    /// daemon it needs.
+    SessionStartHangarDaemon,
     /// Toggle the sessions sidebar between full width and the thin rail —
     /// the keyboard twin ('B') of clicking the [-]/[+] glyph on its border.
     ToggleSessionsSidebar,
@@ -1387,6 +1390,20 @@ impl EventHandler {
                 state.ui_needs_refresh = true;
                 return Some(AppEvent::Consumed);
             }
+        }
+        // The copilot pane's offer to start the daemon owns Enter while it is
+        // up, and takes it BEFORE the chat reducer. The composer under it has
+        // nothing to send to — that is precisely the condition the offer
+        // appears in — so Enter reaching the reducer there is a key the footer
+        // advertised and nothing performed.
+        //
+        // Gated on ARMED, not merely shown: with focus on the session list,
+        // `Enter` is that list's, and starting a daemon on a keystroke the
+        // operator aimed somewhere else is not a thing to do quietly. The
+        // footer reads the same predicate, so it promises this only when it
+        // will happen.
+        if key_event.code == KeyCode::Enter && state.copilot_daemon_cta_armed() {
+            return Some(AppEvent::SessionStartHangarDaemon);
         }
         // The broadcast composer, which replaces the thread's while rows are
         // checked. Handled BEFORE the chat reducer because there is no chat
@@ -4502,6 +4519,14 @@ impl EventHandler {
             // Enter was pressed with no composer open.
             AppEvent::SessionTabComposerSend => {
                 state.add_info_notification("open a conversation first".to_string());
+            }
+            // Answered in the pane, not by sending the operator to another
+            // screen: the offer exists because the way out of a copilot that
+            // cannot open was to already know it was the hangar daemon, and to
+            // go and find the row that starts it.
+            AppEvent::SessionStartHangarDaemon => {
+                state.daemon_start_cta.start();
+                state.ui_needs_refresh = true;
             }
             AppEvent::SwitchPaneFocus => {
                 use crate::app::state::FocusedPane;

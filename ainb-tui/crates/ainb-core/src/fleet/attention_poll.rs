@@ -92,17 +92,32 @@ async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> Daemon
         Ok(client) => client,
         // Not an error worth a banner: no hangar home configured is the normal
         // state of a host that never ran the daemon.
-        Err(error) => return DaemonAttention::down(last_good.clone(), error.to_string()),
+        //
+        // The classification travels WITH the reason, from the typed error
+        // rather than its wording: this cell is the host's only off-thread
+        // answer to "is there a daemon at all", and the copilot pane's offer to
+        // start one is only honest if that answer is.
+        Err(error) => {
+            return DaemonAttention::down(
+                last_good.clone(),
+                error.to_string(),
+                error.means_not_running(),
+            );
+        }
     };
     let socket = client.socket().display().to_string();
     match client.attention_list_fleet().await {
         Ok(rows) => DaemonAttention::up(group_by_cwd(&rows)),
         // Name the socket. "attention/list failed" without it leaves the
         // operator guessing which daemon, which home, which socket.
-        Err(error) => DaemonAttention::down(
-            last_good.clone(),
-            format!("attention/list via {socket}: {error}"),
-        ),
+        Err(error) => {
+            let not_running = error.means_not_running();
+            DaemonAttention::down(
+                last_good.clone(),
+                format!("attention/list via {socket}: {error}"),
+                not_running,
+            )
+        }
     }
 }
 
@@ -329,6 +344,7 @@ mod tests {
         let down = DaemonAttention::down(
             previous,
             "attention/list via /x/hangar.sock: refused".into(),
+            true,
         );
         assert!(!down.reachable);
         assert_eq!(
@@ -344,7 +360,7 @@ mod tests {
 
     #[test]
     fn a_daemon_that_never_answered_has_nothing_to_carry_forward() {
-        let down = DaemonAttention::down(HashMap::new(), "no hangar home".into());
+        let down = DaemonAttention::down(HashMap::new(), "no hangar home".into(), false);
         assert!(down.rows_for("/work/proj").is_empty());
     }
 
