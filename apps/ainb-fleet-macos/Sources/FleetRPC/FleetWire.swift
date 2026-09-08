@@ -1088,6 +1088,37 @@ struct FleetMessageListResult: Codable, Equatable {
     private enum CodingKeys: String, CodingKey { case messages, nextAfterID = "next_after_id" }
 }
 
+/// Params for `fleet/message_subscribe`.
+///
+/// `after_id` is OMITTED when nil rather than sent as `null`, matching the
+/// daemon's `skip_serializing_if`. Absent means "start at the head the ack
+/// publishes", which is what a client that has not read the log yet wants: a
+/// `null` cursor and an absent one mean the same thing here, but a client that
+/// sends the field it does not mean is one wire change away from meaning it.
+struct FleetMessageSubscribeParams: Encodable, Equatable {
+    let afterID: String?
+
+    private enum CodingKeys: String, CodingKey { case afterID = "after_id" }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(afterID, forKey: .afterID)
+    }
+}
+
+/// Result for `fleet/message_subscribe`: the newest committed message id, or
+/// nil on an empty log.
+///
+/// The ack is not the point of the call; the `fleet/message_event`,
+/// `fleet/confirm_event` and `fleet/activity_event` notifications that follow
+/// it on the SAME socket are. The daemon starts the forwarder at this head, so
+/// a client that pages after subscribing cannot miss a message between the two.
+struct FleetMessageSubscribeResult: Codable, Equatable {
+    let headID: String?
+
+    private enum CodingKeys: String, CodingKey { case headID = "head_id" }
+}
+
 /// Payload of the `fleet/message_event` notification.
 struct FleetMessageEventParams: Codable, Equatable {
     let message: FleetMessage
@@ -1341,6 +1372,19 @@ struct FleetConfirmAnswerResult: Codable, Equatable {
 /// Payload of the `fleet/confirm_event` notification.
 struct FleetConfirmEventParams: Codable, Equatable {
     let confirm: FleetConfirm
+}
+
+/// The same frame with its card left RAW.
+///
+/// The same split, for the same reason, as `FleetConfirmListRawResult`: a card
+/// carrying one key this build cannot read must still reach the operator as an
+/// unanswerable row, and the typed shape above cannot express that. The live
+/// path decodes this and hands the value to `FleetChatConfirmCard.decode`, the
+/// identical function the paged list uses, so a card renders the same whether
+/// it arrived on the stream or in a page. The typed shape stays for the
+/// contract tests, which SHOULD fail on drift.
+struct FleetConfirmEventRawParams: Decodable, Equatable {
+    let confirm: JSONValue
 }
 
 /// One append-only copilot activity row.

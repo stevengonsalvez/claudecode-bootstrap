@@ -27,9 +27,23 @@ struct FleetResyncRequired: Decodable, Equatable, Sendable {
     }
 }
 
+/// Everything the daemon pushes at us on a socket we already own.
+///
+/// The three chat cases arrive only after `fleet/message_subscribe` is
+/// acknowledged on THIS connection, and they ride the same socket as
+/// `fleet/event`: the daemon runs them as independent forwarders over one
+/// writer, so a client needs one connection, not two.
 enum FleetIncoming: Equatable, Sendable {
     case event(FleetEvent)
     case resyncRequired(FleetResyncRequired)
+    case messageEvent(FleetMessageEventParams)
+    /// The card RAW, so a row this build cannot fully read still reaches the
+    /// pane as an unanswerable one instead of being dropped.
+    case confirmEvent(FleetConfirmEventRawParams)
+    case activityEvent(FleetActivityEventParams)
+    /// A notification this connection did not turn into one of the above:
+    /// either a method this build has never heard of, or a chat frame whose
+    /// params did not decode. Both are named and dropped, never fatal.
     case unknownNotification(String)
 }
 
@@ -222,6 +236,29 @@ actor FleetConnection {
         return try await request("fleet/message_list", params: params, result: FleetMessageListResult.self)
     }
 
+    /// Open the live chat stream on this connection.
+    ///
+    /// Gated by `fleet.message.read`, which is what
+    /// `handle_fleet_message_subscribe` checks, NOT the `fleet.chat.read` its
+    /// confirm and activity neighbours check: the ack is a read of the message
+    /// log's head and the daemon gates it as one. Gating this on `chat.read`
+    /// would open the stream against a daemon that refuses it, and leave it
+    /// shut against one that would have served it.
+    ///
+    /// The daemon answers with the log head and THEN registers two forwarders
+    /// on this socket: the message forwarder (`fleet/message_event`, replayed
+    /// from `afterID` or from the head just acked) and the chat notification
+    /// forwarder (`fleet/confirm_event`, `fleet/activity_event`). Both arrive
+    /// on `incoming()` alongside `fleet/event`.
+    func messageSubscribe(afterID: String? = nil) async throws -> FleetMessageSubscribeResult {
+        try requireReadCapability("fleet.message.read")
+        return try await request(
+            "fleet/message_subscribe",
+            params: FleetMessageSubscribeParams(afterID: afterID),
+            result: FleetMessageSubscribeResult.self
+        )
+    }
+
     func messageSend(_ params: FleetMessageSendParams) async throws -> FleetMessageSendResult {
         try requireWriteCapability("fleet.message.send")
         return try await request("fleet/message_send", params: params, result: FleetMessageSendResult.self)
@@ -384,12 +421,51 @@ actor FleetConnection {
             case "fleet/resync_required":
                 let params = try FleetWire.decoder().decode(FleetResyncRequired.self, from: envelope.paramsData)
                 yield(.resyncRequired(params))
+            // The three chat frames degrade to a named drop rather than
+            // throwing, and that difference from the two arms above is the
+            // whole point. `fleet/event` is this client's OWN roster stream,
+            // where a frame that does not decode means the two ends disagree
+            // about the wire and continuing to render is worse than
+            // reconnecting. The chat frames are fleet-wide BROADCASTS: they
+            // carry every conversation on the daemon, so one row from a scope
+            // this pane never renders would otherwise take the roster, the
+            // menu bar and the operator's live session list down with it.
+            // The safety-net page repairs whatever a dropped frame missed.
+            case "fleet/message_event":
+                yield(decoded(FleetMessageEventParams.self, from: envelope, as: FleetIncoming.messageEvent, method: method))
+            case "fleet/confirm_event":
+                yield(decoded(FleetConfirmEventRawParams.self, from: envelope, as: FleetIncoming.confirmEvent, method: method))
+            case "fleet/activity_event":
+                yield(decoded(FleetActivityEventParams.self, from: envelope, as: FleetIncoming.activityEvent, method: method))
+            // KEPT, and it is not the `default` this codebase bans: that rule is
+            // about switches over a WIRE ENUM this build owns, where a new
+            // variant must fail to compile. This switches over an open string
+            // the daemon chooses, so an unknown method is a daemon that grew a
+            // notification, and the only safe answer is to name it and carry
+            // on. Throwing here would tear down a live connection over a frame
+            // that concerns some other client's subscription.
             default:
                 yield(.unknownNotification(method))
             }
         } catch {
             disconnect(FleetConnectionError.malformedEnvelope, descriptor: descriptor)
         }
+    }
+
+    /// One chat frame, decoded into its case, or NAMED as undecodable.
+    ///
+    /// Generic over the payload so the three arms cannot drift apart in how
+    /// they handle a frame this build cannot read.
+    private func decoded<Params: Decodable>(
+        _ type: Params.Type,
+        from envelope: Envelope,
+        as make: (Params) -> FleetIncoming,
+        method: String
+    ) -> FleetIncoming {
+        guard let params = try? FleetWire.decoder().decode(type, from: envelope.paramsData) else {
+            return .unknownNotification(method)
+        }
+        return make(params)
     }
 
     private func disconnect(_ error: Error, descriptor: Int32?) {
