@@ -10297,10 +10297,11 @@ impl AppState {
             };
 
             // `None` covers both "not a Codex session" and "shared remote
-            // control is unavailable on this hangar home" (already warned
-            // about). Both resume the session with plain provider argv.
+            // control is unavailable on this hangar home". Both resume the
+            // session with plain provider argv; the degrade reason rides back
+            // so the resume can say WHY on screen, not only in the log.
             let mut codex_remote = if metadata.agent_type == SessionAgentType::Codex {
-                crate::interactive::session_manager::ensure_codex_remote_thread(
+                let outcome = crate::interactive::session_manager::ensure_codex_remote_thread(
                     metadata.session_id,
                     &metadata.worktree_path,
                     model.as_deref(),
@@ -10308,7 +10309,8 @@ impl AppState {
                     metadata.headroom_enabled,
                     metadata.codex_thread_id.clone(),
                 )
-                .await?
+                .await?;
+                outcome.thread()
             } else {
                 None
             };
@@ -10329,7 +10331,7 @@ impl AppState {
                 .await?;
 
             if codex_remote.as_ref().is_some_and(|remote| remote.thread_id.is_none()) {
-                codex_remote = crate::interactive::session_manager::claim_codex_remote_thread(
+                let outcome = crate::interactive::session_manager::claim_codex_remote_thread(
                     metadata.session_id,
                     &metadata.worktree_path,
                     model.as_deref(),
@@ -10338,6 +10340,7 @@ impl AppState {
                     &metadata.tmux_session_name,
                 )
                 .await?;
+                codex_remote = outcome.thread();
             }
             if let Some(thread_id) =
                 codex_remote.as_ref().and_then(|remote| remote.thread_id.as_deref())
@@ -11643,7 +11646,6 @@ impl AppState {
     pub fn add_info_notification(&mut self, message: String) {
         self.add_notification(Notification::info(message));
     }
-
     /// Explain that a read-only preview cannot provide tmux copy-mode without
     /// filling the notification queue while a scroll key repeats.
     pub fn notify_live_preview_no_scrollback(&mut self) {
@@ -12613,10 +12615,11 @@ impl AppState {
         };
         let headroom_enabled = metadata.map(|m| m.headroom_enabled).unwrap_or(false);
         // `None` covers both "not a Codex session" and "shared remote control
-        // is unavailable on this hangar home" (already warned about). Both
-        // restart the session with plain provider argv.
+        // is unavailable on this hangar home". Both restart the session with
+        // plain provider argv; the degrade reason rides back so the restart can
+        // say WHY on screen, not only in the log.
         let mut codex_remote = if agent_type == SessionAgentType::Codex {
-            crate::interactive::session_manager::ensure_codex_remote_thread(
+            let outcome = crate::interactive::session_manager::ensure_codex_remote_thread(
                 session_id,
                 std::path::Path::new(&workspace_path),
                 model.as_deref(),
@@ -12624,7 +12627,8 @@ impl AppState {
                 headroom_enabled,
                 metadata.and_then(|m| m.codex_thread_id.clone()),
             )
-            .await?
+            .await?;
+            outcome.thread()
         } else {
             None
         };
@@ -12651,7 +12655,7 @@ impl AppState {
             .await?;
 
         if codex_remote.as_ref().is_some_and(|remote| remote.thread_id.is_none()) {
-            codex_remote = crate::interactive::session_manager::claim_codex_remote_thread(
+            let outcome = crate::interactive::session_manager::claim_codex_remote_thread(
                 session_id,
                 std::path::Path::new(&workspace_path),
                 model.as_deref(),
@@ -12660,6 +12664,7 @@ impl AppState {
                 &tmux_session_name,
             )
             .await?;
+            codex_remote = outcome.thread();
         }
         if let Some(thread_id) =
             codex_remote.as_ref().and_then(|remote| remote.thread_id.as_deref())

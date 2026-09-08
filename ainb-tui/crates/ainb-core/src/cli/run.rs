@@ -133,13 +133,19 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         )
         .await
         {
-            // `Ok(None)` is a launch WITHOUT shared remote control (an
-            // ephemeral hangar home, already warned about). It takes the same
-            // path a non-Codex session takes: plain provider argv, no
+            // A degraded outcome is a launch WITHOUT shared remote control (an
+            // ephemeral hangar home, no daemon, or a busy store). It takes the
+            // same path a non-Codex session takes: plain provider argv, no
             // rollback, no error. Failing here instead deleted the worktree
             // created three steps ago over a feature the session can run
-            // without.
-            Ok(remote) => remote,
+            // without. The reason is printed rather than only logged: `ainb
+            // run` has no notification strip, and stderr is its equivalent.
+            Ok(outcome) => {
+                if let Some(degrade) = outcome.degrade() {
+                    eprintln!("{}", degrade.notice());
+                }
+                outcome.thread()
+            }
             Err(error) => {
                 rollback_failed_interactive_launch(session_id, None, rollback_worktree()).await;
                 return Err(error)
@@ -227,7 +233,12 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         )
         .await
         {
-            Ok(remote) => remote,
+            Ok(outcome) => {
+                if let Some(degrade) = outcome.degrade() {
+                    eprintln!("{}", degrade.notice());
+                }
+                outcome.thread()
+            }
             Err(error) => {
                 rollback_failed_interactive_launch(
                     session_id,
