@@ -3860,7 +3860,7 @@ async fn codex_event_watermark(pool: &SqlitePool) -> Result<i64, RpcError> {
     sqlx::query_scalar("SELECT COALESCE(MAX(ingest_order), 0) FROM fleet_provider_event")
         .fetch_one(pool)
         .await
-        .map_err(|error| internal(&format!("read Codex event cursor: {error}")))
+        .map_err(|error| store_error("read Codex event cursor", &error))
 }
 
 async fn reserve_pending_codex_thread(
@@ -3881,7 +3881,7 @@ async fn reserve_pending_codex_thread(
         )
         .execute(pool)
         .await
-        .map_err(|error| internal(&format!("expire pending Codex launch: {error}")))?;
+        .map_err(|error| store_error("expire pending Codex launch", &error))?;
         let watermark = codex_event_watermark(pool).await?;
         let inserted = sqlx::query(
             "INSERT INTO interactive_codex_thread \
@@ -3908,9 +3908,7 @@ async fn reserve_pending_codex_thread(
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
             Err(error) => {
-                return Err(internal(&format!(
-                    "reserve Interactive Codex thread: {error}"
-                )));
+                return Err(store_error("reserve Interactive Codex thread", &error));
             }
         }
     }
@@ -3934,7 +3932,7 @@ async fn claim_pending_codex_thread(
     .bind(watermark)
     .fetch_all(pool)
     .await
-    .map_err(|error| internal(&format!("read pending Codex thread: {error}")))?;
+    .map_err(|error| store_error("read pending Codex thread", &error))?;
     for payload in payloads {
         let Some(thread_id) = codex_started_thread_id(&payload, cwd) else {
             continue;
@@ -3947,7 +3945,7 @@ async fn claim_pending_codex_thread(
         .bind(session_id)
         .execute(pool)
         .await
-        .map_err(|error| internal(&format!("claim Interactive Codex thread: {error}")))?;
+        .map_err(|error| store_error("claim Interactive Codex thread", &error))?;
         if claimed.rows_affected() == 1 {
             return Ok(Some(thread_id));
         }
@@ -13274,6 +13272,66 @@ mod tests {
         assert_eq!(
             fault.code, INTERNAL_ERROR,
             "only contention may be coded unavailable: {fault:?}"
+        );
+    }
+
+    /// The FRESH-LAUNCH branch of `codex/session_ensure` also codes a busy
+    /// store as unavailable.
+    ///
+    /// `store_error` being correct proves nothing about a branch that never
+    /// calls it. A session with no existing thread row goes through
+    /// `reserve_pending_codex_thread`, which is a WRITE and therefore the
+    /// branch a held write lock actually hits, and it was left on the
+    /// `-32603` catch-all after the first pass through this handler. On that
+    /// code the TUI hard-fails and its cleanup deletes the worktree — the
+    /// exact outcome this whole change exists to prevent, surviving on the
+    /// most common path of all: the first launch.
+    #[tokio::test]
+    async fn the_fresh_launch_branch_codes_a_busy_store_unavailable() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("ensure.db"))
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_millis(0));
+
+        let pool = SqlitePool::connect_with(options.clone()).await.expect("pool");
+        for ddl in [
+            "CREATE TABLE interactive_codex_thread (session_id TEXT PRIMARY KEY, thread_id TEXT, \
+             cwd TEXT, model TEXT, skip_permissions INTEGER, event_watermark INTEGER, \
+             reserved_at INTEGER)",
+            "CREATE TABLE fleet_provider_event (ingest_order INTEGER PRIMARY KEY, provider TEXT, \
+             source TEXT, event_type TEXT, raw_payload TEXT)",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.expect("schema");
+        }
+
+        // Another connection owns the write lock, exactly as a contended
+        // daemon does.
+        let holder = SqlitePool::connect_with(options).await.expect("holder pool");
+        let mut held = holder.acquire().await.expect("hold a connection");
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *held)
+            .await
+            .expect("take the write lock");
+
+        let params = ainb_hangar_proto::fleet::CodexSessionEnsureParams {
+            session_id: "session-under-a-locked-store".to_string(),
+            cwd: "/tmp/does-not-matter".to_string(),
+            model: None,
+            thread_id: None,
+            skip_permissions: false,
+        };
+        let failure = reserve_pending_codex_thread(&pool, &params, "/tmp/does-not-matter")
+            .await
+            .expect_err("a held write lock must fail the reservation");
+
+        assert_eq!(
+            failure.code, STORE_UNAVAILABLE,
+            "the fresh-launch branch must degrade, not hard-fail and delete a worktree: \
+             {failure:?}"
         );
     }
 
