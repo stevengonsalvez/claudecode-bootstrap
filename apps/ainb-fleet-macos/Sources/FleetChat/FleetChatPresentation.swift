@@ -362,15 +362,133 @@ struct FleetChatSurface: Equatable {
     /// gets, and it is usually "this scope is already held by a session whose
     /// cwd is X, not Y".
     var sessionDetail: String? = nil
+
+    /// Fold one live notification into this page.
+    ///
+    /// The scope filter is HERE rather than at the call site because the
+    /// daemon's chat stream is fleet-wide: `fleet/message_event` carries every
+    /// committed message on the socket, not this scope's. The surface is the
+    /// only thing that knows which conversation is on screen, so it is the only
+    /// thing that can say an event is not this one's. An event for another
+    /// scope is dropped, never rendered.
+    ///
+    /// Nothing is folded before a page has resolved a scope: `scopeKey` is nil
+    /// until then, and an event that cannot be proved to belong here does not
+    /// get the benefit of the doubt.
+    mutating func apply(_ event: FleetChatEvent) {
+        guard let scopeKey, scopeKey == event.scopeKey else { return }
+        switch event {
+        case let .message(message):
+            upsert(FleetChatMessageRow(message: message))
+        case let .confirm(card, _):
+            upsert(card)
+        case let .activity(row):
+            upsert(row)
+        }
+    }
+
+    /// Replace the row with this id, or append it.
+    ///
+    /// Append, because `fleet/message_list` returns ascending commit order and
+    /// a committed message is newer than everything already paged. Replace in
+    /// place on a repeat, because the daemon replays from a cursor and a
+    /// boundary row can arrive live AND in the page: appending it twice would
+    /// show the operator their own message twice with no way to tell which is
+    /// real.
+    private mutating func upsert(_ row: FleetChatMessageRow) {
+        if let index = messages.firstIndex(where: { $0.id == row.id }) {
+            messages[index] = row
+            return
+        }
+        messages.append(row)
+        // The same ceiling the page asks for, so a pane left open for a day
+        // does not grow without bound. The oldest goes, matching what a fresh
+        // page of a longer conversation would show.
+        if messages.count > Int(fleetMessageListMax) {
+            messages.removeFirst(messages.count - Int(fleetMessageListMax))
+        }
+    }
+
+    /// Upsert a confirm card by its confirm id.
+    ///
+    /// An ANSWERED card is kept and re-rendered in its new state rather than
+    /// dropped: `fleet/confirm_list` only returns open cards, so dropping it
+    /// here would make the card vanish the instant the operator approved it,
+    /// with no confirmation that the approval was what removed it. The next
+    /// page retires it.
+    private mutating func upsert(_ card: FleetChatConfirmCard) {
+        if let index = confirms.firstIndex(where: { $0.id == card.id }) {
+            confirms[index] = card
+            return
+        }
+        confirms.append(card)
+    }
+
+    /// Append one activity row, oldest-first, bounded like its page.
+    ///
+    /// APPEND, not prepend: `fleet/activity_list` pages `ORDER BY seq ASC`, so
+    /// the feed reads oldest at the top, and a live row prepended to that is a
+    /// feed that puts the newest event above rows it happened after. One
+    /// ordering rule for both halves or the pane cannot be read at all.
+    private mutating func upsert(_ row: FleetActivityRow) {
+        if let index = activity.firstIndex(where: { $0.seq == row.seq }) {
+            activity[index] = row
+            return
+        }
+        activity.append(row)
+        if activity.count > Int(fleetActivityListMax) {
+            activity.removeFirst(activity.count - Int(fleetActivityListMax))
+        }
+    }
 }
 
-/// Seconds between poll refreshes while the chat surface is open.
+/// One live chat notification, in the three shapes the chat surface folds.
 ///
-/// The same interval the TUI polls at (`CHAT_POLL_INTERVAL_MS`), for the same
-/// reason: one timer beats a second long-lived socket in the render path, and
-/// the daemon's `fleet/confirm_event` and `fleet/activity_event` stream is the
-/// upgrade for when a poll's latency is actually felt. Matching the TUI matters
-/// because an operator watching both surfaces must not see one lag the other.
+/// Every case carries what the PAGE carries, built by the page's own
+/// constructor, so the live half and the paged half of one surface cannot
+/// disagree about a row. `FleetChatMessageRow.init(message:)` and
+/// `FleetChatConfirmCard.decode` are the same two the page calls.
 ///
-/// ponytail: polling, not a subscription. Upgrade when a second is visible.
-let fleetChatPollInterval = Duration.seconds(1)
+/// The confirm case carries a decoded CARD rather than a `FleetConfirm`, and
+/// that is the same reason rather than an inconsistency: `confirm_list` is
+/// decoded row by row precisely so one card this build cannot read does not
+/// cost the operator the ones it can, and a live card that skipped that
+/// tolerance would be the one shape of card the pane could not show. Its scope
+/// rides alongside because an unrecognised card has no readable fields to take
+/// it from.
+enum FleetChatEvent: Equatable, Sendable {
+    case message(FleetMessage)
+    case confirm(card: FleetChatConfirmCard, scopeKey: String)
+    case activity(FleetActivityRow)
+
+    /// The scope this event was filed under. Every one of the three carries it,
+    /// which is what makes a fleet-wide stream safe to render in a scoped pane.
+    var scopeKey: String {
+        switch self {
+        case let .message(message): message.scopeKey
+        case let .confirm(_, scopeKey): scopeKey
+        case let .activity(row): row.scopeKey
+        }
+    }
+}
+
+/// Seconds between SAFETY-NET pages while the chat surface is open.
+///
+/// The pane is carried by `fleet/message_subscribe` and the three notifications
+/// that follow it, so this timer is not how the conversation arrives any more.
+/// It stays, at thirty seconds rather than one, because a push stream has one
+/// failure mode a poll does not: silence and health look identical. The
+/// daemon's chat notification forwarder drops frames when a slow client lags
+/// its broadcast channel (`spawn_notification_forwarder` logs the miss and says
+/// in as many words that the client re-reads via `fleet/confirm_list` and
+/// `fleet/activity_list`), and nothing on this side is told. Without a page
+/// behind it, one dropped frame strands the pane until the operator notices and
+/// hits Refresh.
+///
+/// Thirty seconds is the number because it is far enough out to make the RPC
+/// cost of an open pane a rounding error (four calls per half minute against
+/// five every second before this), and near enough that a stranded pane repairs
+/// itself inside the time an operator spends reading the message they are
+/// answering. It deliberately does NOT match the TUI's one-second poll: the TUI
+/// has no subscription, so its timer IS its transport.
+let fleetChatSafetyNetInterval = Duration.seconds(30)

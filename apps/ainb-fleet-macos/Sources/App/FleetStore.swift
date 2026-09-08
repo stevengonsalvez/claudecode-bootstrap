@@ -142,8 +142,11 @@ final class FleetStore: ObservableObject {
     ///
     /// ponytail: per connection, not per session lifetime. A session evicted by
     /// the pool while this app sits idle is only noticed at the next send, and
-    /// that send is the one that reports REJECTED. Live `fleet/message_event`
-    /// (PR B) is where a torn-down session becomes visible without a send.
+    /// that send is the one that reports REJECTED. The live chat stream does
+    /// NOT close that gap, contrary to what this note said when it was written:
+    /// `fleet/message_event` carries a committed message and nothing about its
+    /// delivery legs, so a torn-down session is still invisible until something
+    /// is addressed to it.
     private var copilotSessionKeyByScope: [String: String] = [:]
     /// Bumped by every invalidation, so a page that was already in flight when
     /// one happened cannot put the forgotten key back.
@@ -155,6 +158,40 @@ final class FleetStore: ObservableObject {
     /// operator's next message went to the same dead session. That is the exact
     /// failure the invalidation exists to prevent, arriving one poll later.
     private var copilotCacheGeneration: UInt = 0
+    /// Live chat events that landed while a page was in flight.
+    ///
+    /// A page is four round trips and it REPLACES the surface wholesale, which
+    /// is the invariant that stops a half-applied refresh showing this page's
+    /// cards next to the last one's timeline. That same wholesale replacement
+    /// is what would drop a message committed after `fleet/message_list` read
+    /// the log and before the page finished: folded into the live surface, then
+    /// overwritten by a page that never saw it, and gone until the safety net
+    /// pages again half a minute later.
+    ///
+    /// So the fold does both: it applies the event to what is on screen now,
+    /// and, if a page is running, remembers it so that page can replay it onto
+    /// its own result. Every fold is an upsert by id, so replaying an event the
+    /// page already contains changes nothing.
+    private var chatEventsDuringPage: [FleetChatEvent] = []
+    /// How many pages are running. A count, not a flag: the poll loop and the
+    /// send path both page, and they overlap. Buffering only while this is
+    /// above zero is what keeps the buffer bounded by one page's duration
+    /// rather than by how long the pane stays open.
+    private var chatPagesInFlight = 0
+    /// How many chat panes are on screen.
+    ///
+    /// The fold is gated on this, and the gate is not an optimisation. `chat`
+    /// is `@Published` on the store the WHOLE notch observes, so every folded
+    /// event re-evaluates the roster, the chips and the menu-bar summary. A
+    /// scope filter alone does not stop that: once a pane has been opened once,
+    /// `chat.scopeKey` stays set for the life of the connection, so a busy
+    /// copilot would invalidate the roster several times a second while the
+    /// operator is looking at Sessions and no chat surface exists at all.
+    ///
+    /// A count rather than a flag, because SwiftUI can have the outgoing and
+    /// incoming instances of a view alive at once during a transition, and a
+    /// flag cleared by the outgoing one would silence the incoming one.
+    private var chatPanesOpen = 0
     private let maximumReconnectAttempts = 3
     private let reconnectResetInterval: TimeInterval = 30
 
@@ -671,24 +708,32 @@ final class FleetStore: ObservableObject {
 
     /// One page, awaited.
     ///
-    /// The poll loop awaits THIS rather than firing `refreshChat()` on a timer:
-    /// a page that takes longer than the interval would otherwise stack, and
-    /// five overlapping RPC sets racing each other means whichever finishes
+    /// The safety-net loop awaits THIS rather than firing `refreshChat()` on a
+    /// timer: a page that takes longer than the interval would otherwise stack,
+    /// and five overlapping RPC sets racing each other means whichever finishes
     /// last wins and the pane can go backwards in time.
+    ///
+    /// This is the BOOTSTRAP for a pane that has just opened and the repair for
+    /// one whose stream dropped a frame. The conversation itself arrives on
+    /// `fleet/message_subscribe` between these calls.
     func refreshChatOnce() async {
         guard canReadChat, let connection else {
-            // Assigned only on a real change: this runs once a second and a
-            // @Published write redraws the pane whether or not the value moved.
+            // Assigned only on a real change: a @Published write redraws the
+            // pane whether or not the value moved, and this shares `chat` with
+            // a live event stream that can write it several times a second.
             let unavailable = FleetChatSurface(sessionDetail: "Chat is unavailable for this daemon.")
             if chat != unavailable { chat = unavailable }
             return
         }
         do {
             // Same guard as the unavailable branch above, for the same reason:
-            // this runs once a second and an unconditional @Published write
-            // re-evaluates the whole window subtree even when nothing moved.
-            // `FleetChatSurface` is Equatable, so the comparison is free.
-            let paged = try await pagedChat(using: connection)
+            // an unconditional @Published write re-evaluates the whole window
+            // subtree even when nothing moved, and `FleetChatSurface` is
+            // Equatable, so the comparison is free.
+            // A nil page is a page whose read was invalidated while it ran.
+            // Publishing it would put back state the store already knows is
+            // dead, so it is dropped and the next page asks again.
+            guard let paged = try await pagedChat(using: connection) else { return }
             if chat != paged { chat = paged }
         } catch {
             controlNotice = "Chat refresh refused: \(String(describing: error))"
@@ -743,7 +788,7 @@ final class FleetStore: ObservableObject {
                 self.controlNotice = "Chat send refused: \(String(describing: error))"
                 return
             }
-            self.chat = (try? await self.pagedChat(using: connection)) ?? self.chat
+            self.publish(try? await self.pagedChat(using: connection))
         }
     }
 
@@ -776,7 +821,7 @@ final class FleetStore: ObservableObject {
             } catch {
                 self.controlNotice = "Confirm answer refused: \(String(describing: error))"
             }
-            self.chat = (try? await self.pagedChat(using: connection)) ?? self.chat
+            self.publish(try? await self.pagedChat(using: connection))
         }
     }
 
@@ -927,20 +972,109 @@ final class FleetStore: ObservableObject {
     /// and a page that finished afterwards must not restore what it read at the
     /// start. It still renders its own result; only the remembering is dropped,
     /// so the next page asks the daemon again.
-    private func pagedChat(using connection: FleetConnection) async throws -> FleetChatSurface {
+    /// Returns nil when the page is STALE, meaning the cache was invalidated
+    /// while it was reading.
+    ///
+    /// Dropping the write-back is not enough, and that was the gap: the page
+    /// still returned a surface, and every caller published it. A send whose
+    /// leg came back `target_not_running` forgets the dead session, re-pages,
+    /// mints a live one and publishes it; an older page that read the dead key
+    /// then lands and puts it back on screen, and the composer aims at a
+    /// session nobody is listening on. At a one-second poll that healed itself
+    /// in a second. At `fleetChatSafetyNetInterval` it lasts half a minute,
+    /// which is the whole of an operator's next message.
+    ///
+    /// So the generation is a TICKET, not just a guard on the cache: a page
+    /// that cannot prove it read current state does not get to render.
+    private func pagedChat(using connection: FleetConnection) async throws -> FleetChatSurface? {
         let generation = copilotCacheGeneration
-        let (surface, minted) = try await Self.pageChat(
+        beginChatPage()
+        defer { endChatPage() }
+        let (paged, minted) = try await Self.pageChat(
             using: connection,
             canWrite: canWrite,
             mintedSessionKeyByScope: copilotSessionKeyByScope
         )
+        guard copilotCacheGeneration == generation else { return nil }
         if minted,
-           copilotCacheGeneration == generation,
-           let scope = surface.scopeKey,
-           let sessionKey = surface.targetSessionKey {
+           let scope = paged.scopeKey,
+           let sessionKey = paged.targetSessionKey {
             copilotSessionKeyByScope[scope] = sessionKey
         }
+        // Everything that arrived live while this page was reading, replayed
+        // onto it. Without this the page silently rewinds the pane past any
+        // message committed after `fleet/message_list` answered.
+        var surface = paged
+        for event in chatEventsDuringPage {
+            surface.apply(event)
+        }
         return surface
+    }
+
+    /// Open the live chat stream, RESUMING from the newest row already shown.
+    ///
+    /// A bare subscribe starts at the daemon's head, so everything committed
+    /// while this client was disconnected is never pushed. The page behind it
+    /// used to be the backstop, and no longer is: a page reads one bounded
+    /// window, so an outage longer than that window loses the middle for good.
+    /// Naming the last row this surface holds asks the daemon to replay the gap.
+    ///
+    /// The retry is the honest half. A remembered id the daemon has never heard
+    /// of, which is what a restarted or pruned daemon answers, is refused as
+    /// invalid params, and a swallowed refusal there would leave the connection
+    /// with NO stream at all: silently poll-only, looking identical to working.
+    /// So the refusal costs the resume, not the subscription.
+    private func openChatStream(on connection: FleetConnection) async {
+        guard let resume = chat.messages.last?.id else {
+            _ = try? await connection.messageSubscribe()
+            return
+        }
+        do {
+            _ = try await connection.messageSubscribe(afterID: resume)
+        } catch FleetConnectionError.rpc(let refusal) where refusal.code == -32602 {
+            _ = try? await connection.messageSubscribe()
+        } catch {
+            // Anything else is the connection itself failing, and the bootstrap
+            // that follows will report it.
+        }
+    }
+
+    /// The chat pane appeared. Live events are folded from here.
+    func chatPaneAppeared() {
+        chatPanesOpen += 1
+    }
+
+    /// The chat pane went away. Floored at zero so a stray unbalanced call
+    /// cannot drive the count negative and silence the fold permanently.
+    func chatPaneDisappeared() {
+        chatPanesOpen = max(0, chatPanesOpen - 1)
+    }
+
+    /// Show a page, unless it has nothing to show.
+    ///
+    /// Two different nils arrive here and both mean "keep what is on screen":
+    /// a page that threw, and a page the store disowned because its read went
+    /// stale mid-flight. Neither is a reason to blank a pane the operator is
+    /// reading.
+    private func publish(_ surface: FleetChatSurface??) {
+        guard let surface = surface ?? nil else { return }
+        if chat != surface { chat = surface }
+    }
+
+    /// Start counting live events against a page that is about to run.
+    ///
+    /// The buffer is cleared by the FIRST page only: a second page starting
+    /// while one is still running must not throw away what the first one still
+    /// has to replay.
+    private func beginChatPage() {
+        if chatPagesInFlight == 0 {
+            chatEventsDuringPage.removeAll()
+        }
+        chatPagesInFlight += 1
+    }
+
+    private func endChatPage() {
+        chatPagesInFlight -= 1
     }
 
     /// Get-or-create the copilot session for `scopeKey`, naming as little as
@@ -1078,6 +1212,28 @@ final class FleetStore: ObservableObject {
                 return
             }
             apply(bootstrapped)
+            // The live chat stream, on this same socket.
+            //
+            // Opened with the CONNECTION, not with the pane: the daemon runs
+            // one message forwarder per socket, so a subscription opened per
+            // appearance of the sheet would be a second stream writing the same
+            // surface, and closing the sheet would have to decide which one to
+            // keep. It costs nothing while no pane is open, because the fold
+            // is gated on one being on screen.
+            //
+            // Opened BEFORE any page, so the window between the two is covered
+            // from the page's side: the daemon starts the forwarder at the head
+            // it just acked, and the page that follows reads everything up to
+            // it. The other order would leave messages committed in between
+            // visible to neither.
+            //
+            // A refusal is not fatal and is not reported. A daemon built before
+            // this method answers -32601, and the honest consequence is that
+            // the pane is carried by `fleetChatSafetyNetInterval` alone: later
+            // than live, but never wrong, and the same surface either way.
+            if result.capabilityIDs.contains("fleet.message.read") {
+                await openChatStream(on: newConnection)
+            }
             if result.capabilityIDs.contains("fleet.receipt.read") {
                 do {
                     receipts = try await newConnection.receiptList(FleetReceiptListParams(limit: 50)).receipts
@@ -1176,10 +1332,66 @@ final class FleetStore: ObservableObject {
                 generation: generation
             )
             return false
+        case let .messageEvent(params):
+            fold(.message(params.message))
+        case let .confirmEvent(params):
+            // Decoded the way the PAGE decodes a card, tolerantly, so a row
+            // this build cannot fully read renders as unanswerable instead of
+            // vanishing. Its scope is taken from the raw frame, and a card that
+            // cannot even say which conversation it belongs to is dropped:
+            // rendering it would put another scope's approval in front of this
+            // operator.
+            if let scope = params.confirm.value("scope_key")?.stringValue {
+                fold(.confirm(card: FleetChatConfirmCard.decode(params.confirm), scopeKey: scope))
+            }
+        case let .activityEvent(params):
+            fold(.activity(params.activity))
         case .unknownNotification:
             break
         }
         return true
+    }
+
+    /// Fold one live chat notification into the surface on screen.
+    ///
+    /// Two things, and both are needed. The surface is updated so the pane
+    /// moves NOW, and the event is remembered if a page is running so that
+    /// page cannot overwrite it with a read that predates it.
+    ///
+    /// The scope filter lives in `FleetChatSurface.apply`, where the scope key
+    /// is: the daemon's chat stream is fleet-wide, and every one of the three
+    /// event types carries the scope it was filed under.
+    ///
+    /// The write is guarded on a real change for the same reason the poll's is:
+    /// an assignment to a `@Published` value redraws the pane whether or not
+    /// anything moved, and a busy copilot emits activity rows faster than a
+    /// human reads.
+    private func fold(_ event: FleetChatEvent) {
+        // Nothing is folded with no pane on screen. The page that runs when one
+        // opens is what makes the surface current again, so the only thing lost
+        // is liveness for a view nobody is looking at.
+        guard chatPanesOpen > 0 else { return }
+        if chatPagesInFlight > 0, chat.scopeKey == nil || event.scopeKey == chat.scopeKey {
+            // Buffered by SCOPE at the door, not at replay. The stream is
+            // fleet-wide, so an unfiltered buffer collects every conversation's
+            // traffic, and a page whose RPC never answers holds the in-flight
+            // count above zero for as long as that call hangs.
+            //
+            // The nil case is not a hole in that filter, it is the FIRST page.
+            // Until one publishes there is no scope to compare against, and a
+            // filter that answered "no match" there would drop exactly what the
+            // buffer exists for: a message committed while the opening page was
+            // still reading its confirm and activity feeds. Replay applies the
+            // paged surface's own scope, so nothing foreign gets rendered, and
+            // the window lasts one page with the cap still in force.
+            chatEventsDuringPage.append(event)
+            if chatEventsDuringPage.count > Int(fleetMessageListMax) {
+                chatEventsDuringPage.removeFirst()
+            }
+        }
+        var next = chat
+        next.apply(event)
+        if next != chat { chat = next }
     }
 
     private func apply(_ next: FleetProjection) {
