@@ -1780,7 +1780,12 @@ impl SessionRecovery {
             for session in sessions.iter().map(|i| &state.orphaned_sessions[*i]) {
                 let is_selected = current_idx == state.selected_index;
                 let is_marked = state.selected_items.contains(&current_idx);
-                items.push(Self::render_session_item(session, is_selected, is_marked, budget));
+                items.push(Self::render_session_item(
+                    session,
+                    is_selected,
+                    is_marked,
+                    budget,
+                ));
                 current_idx += 1;
             }
         }
@@ -1809,7 +1814,12 @@ impl SessionRecovery {
             for worktree in worktrees.iter().map(|i| &state.orphaned_worktrees[*i]) {
                 let is_selected = current_idx == state.selected_index;
                 let is_marked = state.selected_items.contains(&current_idx);
-                items.push(Self::render_worktree_item(worktree, is_selected, is_marked, budget));
+                items.push(Self::render_worktree_item(
+                    worktree,
+                    is_selected,
+                    is_marked,
+                    budget,
+                ));
                 current_idx += 1;
             }
         }
