@@ -79,6 +79,14 @@ struct Published {
     /// Why the last read failed, for the one line the pane shows instead of
     /// pretending the session has no history.
     error: Option<String>,
+    /// Whether the render path has asked for rows since the last read.
+    ///
+    /// This is what stops the worker outliving the pane. Set by every frame
+    /// that wants the log, cleared by every read the worker completes: once the
+    /// operator leaves the tab nothing sets it again, the worker parks on the
+    /// condvar, and a session nobody is looking at stops costing a query every
+    /// 750 ms for the rest of the process's life.
+    asked: bool,
 }
 
 /// The cell the render loop reads and the worker writes.
@@ -117,8 +125,14 @@ impl Shared {
         let mut published = self.guard();
         if published.want.as_ref() != Some(key) {
             published.want = Some(key.clone());
+        }
+        if !published.asked {
+            published.asked = true;
             // Woken while this lock is still held; the worker simply blocks on
-            // the mutex until the guard drops at the end of the function.
+            // the mutex until the guard drops at the end of the function. Only
+            // on the FALSE->TRUE edge, because that is the only transition a
+            // parked worker is waiting for — notifying on every frame would be
+            // eighty wakeups a second telling it something it already knows.
             self.wake.notify_one();
         }
         if published.have.as_ref() == Some(key) {
@@ -174,15 +188,19 @@ fn worker(shared: &Shared) {
     // schema or checkpoint its WAL.
     let mut store: Option<ainb_plugin_notifyd::Store> = None;
     loop {
-        let want = shared.guard().want.clone();
+        let (want, asked) = {
+            let published = shared.guard();
+            (published.want.clone(), published.asked)
+        };
         let mut backoff = REFRESH;
-        if let Some(key) = want {
+        if let (true, Some(key)) = (asked, want) {
             match read_once(&mut store, &key) {
                 Ok(rows) => {
                     let mut published = shared.guard();
                     published.have = Some(key);
                     published.rows = rows;
                     published.error = None;
+                    published.asked = false;
                 }
                 Err(reason) => {
                     // Drop the handle: the usual causes (the file was replaced,
@@ -190,6 +208,7 @@ fn worker(shared: &Shared) {
                     store = None;
                     let mut published = shared.guard();
                     published.error = Some(reason);
+                    published.asked = false;
                     backoff = RETRY;
                 }
             }
@@ -198,10 +217,23 @@ fn worker(shared: &Shared) {
         // A request that arrived while the read was in flight is served now
         // rather than after a full interval — without this, the pane would show
         // the previous session for up to `REFRESH` after the cursor moved.
-        if published.want != published.have && published.error.is_none() {
+        if published.asked && published.want != published.have && published.error.is_none() {
             continue;
         }
-        let _unused = shared.wake.wait_timeout(published, backoff);
+        if published.asked {
+            // The pane is open and satisfied: sleep the refresh interval, then
+            // read again.
+            let _unused = shared.wake.wait_timeout(published, backoff);
+        } else {
+            // Nobody has asked since the last read, so there is nothing to
+            // refresh FOR. Park until a frame asks again.
+            //
+            // Checked while holding the guard, and `wait` releases it
+            // atomically, so a `read` that lands between the check and the wait
+            // cannot have its notify lost — it would still be blocked on this
+            // mutex.
+            let _unused = shared.wake.wait(published);
+        }
     }
 }
 
@@ -292,6 +324,41 @@ mod tests {
         let key = LogKey::new("/tmp/a", Some("claude"));
         let _unused = shared.read(&key);
         assert_eq!(shared.guard().want, Some(key));
+    }
+
+    /// The worker must not outlive the pane. Every frame that wants rows raises
+    /// `asked`; the worker lowers it after each read and parks when it is down,
+    /// so leaving the tab stops the query rather than leaving it running for
+    /// the rest of the process's life.
+    #[test]
+    fn a_pane_nobody_is_looking_at_stops_asking() {
+        let shared = Shared::default();
+        let key = LogKey::new("/tmp/a", None);
+        let _unused = shared.read(&key);
+        assert!(
+            shared.guard().asked,
+            "a frame that wants rows asks for them"
+        );
+
+        // The worker completing a read.
+        {
+            let mut published = shared.guard();
+            published.have = Some(key.clone());
+            published.rows = vec![row(1)];
+            published.asked = false;
+        }
+        // No further frames: nothing raises it again, so the worker parks.
+        assert!(
+            !shared.guard().asked,
+            "a closed pane must leave nothing for the worker to refresh"
+        );
+
+        // Re-opening the pane raises it again.
+        assert_eq!(shared.read(&key), Log::Rows(vec![row(1)]));
+        assert!(
+            shared.guard().asked,
+            "and a frame that comes back asks again"
+        );
     }
 
     #[test]
