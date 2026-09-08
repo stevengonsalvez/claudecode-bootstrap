@@ -11,7 +11,8 @@
 //!    can be started, and where.
 //! 2. **The remedy is on the pane.** One key, answered in place. Sending the
 //!    operator to another screen to find the row that starts it is the dead end
-//!    this replaces.
+//!    this replaces. INSERTED beside the dial header, never in place of it:
+//!    those dials are the other recovery this pane already offered.
 //! 3. **The footer stops lying.** `Enter send message` was advertised on a pane
 //!    that said "nothing to send to" in the same breath. A surface must never
 //!    offer an action it cannot perform.
@@ -27,7 +28,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// The pane's headline, as `session_tabs::render_copilot_daemon_cta` writes it.
+/// The pane's headline, as `session_tabs::daemon_offer_lines` writes it.
 const CTA_HEADLINE: &str = "copilot needs the hangar daemon, which is not running.";
 /// The verb the footer and the pane's key line must agree on
 /// (`session_tabs::START_DAEMON_VERB`).
@@ -341,6 +342,18 @@ fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
             )
         },
     );
+
+    // ADDITIVE, and this is the half CI caught when it was not: the offer is
+    // INSERTED. The dial header a daemon-down copilot pane already had is still
+    // there, with the keys that turn it — those dials are how an operator
+    // recovers from an adapter that will not spawn, and replacing them with one
+    // sentence takes a working surface away to add another.
+    for key in ["\u{2325}e", "\u{2325}o", "\u{2325}g"] {
+        assert!(
+            offered.contains(key),
+            "the offer replaced the dial header instead of joining it: `{key}` gone:\n{offered}"
+        );
+    }
 
     // The remedy is ON the pane, with the key next to it.
     assert!(
