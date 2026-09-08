@@ -906,6 +906,74 @@ async fn oversized_limit_is_clamped() {
     );
 }
 
+/// An uncursored scope read answers the END of the conversation, and a
+/// cursored one still walks forward.
+///
+/// A chat client opening a pane holds no cursor. Answering it with the first
+/// page means every message past the limit is unreachable by paging at all, and
+/// a client that also takes live pushes watches each new message arrive and
+/// then be wiped by its own next page. Both this app's clients read exactly
+/// this way, so both were blind past their limit.
+#[tokio::test]
+async fn an_uncursored_scope_page_answers_the_live_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, store, _sink) = start_server(dir.path()).await;
+    let scope = "session:seeded";
+    for index in 0..(ainb_hangar_proto::fleet::FLEET_MESSAGE_LIST_MAX + 20) {
+        FleetMessageRepo::insert_message(store.pool(), &message(&format!("m-{index:04}")))
+            .await
+            .unwrap();
+    }
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let page = client
+        .call(
+            methods::FLEET_MESSAGE_LIST,
+            serde_json::json!({ "scope_key": scope, "limit": 10 }),
+        )
+        .await;
+    let messages = page["result"]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 10, "{page}");
+    assert_eq!(
+        messages[9]["id"], "m-0119",
+        "an uncursored page must end at the newest message: {page}"
+    );
+    assert_eq!(
+        messages[0]["id"], "m-0110",
+        "and start one page back from it, not at the head of the log: {page}"
+    );
+    // Ascending commit order, the same as every cursored page. A tail read that
+    // answered newest-first would be a wire change wearing a bug fix's clothes.
+    let ordered: Vec<&str> = messages.iter().map(|row| row["id"].as_str().unwrap()).collect();
+    let mut ascending = ordered.clone();
+    ascending.sort_unstable();
+    assert_eq!(ordered, ascending, "the tail page is not in commit order");
+    assert_eq!(
+        page["result"]["next_after_id"], "m-0119",
+        "the cursor handed back is the newest row, so the next page is what follows it"
+    );
+
+    // The cursored walk is untouched: from a row near the start, the next page
+    // is still the rows immediately after it.
+    let walked = client
+        .call(
+            methods::FLEET_MESSAGE_LIST,
+            serde_json::json!({ "scope_key": scope, "after_id": "m-0000", "limit": 3 }),
+        )
+        .await;
+    let walked_ids: Vec<&str> = walked["result"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        walked_ids,
+        vec!["m-0001", "m-0002", "m-0003"],
+        "a cursored page must still walk forward: {walked}"
+    );
+}
+
 /// Scope and thread filters page the same commit-ordered log.
 #[tokio::test]
 async fn list_filters_by_scope_and_by_thread_origin() {
