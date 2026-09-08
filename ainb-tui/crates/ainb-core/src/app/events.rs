@@ -1487,7 +1487,7 @@ impl EventHandler {
         let host = match state.session_tab {
             SessionTab::Copilot => state.copilot_chat.as_mut(),
             SessionTab::Thread => state.session_chat.as_mut().map(|(_, host)| host),
-            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Err | SessionTab::Log => None,
         }?;
         let outcome = reduce_chat_key(host.state_mut(), chat_key);
         state.ui_needs_refresh = true;
@@ -2397,7 +2397,7 @@ impl EventHandler {
                     // Deliberately nothing: a history pane has no verb, and
                     // silently attaching from it is the surprise this scoping
                     // exists to stop.
-                    SessionTab::Log => return None,
+                    SessionTab::Err | SessionTab::Log => return None,
                 }
                 // Enter on a Stopped interactive session = resume it.
                 // Enter on a Running session = attach (mirrors 'a').
@@ -4429,7 +4429,9 @@ impl EventHandler {
                     SessionTab::Ask | SessionTab::Thread | SessionTab::Copilot => {
                         FocusedPane::LiveLogs
                     }
-                    SessionTab::Preview | SessionTab::Log => FocusedPane::Sessions,
+                    SessionTab::Preview | SessionTab::Err | SessionTab::Log => {
+                        FocusedPane::Sessions
+                    }
                 };
                 state.ui_needs_refresh = true;
             }

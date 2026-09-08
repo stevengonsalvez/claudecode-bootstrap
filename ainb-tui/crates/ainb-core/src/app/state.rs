@@ -11902,7 +11902,7 @@ impl AppState {
             SessionTab::Thread => {
                 self.session_chat.is_some() || !self.broadcast_targets().is_empty()
             }
-            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => false,
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Err | SessionTab::Log => false,
         }
     }
 
@@ -11924,7 +11924,7 @@ impl AppState {
         let host = match self.session_tab {
             SessionTab::Copilot => self.copilot_chat.as_ref(),
             SessionTab::Thread => self.session_chat.as_ref().map(|(_, host)| host),
-            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Err | SessionTab::Log => None,
         };
         host.is_some_and(|host| host.state().is_capturing_text())
     }
@@ -11966,7 +11966,7 @@ impl AppState {
                 }
                 self.session_chat.as_ref().map(|(_, host)| host)
             }
-            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Err | SessionTab::Log => None,
         }
     }
 

@@ -150,6 +150,7 @@ impl LayoutComponent {
                 }
                 session_tabs::render_ask(frame, inner, state);
             }
+            SessionTab::Err => session_tabs::render_err(frame, inner, state),
             SessionTab::Log => {
                 // Started here rather than at construction, for the same reason
                 // the attention poller is: an `ainb` invocation that never opens
