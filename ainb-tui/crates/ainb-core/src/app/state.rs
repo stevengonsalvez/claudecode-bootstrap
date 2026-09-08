@@ -3752,7 +3752,7 @@ pub struct AppState {
     ///
     /// Same shape as [`Self::attention_error_since`]: stamped once, reused
     /// while the chip stays that kind, dropped when it does not.
-    pub attention_local_since: HashMap<(Uuid, AttentionKind), i64>,
+    pub attention_local_since: HashMap<(Uuid, AttentionKind, Option<String>), i64>,
 }
 
 /// Result of background workspace loading
@@ -5960,7 +5960,7 @@ impl AppState {
                 continue;
             };
 
-            let stopped = Self::stopped_session_from_metadata(metadata);
+            let stopped = Self::stopped_session_from_metadata(metadata, &self.session_label_store);
             // Group by the actual source repository (matches Phase 1's
             // grouping above). The previous `worktree_path.parent()` key was
             // always the shared `~/.agents-in-a-box/worktrees/` dir, which
@@ -5991,8 +5991,12 @@ impl AppState {
 
     /// Build a `Session` model in `Stopped` state from persisted metadata.
     /// Used to render sessions whose tmux is dead but whose worktree is alive.
+    /// `labels` is threaded in rather than loaded here because this runs once
+    /// per stopped session inside a refresh loop, and a per-row file read is a
+    /// syscall per session for a store that only changes on rename.
     pub(crate) fn stopped_session_from_metadata(
         metadata: &crate::interactive::SessionMetadata,
+        labels: &crate::config::SessionLabelStore,
     ) -> crate::models::Session {
         use crate::models::{Session, SessionMode, SessionStatus};
 
@@ -6015,6 +6019,10 @@ impl AppState {
             session.branch_name = branch_name;
         }
         session.tmux_session_name = Some(metadata.tmux_session_name.clone());
+        // The durable label is keyed by tmux name and outlives the tmux
+        // session, so a stopped row keeps the same "<label> · <branch>" the
+        // running row had instead of dropping back to a bare branch.
+        session.display_name = labels.get(&metadata.tmux_session_name).cloned();
         session.status = SessionStatus::Stopped;
         session.created_at = metadata.created_at;
         session
@@ -11815,6 +11823,35 @@ impl AppState {
             // pane leads with what the agent actually said rather than "the
             // request carried no question text" on a row where the producer
             // plainly had one.
+            // An `AskUserQuestion` states its own question and its own
+            // answers, so it must not wear the permission vocabulary.
+            //
+            // It arrives as a `PermissionRequest`, which classifies APPROVE and
+            // would then have approve/deny synthesised onto it — the wrong two
+            // words on the majority of permission chips, since 540 of 718 such
+            // records are this tool. Worse, `cli/fleet/atc.rs` excludes this
+            // tool from the blocking approve round-trip, so no waiter is ever
+            // parked and every approve/deny send failed at an empty broker.
+            //
+            // Marked NativePicker HERE rather than inferred later from a
+            // non-empty option list: a payload that carried no options is still
+            // the agent's own picker, and inferring from the list let exactly
+            // those rows fall back to a composer that types at it.
+            if let Some(ask) = payload.as_ref().and_then(ainb_plugin_notifyd::ask_user_question) {
+                return Some(
+                    SessionAttention::local(AttentionKind::Ask, rec.ts)
+                        .with_detail(ask.question.unwrap_or_default())
+                        .with_options(
+                            ask.options
+                                .into_iter()
+                                .map(|(label, description)| {
+                                    crate::fleet::attention::AttentionOption { label, description }
+                                })
+                                .collect(),
+                        )
+                        .unanswerable(crate::fleet::attention::Unanswerable::NativePicker),
+                );
+            }
             return Some(
                 SessionAttention::local(Self::chip_for_alert(kind), rec.ts).with_detail(
                     payload.as_ref().and_then(Self::payload_message).unwrap_or_default(),
@@ -12050,8 +12087,15 @@ impl AppState {
             if matches!(chip.answerable, Answerable::Daemon { .. }) {
                 continue;
             }
-            let first_seen =
-                *self.attention_local_since.entry((id, chip.kind)).or_insert(chip.since_ms);
+            // Keyed by the DETAIL as well as the kind. Two different
+            // questions of the same kind are two different waits: an
+            // `AskUserQuestion` firing while an idle prompt is still open used
+            // to inherit that prompt's first-seen instant, so a question
+            // seconds old rendered as "40m" and its `request_id`
+            // (`ASK:<since_ms>`) collided with the older one — which is how a
+            // previous question's draft could land under a new one.
+            let key = (id, chip.kind, chip.detail.clone());
+            let first_seen = *self.attention_local_since.entry(key).or_insert(chip.since_ms);
             chip.since_ms = first_seen;
         }
     }
@@ -12148,17 +12192,17 @@ impl AppState {
         // A session that recovered (or vanished) must lose its ERR clock, or a
         // later failure would render with the age of the previous one.
         self.attention_error_since.retain(|id, _| live.contains(id));
-        self.attention_local_since.retain(|(id, _), _| live.contains(id));
+        self.attention_local_since.retain(|(id, ..), _| live.contains(id));
         // Every (session, kind) a LOCAL chip still claims this pass. Anything
         // else loses its clock below, so a question that closed and a later one
         // of the same kind do not share an instant.
-        let still_open: HashSet<(Uuid, AttentionKind)> = marks
+        let still_open: HashSet<(Uuid, AttentionKind, Option<String>)> = marks
             .iter()
             .flat_map(|(id, chips, ..)| {
                 chips
                     .iter()
                     .filter(|chip| !matches!(chip.answerable, Answerable::Daemon { .. }))
-                    .map(move |chip| (*id, chip.kind))
+                    .map(move |chip| (*id, chip.kind, chip.detail.clone()))
             })
             .collect();
         self.attention_local_since.retain(|key, _| still_open.contains(key));

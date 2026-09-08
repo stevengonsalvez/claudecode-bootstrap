@@ -1447,21 +1447,44 @@ pub struct FleetMessage {
 }
 
 /// Parameters for `fleet/acp_session_create`.
+///
+/// `provider` and `cwd` obey ONE rule between them: absent (or blank, which is
+/// the same request spelled with whitespace) means "whatever this scope already
+/// has", and the daemon answers from the scope's live session. Naming either is
+/// how a get-or-create turns into a refusal, because `acp_session::ensure`
+/// rejects a live scope whose adapter or root differs from the one asked for.
+/// So a caller that wants THE conversation on a scope, rather than a particular
+/// engine in a particular directory, names neither.
+///
+/// They differ only in what happens with no live session to answer from: the
+/// daemon can fall back to a built-in adapter, but it has no root to fall back
+/// to, so an absent `cwd` is refused there rather than guessed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FleetAcpSessionCreateParams {
     /// Adapter token validated against the daemon's adapter registry.
     ///
-    /// Absent means "whatever this scope already runs": the daemon answers
-    /// with the scope's live session's adapter, and falls back to the built-in
-    /// Claude adapter only when the scope has no session at all. A caller that
-    /// wants the session rather than a particular engine must omit this —
-    /// naming a guess is how a get-or-create reverted an engine the operator
+    /// Absent or blank means "whatever this scope already runs": the daemon
+    /// answers with the scope's live session's adapter, and falls back to the
+    /// built-in Claude adapter only when the scope has no session at all.
+    /// Naming a guess is how a get-or-create reverted an engine the operator
     /// had swapped, and, once the scope was held by a different adapter, was
     /// refused outright as `ScopeHeld`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// Working directory for the ACP session.
-    pub cwd: String,
+    ///
+    /// Absent or blank means "the scope's held session", exactly as for
+    /// `provider`: the daemon answers with the live session's own root. It is
+    /// REFUSED with `invalid_params` when there is no live session on the
+    /// scope, because the only root the daemon could otherwise supply is its
+    /// own working directory, which nobody chose.
+    ///
+    /// Omitting it is what a chat client wants. A client that names its own
+    /// directory is refused the moment the session it is attaching to was
+    /// opened from somewhere else, which is the ordinary case for a menu-bar
+    /// app naming `$HOME` against a session rooted in a worktree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     /// Scope to bind; the daemon mints `session:<session_key>` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_key: Option<String>,
@@ -2551,14 +2574,22 @@ mod tests {
     fn message_family_params_and_results_round_trip() {
         round_trip(&FleetAcpSessionCreateParams {
             provider: Some("claude-agent-acp".to_string()),
-            cwd: "/repo".to_string(),
+            cwd: Some("/repo".to_string()),
             scope_key: None,
         });
         // An omitted provider is the shape the chat page sends: it wants the
         // scope's session, not a named engine.
         round_trip(&FleetAcpSessionCreateParams {
             provider: None,
-            cwd: "/repo".to_string(),
+            cwd: Some("/repo".to_string()),
+            scope_key: Some("channel:c1".to_string()),
+        });
+        // Neither named: the whole get-or-create, which is what a chat client
+        // attaching to a standing session sends. Naming either half is how the
+        // notch was refused by a scope held from a different directory.
+        round_trip(&FleetAcpSessionCreateParams {
+            provider: None,
+            cwd: None,
             scope_key: Some("channel:c1".to_string()),
         });
         round_trip(&FleetAcpSessionCreateResult {
@@ -2625,6 +2656,37 @@ mod tests {
         round_trip(&FleetMessageEventParams {
             message: sample_message(),
         });
+    }
+
+    /// A get-or-create names NEITHER half on the wire, and an older frame that
+    /// names both still decodes.
+    ///
+    /// The absence is the contract, not merely a `None` in Rust: a client that
+    /// sent `"cwd": null` would be indistinguishable here but is a different
+    /// frame for the Swift and TypeScript clients that hand-build it, and the
+    /// daemon's own hint string promises the key may simply be left out.
+    #[test]
+    fn an_acp_create_that_names_neither_half_omits_both_keys() {
+        let attach = serde_json::to_value(FleetAcpSessionCreateParams {
+            provider: None,
+            cwd: None,
+            scope_key: Some("channel:c1".to_string()),
+        })
+        .expect("params serialize");
+        assert_eq!(
+            attach,
+            serde_json::json!({ "scope_key": "channel:c1" }),
+            "an attach frame carries the scope and nothing else"
+        );
+
+        let named: FleetAcpSessionCreateParams = serde_json::from_value(serde_json::json!({
+            "provider": "codex-acp",
+            "cwd": "/repo",
+            "scope_key": "channel:c1"
+        }))
+        .expect("a frame from a client built before either field became optional");
+        assert_eq!(named.provider.as_deref(), Some("codex-acp"));
+        assert_eq!(named.cwd.as_deref(), Some("/repo"));
     }
 
     #[test]

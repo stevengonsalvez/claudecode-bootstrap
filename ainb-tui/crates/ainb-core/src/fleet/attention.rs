@@ -91,6 +91,16 @@ pub enum Unanswerable {
     /// The state is informational. `DONE` and `ERR` are not questions; there is
     /// nothing to answer.
     NotAQuestion,
+    /// The agent is rendering its OWN picker for this question, and only that
+    /// picker can accept the answer.
+    ///
+    /// The question and its options are still shown — they arrived in the hook
+    /// payload and are worth reading — but a pick cannot be delivered from
+    /// here. Typing an option's label into a pane that is waiting on arrow
+    /// keys is not an answer, and a composer that looks like it sends one is
+    /// the lying surface this screen exists to remove. So the pane shows what
+    /// is being asked and says where to answer it.
+    NativePicker,
 }
 
 impl Unanswerable {
@@ -103,6 +113,9 @@ impl Unanswerable {
             }
             Self::NoTransport => "this session has no live pane and no daemon route to answer over",
             Self::NotAQuestion => "nothing is waiting on an answer here",
+            Self::NativePicker => {
+                "this renders in the agent's own picker — attach with `a` to answer it there"
+            }
         }
     }
 }
@@ -477,6 +490,25 @@ pub fn route_answer(
             Answerable::No(Unanswerable::DaemonGone)
         };
     }
+    // The agent is rendering its OWN picker, and only that picker takes the
+    // pick. Carried on the chip by its producer, not inferred from a non-empty
+    // option list: a payload that sent no options is still a native picker, and
+    // inferring from the list let exactly those rows fall through to a composer
+    // that types literal text at it.
+    //
+    // `resolve_and_send_typed` delivers text; typing "staging" at a picker is
+    // not choosing `staging`. Offering a composer here would look like an
+    // answer and deliver nothing.
+    //
+    // Still requires a PANE, because the refusal names one: telling an operator
+    // to attach to a session whose pane is gone is its own wrong answer, and
+    // `NoTransport` is what that actually is. A DAEMON row is exempt and
+    // handled above — `attention/answer` really does deliver a structured pick.
+    if matches!(chip.answerable, Answerable::No(Unanswerable::NativePicker)) {
+        return tmux_session.map_or(Answerable::No(Unanswerable::NoTransport), |_| {
+            Answerable::No(Unanswerable::NativePicker)
+        });
+    }
     // A local permission request goes to the broker, never to the pane: the
     // hook is blocked in `client_await` and reads nothing typed at the
     // terminal. The broker is notifyd's and local, so this is the route that
@@ -498,6 +530,88 @@ pub fn route_answer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A question with its OWN options is the agent's picker, not ours.
+    ///
+    /// ainb can read an `AskUserQuestion` payload and show exactly what is
+    /// being asked, but the pane is waiting on the picker's keys and the send
+    /// path delivers literal text. Typing "staging" at a picker does not
+    /// choose `staging`, so a composer here would look like an answer and
+    /// deliver nothing.
+    #[test]
+    fn a_local_question_carrying_its_own_options_refuses_to_pretend() {
+        let chip = SessionAttention::local(AttentionKind::Ask, 0)
+            .with_options(vec![AttentionOption {
+                label: "staging".into(),
+                description: String::new(),
+            }])
+            .unanswerable(Unanswerable::NativePicker);
+        let route = route_answer(&chip, Some("some-pane"), Some("s-1"), true);
+        assert_eq!(
+            route,
+            Answerable::No(Unanswerable::NativePicker),
+            "a live pane must not make a native picker look answerable"
+        );
+        let reason = Unanswerable::NativePicker.reason();
+        assert!(reason.contains("own picker"), "{reason}");
+        // `contains('a')` would pass on any English sentence and guard
+        // nothing; the point is that the refusal names the KEY.
+        assert!(
+            reason.contains("`a`"),
+            "it must name the key that gets there: {reason}"
+        );
+    }
+
+    /// With NO pane, the refusal must not tell anyone to attach to one.
+    ///
+    /// A session whose pane was killed still carries its last question. Saying
+    /// "attach with `a`" points at nothing, and `NoTransport` is what that
+    /// actually is.
+    #[test]
+    fn a_native_picker_with_no_pane_reports_no_transport_instead() {
+        let chip =
+            SessionAttention::local(AttentionKind::Ask, 0).unanswerable(Unanswerable::NativePicker);
+        assert_eq!(
+            route_answer(&chip, None, Some("s-1"), true),
+            Answerable::No(Unanswerable::NoTransport),
+            "there is nothing to attach to, so do not say attach"
+        );
+        assert_eq!(
+            route_answer(&chip, Some("pane"), Some("s-1"), true),
+            Answerable::No(Unanswerable::NativePicker),
+            "with a pane, naming the picker is the right refusal"
+        );
+    }
+
+    /// A local question with NO options is an ordinary prompt: still typed.
+    #[test]
+    fn a_local_question_without_options_still_routes_to_the_pane() {
+        let chip = SessionAttention::local(AttentionKind::Ask, 0);
+        assert_eq!(
+            route_answer(&chip, Some("some-pane"), Some("s-1"), true),
+            Answerable::Tmux,
+            "free text at a plain prompt is exactly what the pane route is for"
+        );
+    }
+
+    /// A DAEMON row keeps its structured route even carrying options: its
+    /// `attention/answer` really does deliver a pick.
+    #[test]
+    fn a_daemon_question_with_options_still_answers_through_the_daemon() {
+        let chip =
+            SessionAttention::daemon(AttentionKind::Ask, 0, "att-1".into()).with_options(vec![
+                AttentionOption {
+                    label: "yes".into(),
+                    description: String::new(),
+                },
+            ]);
+        assert_eq!(
+            route_answer(&chip, Some("some-pane"), Some("s-1"), true),
+            Answerable::Daemon {
+                attention_id: "att-1".into()
+            },
+        );
+    }
 
     #[test]
     fn only_ask_and_approve_block() {

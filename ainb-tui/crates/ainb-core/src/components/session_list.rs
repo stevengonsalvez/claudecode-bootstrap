@@ -1559,6 +1559,66 @@ mod tests {
         );
     }
 
+    /// A stopped session must still PAINT its durable label. Asserted against
+    /// a rendered buffer, not `display_name`, because the loss was in the row
+    /// the operator actually reads after stopping a session.
+    #[test]
+    fn stopped_session_row_paints_its_durable_label() {
+        use crate::config::SessionLabelStore;
+        use crate::interactive::SessionMetadata;
+        use crate::models::SessionAgentType;
+        use ratatui::{Terminal, backend::TestBackend};
+        use std::path::PathBuf;
+
+        let mut labels = SessionLabelStore::default();
+        labels.set(
+            "tmux_stopped_row".to_string(),
+            Some("RPC flake".to_string()),
+        );
+
+        let metadata = SessionMetadata {
+            session_id: uuid::Uuid::new_v4(),
+            tmux_session_name: "tmux_stopped_row".to_string(),
+            worktree_path: PathBuf::from("/tmp/ainb-stopped-label"),
+            workspace_name: "ws".to_string(),
+            created_at: chrono::Utc::now(),
+            agent_type: SessionAgentType::Claude,
+            headroom_enabled: false,
+            rtk_enabled: false,
+            skip_permissions: None,
+            model: None,
+            model_source: Default::default(),
+            codex_model: None,
+            codex_thread_id: None,
+        };
+
+        let mut session = AppState::stopped_session_from_metadata(&metadata, &labels);
+        session.branch_name = "fix/rpc-acp-flake".to_string();
+        assert!(matches!(session.status, SessionStatus::Stopped));
+
+        let mut state = AppState::new();
+        state.workspaces.clear();
+        state.expand_all_workspaces = true;
+        state.session_filter = SessionFilter::All;
+        let mut workspace = Workspace::new("ws".to_string(), "/tmp/ainb-stopped-label".into());
+        workspace.add_session(session);
+        state.workspaces.push(workspace);
+        state.selected_workspace_index = Some(0);
+
+        let mut list = SessionListComponent::new();
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).expect("terminal");
+        terminal
+            .draw(|frame| list.render(frame, frame.area(), &mut state))
+            .expect("draw");
+        let painted: String =
+            terminal.backend().buffer().content().iter().map(|cell| cell.symbol()).collect();
+
+        assert!(
+            painted.contains("RPC flake · fix/rpc-acp-flake"),
+            "stopped row lost its label, painted: {painted}"
+        );
+    }
+
     #[test]
     fn durable_label_keeps_live_branch_visible() {
         let mut session = Session::new("workspace".to_string(), "/tmp/workspace".to_string());

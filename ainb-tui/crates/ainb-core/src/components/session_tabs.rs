@@ -102,6 +102,15 @@ impl SessionTab {
     /// than a dialog is to dismiss.
     #[must_use]
     pub fn enter_verb_in(self, state: &AppState) -> std::borrow::Cow<'static, str> {
+        // A refused ask has NO verb. The footer is the last thing an operator
+        // reads before pressing the key, so "send answer" over a row that
+        // cannot send is the advertisement that makes the whole pane a lie —
+        // the same defect as a green tick over a failed send.
+        if self == Self::Ask
+            && selected_blocking(state).is_some_and(|chip| chip.answerable.refusal().is_some())
+        {
+            return std::borrow::Cow::Borrowed("");
+        }
         let targets = state.broadcast_targets().len();
         if self == Self::Thread && targets > 0 {
             std::borrow::Cow::Owned(format!("broadcast to {targets}"))
@@ -437,9 +446,19 @@ pub fn render_ask(frame: &mut Frame, area: Rect, state: &AppState) {
     }
     lines.push(Line::raw(""));
 
-    let on_free_text = ask.focus() == AskFocus::FreeText;
+    // A refused chip renders as a READING surface, not an answering one.
+    //
+    // The options and the question are still worth showing — a native picker's
+    // choices tell the operator what is being asked even when the answer is
+    // typed elsewhere. What must go is every affordance that promises a send:
+    // the selection caret, the free-text row, the composer and its caret. A
+    // pane that paints a cursor under "nothing to send to" is the same lying
+    // surface as a green tick over a failed send.
+    let refusal = chip.answerable.refusal();
+    let can_answer = refusal.is_none();
+    let on_free_text = can_answer && ask.focus() == AskFocus::FreeText;
     for (index, option) in chip.options.iter().enumerate() {
-        let selected = !on_free_text && ask.cursor() == index;
+        let selected = can_answer && !on_free_text && ask.cursor() == index;
         lines.push(Line::from(vec![
             Span::styled(
                 if selected { "\u{25b8}" } else { " " },
@@ -466,39 +485,43 @@ pub fn render_ask(frame: &mut Frame, area: Rect, state: &AppState) {
         }
     }
 
-    // The free-text row is always present, even on a structured request: an
-    // agent's question is not always answerable with one of its own options,
-    // and a surface that only offers them forces the operator back to the pane.
-    lines.push(Line::from(vec![
-        Span::styled(
-            if on_free_text { "\u{25b8}" } else { " " },
-            Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("{} ", circled(chip.options.len())),
-            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            if chip.options.is_empty() {
-                "answer".to_string()
-            } else {
-                "other (type it)".to_string()
-            },
-            Style::default().fg(if on_free_text {
-                SELECTION_GREEN
-            } else {
-                MUTED_GRAY
-            }),
-        ),
-    ]));
-    if on_free_text {
+    // back to the pane. On a REFUSED chip it is omitted entirely: a composer
+    // row on a row that cannot send is an affordance that does nothing.
+    if can_answer {
+        // The free-text row is present on every ANSWERABLE request, even a
+        // structured one: an agent's question is not always answerable with one of
+        // its own options, and a surface that only offers them forces the operator
         lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(ask.free_text().to_string(), Style::default().fg(SOFT_WHITE)),
-            // A visible caret, so an empty composer reads as "type here" rather
-            // than as a pane that is doing nothing.
-            Span::styled("\u{2588}", Style::default().fg(SELECTION_GREEN)),
+            Span::styled(
+                if on_free_text { "\u{25b8}" } else { " " },
+                Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} ", circled(chip.options.len())),
+                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if chip.options.is_empty() {
+                    "answer".to_string()
+                } else {
+                    "other (type it)".to_string()
+                },
+                Style::default().fg(if on_free_text {
+                    SELECTION_GREEN
+                } else {
+                    MUTED_GRAY
+                }),
+            ),
         ]));
+        if on_free_text {
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(ask.free_text().to_string(), Style::default().fg(SOFT_WHITE)),
+                // A visible caret, so an empty composer reads as "type here" rather
+                // than as a pane that is doing nothing.
+                Span::styled("\u{2588}", Style::default().fg(SELECTION_GREEN)),
+            ]));
+        }
     }
 
     // What the last send did. Every one of the three states is VISIBLE: an

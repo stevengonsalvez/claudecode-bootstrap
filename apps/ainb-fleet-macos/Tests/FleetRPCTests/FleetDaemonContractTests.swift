@@ -380,6 +380,84 @@ final class FleetDaemonContractTests: XCTestCase {
         }
     }
 
+    /// The attach this client actually sends, against a real daemon: a create
+    /// naming NEITHER `provider` nor `cwd` answers with the session the scope
+    /// already holds.
+    ///
+    /// The Swift-side unit tests prove which frame each rung builds; only this
+    /// proves the daemon reads that frame the way this client means it. It is
+    /// the whole fix: the live copilot scope is held by a session opened from a
+    /// worktree, and a menu-bar app naming `$HOME` was refused `ScopeHeld` on
+    /// every one-second poll, leaving the composer with nobody to send to.
+    func testRealDaemonAttachesToAHeldScopeWhenNeitherHalfIsNamed() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        let channel = try await connection.channelCreate(
+            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+        ).channel
+        // Held at a root no client could guess, which is the live shape.
+        let opened = try await connection.acpSessionCreate(FleetAcpSessionCreateParams(
+            provider: copilotDefaultProvider,
+            cwd: "/work/worktree",
+            scopeKey: channel.scopeKey
+        ))
+
+        let attached = try await connection.acpSessionCreate(
+            FleetAcpSessionCreateParams(provider: nil, cwd: nil, scopeKey: channel.scopeKey)
+        )
+        XCTAssertEqual(
+            attached.sessionKey, opened.sessionKey,
+            "an attach naming neither half must answer with the standing session"
+        )
+        XCTAssertEqual(attached.scopeKey, channel.scopeKey)
+    }
+
+    /// A scope with NO live session refuses the same frame, naming the field,
+    /// because the daemon has no root to resolve and may not invent one.
+    ///
+    /// This is rung 2's trigger. The wording is load-bearing: the client's
+    /// ladder matches on the field name plus "required", so a daemon that
+    /// reworded this to something that names neither would leave a fresh
+    /// copilot channel unopenable rather than retried with a directory.
+    @MainActor
+    func testRealDaemonRefusesAnOmittedCwdOnAScopeWithNoSession() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        let channel = try await connection.channelCreate(
+            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+        ).channel
+
+        do {
+            _ = try await connection.acpSessionCreate(
+                FleetAcpSessionCreateParams(provider: nil, cwd: nil, scopeKey: channel.scopeKey)
+            )
+            XCTFail("the daemon must not root a session it was given no root for")
+        } catch let FleetConnectionError.rpc(refusal) {
+            XCTAssertEqual(refusal.code, -32602, "\(refusal)")
+            // The EXACT phrase the ladder anchors on, not "cwd" and "required"
+            // loose in the string: the daemon prefixes parse failures with a
+            // shape hint that names every field, so a loose assertion here
+            // would pass against a refusal about a different one.
+            XCTAssertTrue(refusal.message.contains("cwd is required"), "\(refusal)")
+        }
+
+        // And the rung that answers it lands, which is what the ladder does
+        // next: the same scope, now named.
+        let rooted = try await FleetStore.mintCopilotSession(
+            scopeKey: channel.scopeKey,
+            home: "/work/fresh",
+            create: { try await connection.acpSessionCreate($0) }
+        )
+        XCTAssertEqual(rooted.scopeKey, channel.scopeKey)
+        XCTAssertFalse(rooted.sessionKey.isEmpty)
+    }
+
     private static func nextFleetEvent(from stream: AsyncStream<FleetIncoming>) async throws -> FleetEvent {
         var iterator = stream.makeAsyncIterator()
         while let incoming = await iterator.next() {

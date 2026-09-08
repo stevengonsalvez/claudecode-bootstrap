@@ -6167,7 +6167,7 @@ async fn handle_fleet_acp_session_create(
     use crate::acp_session::EnsureError;
 
     require_fleet_capability(FLEET_CAPABILITY_ACP_SPAWN)?;
-    let params: FleetAcpSessionCreateParams = parse_params(req, "{ provider?, cwd, scope_key? }")?;
+    let params: FleetAcpSessionCreateParams = parse_params(req, "{ provider?, cwd?, scope_key? }")?;
     // `task:<id>` belongs to the task executor (`crate::acp_task`). A chat
     // session minted there would make that task's later run fail `ScopeHeld`
     // (terminal, `SpawnError`, no retry) and would make the pool stamp this
@@ -6179,35 +6179,91 @@ async fn handle_fleet_acp_session_create(
             crate::acp_task::TASK_SCOPE_PREFIX
         )));
     }
+    // Blank is omitted, for BOTH fields and by the same rule: whitespace names
+    // no adapter and roots no session, so a caller that sent one asked for
+    // nothing rather than for the empty string. Treating them differently left
+    // a trap, because a blank cwd used to reach `ensure` as a hard refusal that
+    // neither client retry ladder can match, so a caller that sent one had no
+    // rung to spend and simply stuck.
+    //
+    // Resolved before the read below so the read's guard and the two
+    // resolutions cannot disagree about what "named" means.
+    let named_provider = params.provider.as_deref().map(str::trim).filter(|name| !name.is_empty());
+    let named_cwd = params.cwd.as_deref().map(str::trim).filter(|root| !root.is_empty());
+    // The scope's standing session, read ONCE for both fields below: they are
+    // two halves of the same question ("what does this scope already run, and
+    // where"), and asking it twice would put a second SELECT on a call a chat
+    // client makes to attach.
+    //
+    // Skipped entirely when the caller named both, which is the point of this
+    // whole change: `ensure` compares what it was given against the incumbent
+    // anyway, so reading the row here would add a SELECT to the very call this
+    // work exists to take off a contended database. Also absent when no scope
+    // was named, because a private scope is minted per session and therefore
+    // never has an incumbent.
+    //
+    // Read OUTSIDE the transaction `ensure` opens later, so the incumbent can
+    // be torn down in between and the mint then roots a fresh session at a dead
+    // session's cwd. That is the intended answer rather than a hole to close:
+    // it is the directory the operator's conversation was opened in, which is
+    // the only root a client that named none could have meant, and closing the
+    // window would mean holding a write transaction across the whole resolve.
+    // The provider path had the same window before this change.
+    let held = match params.scope_key.as_deref() {
+        Some(scope) if named_provider.is_none() || named_cwd.is_none() => {
+            FleetAcpSessionRepo::get_live_by_scope(pool, scope)
+                .await
+                .map_err(|error| store_err(&error))?
+        }
+        _ => None,
+    };
     // An omitted provider means "whatever this scope already runs". Resolved
     // here because only the daemon can answer it: a client that guessed reverted
     // a swapped engine, and `ensure` refuses a live scope whose adapter differs
     // from the one asked for, so the guess did not even fail quietly.
-    let provider = match params.provider.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+    let provider = match named_provider {
         Some(named) => named.to_string(),
-        None => {
-            let held = match params.scope_key.as_deref() {
-                Some(scope) => FleetAcpSessionRepo::get_live_by_scope(pool, scope)
-                    .await
-                    .map_err(|error| store_err(&error))?
-                    .map(|row| row.provider),
-                None => None,
-            };
-            held.unwrap_or_else(|| ainb_acp::config::CLAUDE_ADAPTER.to_string())
-        }
+        None => held.as_ref().map_or_else(
+            || ainb_acp::config::CLAUDE_ADAPTER.to_string(),
+            |row| row.provider.clone(),
+        ),
     };
-    let row = crate::acp_session::ensure(
-        pool,
-        events,
-        &provider,
-        &params.cwd,
-        params.scope_key.as_deref(),
-    )
-    .await
-    .map_err(|error| match error {
-        EnsureError::Store(_) => internal(&error.to_string()),
-        _ => invalid_params(&error.to_string()),
-    })?;
+    // An omitted cwd means the same thing about the root, and fails the same
+    // way when guessed: a menu-bar client naming `$HOME` against a scope opened
+    // from a worktree was refused `ScopeHeld` on every poll, with nobody to
+    // send to as a result.
+    //
+    // With no incumbent there is nothing to resolve FROM, and the daemon's own
+    // working directory is not a root anybody chose: a session minted there
+    // would run every later prompt against whatever directory the daemon
+    // happened to start in. Refused instead, which tells the client to name
+    // one. `acp_session::ensure` keeps its own empty-cwd guard for the task
+    // path, which does not come through this door.
+    //
+    // The refusal is worded for BOTH ways of reaching it, because a create that
+    // named no scope at all is minting a private one and can never have an
+    // incumbent: saying "the scope has no live session" would have described a
+    // scope that was never sent. "cwd is required" is the part both client
+    // ladders anchor on, so it stays intact whatever follows it.
+    let cwd = match named_cwd {
+        Some(named) => named.to_string(),
+        None => match held.as_ref() {
+            Some(row) => row.cwd.clone(),
+            None => {
+                return Err(invalid_params(
+                    "cwd is required unless the named scope already has a live session \
+                     to take its root from",
+                ));
+            }
+        },
+    };
+    let row =
+        crate::acp_session::ensure(pool, events, &provider, &cwd, params.scope_key.as_deref())
+            .await
+            .map_err(|error| match error {
+                EnsureError::Store(_) => internal(&error.to_string()),
+                _ => invalid_params(&error.to_string()),
+            })?;
     // The turn deadline rides back on the mint because this is the ONE call a
     // chat client makes before it can have a PENDING leg at all, and the value
     // is otherwise daemon-private: a client reading `AINB_ACP_TURN_DEADLINE_MS`

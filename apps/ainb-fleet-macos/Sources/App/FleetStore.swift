@@ -124,6 +124,37 @@ final class FleetStore: ObservableObject {
     private var hasEstablishedLiveConnection = false
     private var liveConnectionStartedAt: Date?
     private var hasAppliedAuthoritativeSnapshot = false
+    /// The ACP session each chat scope was minted against, so the mint happens
+    /// ONCE per scope instead of once per poll.
+    ///
+    /// `fleet/acp_session_create` is idempotent, but idempotent is not free: on
+    /// the daemon side every call is an INSERT inside a write transaction that
+    /// hits the live-scope unique index and then reads the incumbent back. At
+    /// the one-second chat poll that was 86,400 write transactions a day
+    /// against a database whose readers answer in 0.1s while this call was
+    /// timing out at 5s under lock contention. Nothing about a standing session
+    /// changes between polls, so nothing needs to be asked.
+    ///
+    /// Cleared whenever the answer could have gone stale: a new connection
+    /// (`beginConnection`, the daemon may have restarted and torn the session
+    /// down) and a send whose leg came back REJECTED (the session is gone,
+    /// re-mint on the next page).
+    ///
+    /// ponytail: per connection, not per session lifetime. A session evicted by
+    /// the pool while this app sits idle is only noticed at the next send, and
+    /// that send is the one that reports REJECTED. Live `fleet/message_event`
+    /// (PR B) is where a torn-down session becomes visible without a send.
+    private var copilotSessionKeyByScope: [String: String] = [:]
+    /// Bumped by every invalidation, so a page that was already in flight when
+    /// one happened cannot put the forgotten key back.
+    ///
+    /// A page is four round trips long, and the poll loop and the send path
+    /// each run in their own Task on this actor. Without this, a poll that
+    /// started before a send reported REJECTED would finish after the
+    /// invalidation and write its now-dead key back over the empty slot, so the
+    /// operator's next message went to the same dead session. That is the exact
+    /// failure the invalidation exists to prevent, arriving one poll later.
+    private var copilotCacheGeneration: UInt = 0
     private let maximumReconnectAttempts = 3
     private let reconnectResetInterval: TimeInterval = 30
 
@@ -657,7 +688,7 @@ final class FleetStore: ObservableObject {
             // this runs once a second and an unconditional @Published write
             // re-evaluates the whole window subtree even when nothing moved.
             // `FleetChatSurface` is Equatable, so the comparison is free.
-            let paged = try await Self.pageChat(using: connection, canWrite: canWrite)
+            let paged = try await pagedChat(using: connection)
             if chat != paged { chat = paged }
         } catch {
             controlNotice = "Chat refresh refused: \(String(describing: error))"
@@ -700,11 +731,19 @@ final class FleetStore: ObservableObject {
                     requestID: requestID
                 ))
                 self.controlNotice = FleetChatLabels.deliverySummary(result.deliveries)
+                // A leg refused because the session is GONE is the one signal
+                // this surface gets that its remembered key is dead. Forgetting
+                // it here is what makes the NEXT page mint a live one instead
+                // of sending into the same dead key forever. Transient
+                // refusals deliberately keep the mint.
+                if Self.reportsSessionGone(target, in: result.deliveries) {
+                    self.forgetCopilotSession(inScope: scopeKey)
+                }
             } catch {
                 self.controlNotice = "Chat send refused: \(String(describing: error))"
                 return
             }
-            self.chat = (try? await Self.pageChat(using: connection, canWrite: self.canWrite)) ?? self.chat
+            self.chat = (try? await self.pagedChat(using: connection)) ?? self.chat
         }
     }
 
@@ -737,7 +776,7 @@ final class FleetStore: ObservableObject {
             } catch {
                 self.controlNotice = "Confirm answer refused: \(String(describing: error))"
             }
-            self.chat = (try? await Self.pageChat(using: connection, canWrite: self.canWrite)) ?? self.chat
+            self.chat = (try? await self.pagedChat(using: connection)) ?? self.chat
         }
     }
 
@@ -747,8 +786,22 @@ final class FleetStore: ObservableObject {
     /// explained absence: a daemon built between phases answers -32601 for
     /// them, and a chat that refuses to render its conversation over that is a
     /// worse surface than one that says which half is missing.
-    private static func pageChat(using connection: FleetConnection, canWrite: Bool) async throws -> FleetChatSurface {
+    ///
+    /// `mintedSessionKeyByScope` is what keeps the mint OFF the poll: a scope
+    /// already minted against this connection skips `fleet/acp_session_create`
+    /// entirely. See `copilotSessionKeyByScope` for why that matters.
+    ///
+    /// `minted` says whether the target IS that session, so only a real mint is
+    /// cached. The fallbacks are not: a channel's first recipient is a guess
+    /// this page makes when the mint was REFUSED, and caching it would make the
+    /// refusal permanent for the life of the connection.
+    private static func pageChat(
+        using connection: FleetConnection,
+        canWrite: Bool,
+        mintedSessionKeyByScope: [String: String]
+    ) async throws -> (surface: FleetChatSurface, minted: Bool) {
         var surface = FleetChatSurface()
+        var minted = false
         let channels = try await connection.channelList().channels
         // Newest-wins, matching the TUI: a race that created two copilot
         // channels must not leave the two clients reading different ones.
@@ -765,7 +818,7 @@ final class FleetStore: ObservableObject {
             ).channel
         } else {
             surface.sessionDetail = "No copilot channel yet, and this connection may not create one."
-            return surface
+            return (surface, minted)
         }
         surface.scopeKey = channel.scopeKey
 
@@ -775,13 +828,17 @@ final class FleetStore: ObservableObject {
         // The call is idempotent per live scope. The daemon's refusal is KEPT
         // rather than swallowed: its wording is the only actionable thing an
         // operator gets when a client in another directory already claimed it.
-        if canWrite {
+        if let cached = mintedSessionKeyByScope[channel.scopeKey] {
+            surface.targetSessionKey = cached
+            minted = true
+        } else if canWrite {
             do {
-                surface.targetSessionKey = try await connection.acpSessionCreate(FleetAcpSessionCreateParams(
-                    provider: copilotDefaultProvider,
-                    cwd: FileManager.default.homeDirectoryForCurrentUser.path,
-                    scopeKey: channel.scopeKey
-                )).sessionKey
+                surface.targetSessionKey = try await Self.mintCopilotSession(
+                    scopeKey: channel.scopeKey,
+                    home: FileManager.default.homeDirectoryForCurrentUser.path,
+                    create: { try await connection.acpSessionCreate($0) }
+                ).sessionKey
+                minted = true
             } catch {
                 surface.targetSessionKey = channel.recipients.first
                 surface.sessionDetail = String(describing: error)
@@ -812,11 +869,174 @@ final class FleetStore: ObservableObject {
             afterSeq: nil,
             limit: fleetActivityListMax
         )).activities) ?? []
+        return (surface, minted)
+    }
+
+    /// The delivery details that mean the remembered session is GONE.
+    ///
+    /// The daemon's own tokens: `session_gone` from the ACP pool, plus
+    /// `target_unknown` (no such row) and `target_not_running` (the row exists
+    /// but its session exited) from the delivery leg. Every other REJECTED
+    /// token describes a session that is still there. `breaker_open` and
+    /// `queue_full` are transient back-pressure, and `task_scope_refused` is a
+    /// scope this surface never addresses, so forgetting the mint on any of
+    /// them would spend the write transaction this whole cache exists to
+    /// remove, on a session that would have answered the next prompt.
+    private static let sessionGoneDetails: Set<String> = [
+        "session_gone", "target_unknown", "target_not_running",
+    ]
+
+    /// Whether the daemon says the leg addressed to `target` failed because
+    /// that session no longer exists.
+    ///
+    /// REJECTED only, not every non-DELIVERED state: a PENDING leg is an ACP
+    /// turn that has not finished yet, which is the normal answer to a copilot
+    /// prompt.
+    ///
+    /// An absent or unrecognised detail is NOT a reason to forget. A daemon
+    /// that grows a new rejection token this build has never heard of would
+    /// otherwise re-mint on every send, which is the failure mode the cache was
+    /// added to remove, arriving silently through a wire change.
+    static func reportsSessionGone(_ target: String, in deliveries: [FleetMessageDelivery]) -> Bool {
+        deliveries.contains { delivery in
+            guard delivery.sessionKey == target, delivery.state == .rejected,
+                  let detail = delivery.detail else { return false }
+            return sessionGoneDetails.contains(
+                detail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            )
+        }
+    }
+
+    /// Forget the session remembered for `scope`, so the next page mints a live
+    /// one, and invalidate any page already in flight.
+    ///
+    /// Both halves matter. Removing the key alone loses the race against a page
+    /// that read the cache before this call and writes back after it.
+    func forgetCopilotSession(inScope scope: String) {
+        copilotCacheGeneration &+= 1
+        copilotSessionKeyByScope.removeValue(forKey: scope)
+    }
+
+    /// One page, with the copilot mint remembered for the next one.
+    ///
+    /// Every caller of `pageChat` goes through here so the cache cannot be
+    /// updated by one path and not another.
+    ///
+    /// The generation is captured BEFORE the page and checked after: four round
+    /// trips is long enough for a send to report a dead session and forget it,
+    /// and a page that finished afterwards must not restore what it read at the
+    /// start. It still renders its own result; only the remembering is dropped,
+    /// so the next page asks the daemon again.
+    private func pagedChat(using connection: FleetConnection) async throws -> FleetChatSurface {
+        let generation = copilotCacheGeneration
+        let (surface, minted) = try await Self.pageChat(
+            using: connection,
+            canWrite: canWrite,
+            mintedSessionKeyByScope: copilotSessionKeyByScope
+        )
+        if minted,
+           copilotCacheGeneration == generation,
+           let scope = surface.scopeKey,
+           let sessionKey = surface.targetSessionKey {
+            copilotSessionKeyByScope[scope] = sessionKey
+        }
         return surface
+    }
+
+    /// Get-or-create the copilot session for `scopeKey`, naming as little as
+    /// the daemon in front of us will accept.
+    ///
+    /// Three rungs, cheapest first, each one adding back a field only because
+    /// the daemon said it needs it:
+    ///
+    /// 1. neither `provider` nor `cwd`. What this client actually wants: THE
+    ///    session on this scope, whatever engine it runs and wherever it was
+    ///    opened. A menu-bar app cannot know either, and guessing was fatal:
+    ///    naming `$HOME` against a scope held by a session opened from a
+    ///    worktree is refused `ScopeHeld` on every poll, which left the
+    ///    composer with nobody to send to.
+    /// 2. `cwd` named as `home`. Either a daemon built before the field became
+    ///    optional, or a current one saying the scope has no live session to
+    ///    take a root from. Both are answered by naming one, and for a fresh
+    ///    copilot channel the operator's home is the honest root.
+    /// 3. `provider` named too, the legacy adapter. A daemon older still, in
+    ///    the ordinary upgrade-the-app-keep-the-daemon window. Exactly what
+    ///    this call sent before either field became optional, so it is no worse
+    ///    than it was against a daemon that cannot do better.
+    ///
+    /// Any other refusal propagates untouched, including a held scope: its
+    /// wording names the directory that holds it, and retrying would replace
+    /// the only actionable thing the operator gets with the same refusal twice.
+    static func mintCopilotSession(
+        scopeKey: String,
+        home: String,
+        create: (FleetAcpSessionCreateParams) async throws -> FleetAcpSessionCreateResult
+    ) async throws -> FleetAcpSessionCreateResult {
+        var refusal: Error
+        do {
+            return try await create(
+                FleetAcpSessionCreateParams(provider: nil, cwd: nil, scopeKey: scopeKey)
+            )
+        } catch {
+            refusal = error
+        }
+        if daemonRefusalNames(refusal, field: "cwd") {
+            do {
+                return try await create(
+                    FleetAcpSessionCreateParams(provider: nil, cwd: home, scopeKey: scopeKey)
+                )
+            } catch {
+                refusal = error
+            }
+        }
+        if daemonRefusalNames(refusal, field: "provider") {
+            return try await create(FleetAcpSessionCreateParams(
+                provider: copilotDefaultProvider,
+                cwd: home,
+                scopeKey: scopeKey
+            ))
+        }
+        throw refusal
+    }
+
+    /// Whether a daemon refusal is that daemon asking for `field` to be NAMED.
+    ///
+    /// The Swift half of the TUI's `names_missing_field`, anchored to the field
+    /// name rather than looking for two loose substrings, and for the same
+    /// reason: the daemon formats every parse refusal as
+    /// `expected {shape}: {serde error}`, and the SHAPE HINT names every field.
+    /// So a legacy daemon refusing an absent provider says
+    /// `expected { provider, cwd, scope_key? }: missing field \`provider\``,
+    /// which contains both "cwd" and "missing". A matcher looking for those
+    /// separately fires the cwd rung on a provider refusal and spends it on a
+    /// request the daemon never made.
+    ///
+    /// Exactly two shapes count:
+    ///
+    /// - ``missing field `<field>` ``, serde's own, backticks included. Without
+    ///   them the shape hint alone would satisfy the match.
+    /// - `<field> is required`, this daemon's own refusal.
+    ///
+    /// Only an RPC refusal counts at all, so a dead socket never spends a rung,
+    /// and a refusal that names the field for a REAL reason (an unknown
+    /// adapter, a scope held at another root) matches neither shape and
+    /// propagates with its wording intact.
+    private static func daemonRefusalNames(_ error: Error, field: String) -> Bool {
+        guard case let FleetConnectionError.rpc(refusal) = error else { return false }
+        let message = refusal.message.lowercased()
+        let field = field.lowercased()
+        return message.contains("missing field `\(field)`") || message.contains("\(field) is required")
     }
 
     private func beginConnection() {
         connectionGeneration &+= 1
+        // A new connection may be a new DAEMON: a restart tears every ACP
+        // session down, so a key remembered from the last one addresses
+        // nothing. Re-minting costs one call per scope; sending to a dead key
+        // costs the operator their message. The generation bump also disowns a
+        // page still in flight against the connection being replaced.
+        copilotCacheGeneration &+= 1
+        copilotSessionKeyByScope.removeAll()
         let generation = connectionGeneration
         let currentConnection = connection
         connection = nil
