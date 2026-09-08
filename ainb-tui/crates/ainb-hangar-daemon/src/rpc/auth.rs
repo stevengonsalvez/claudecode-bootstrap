@@ -213,10 +213,63 @@ pub fn write_token_file(path: &Path, plaintext: &str) -> std::io::Result<()> {
 ///
 /// # Errors
 ///
-/// Propagates the `getsockopt` failure (the caller treats it as a rejection).
+/// Propagates the `getsockopt` failure. Callers must go through
+/// [`PeerGate::classify`] rather than collapsing that error into `false`: a
+/// credential the daemon could not READ is a different fact from a credential
+/// that names someone else, and only one of them is worth an operator's
+/// attention.
 pub fn same_uid_peer(stream: &tokio::net::UnixStream) -> std::io::Result<bool> {
     let cred = stream.peer_cred()?;
     Ok(cred.uid() == nix::unistd::Uid::current().as_raw())
+}
+
+/// What the peer-credential gate concluded about one accepted connection.
+///
+/// Three outcomes, not two, because the gate has always had three and the
+/// missing one was being reported as the alarming one. `same_uid_peer(..)
+/// .unwrap_or(false)` folded a FAILED credential read into "foreign uid", so
+/// the daemon logged an intrusion-shaped warning for a case that carries no
+/// identity claim at all.
+///
+/// On macOS that case is not exotic, it is the norm. tokio's `peer_cred` reads
+/// `LOCAL_PEEREPID` first, and that `getsockopt` returns `ENOTCONN` the instant
+/// the peer disconnects — so every connect-and-drop liveness probe (the shape
+/// `socket_is_listening` uses to ask "is anyone accepting?") loses the race
+/// against the accepting task and is charged as a foreign-uid peer. A real
+/// mismatch then hides inside thousands of lines describing something that
+/// never happened.
+///
+/// All three outcomes still fail CLOSED: only [`Self::SameUid`] is served.
+/// This type changes what the daemon SAYS, never what it allows.
+#[derive(Debug)]
+pub enum PeerGate {
+    /// The kernel named this process's own uid. Serve the connection.
+    SameUid,
+    /// The kernel named a DIFFERENT uid. A genuine refusal, and the only
+    /// outcome that deserves a warning.
+    ForeignUid,
+    /// The credentials could not be read, so the peer's uid was never
+    /// established. Closed unverified — but not accused of anything.
+    Unreadable(std::io::Error),
+}
+
+impl PeerGate {
+    /// Map a [`same_uid_peer`] read onto the three outcomes. Split out from
+    /// [`classify_peer`] so the mapping is testable without a socket pair.
+    #[must_use]
+    pub fn classify(read: std::io::Result<bool>) -> Self {
+        match read {
+            Ok(true) => Self::SameUid,
+            Ok(false) => Self::ForeignUid,
+            Err(e) => Self::Unreadable(e),
+        }
+    }
+}
+
+/// Read one accepted connection's peer credentials and classify them.
+#[must_use]
+pub fn classify_peer(stream: &tokio::net::UnixStream) -> PeerGate {
+    PeerGate::classify(same_uid_peer(stream))
 }
 
 /// Validate a connection's first frame: it must be a well-formed `auth/hello`
@@ -288,6 +341,73 @@ fn unauthorized(id: RpcId, message: &str) -> RpcResponse {
 mod tests {
     use super::*;
     use ainb_hangar_store::Store;
+
+    /// The gate's three outcomes stay three. The regression this pins is the
+    /// old `same_uid_peer(..).unwrap_or(false)`, which collapsed a failed
+    /// credential READ onto the same branch as a uid that named someone else —
+    /// so the daemon warned about a foreign-uid peer for a connection that had
+    /// made no identity claim at all.
+    #[test]
+    fn a_credential_read_fault_is_not_a_foreign_uid() {
+        let fault = std::io::Error::from(std::io::ErrorKind::NotConnected);
+        assert!(
+            matches!(PeerGate::classify(Err(fault)), PeerGate::Unreadable(_)),
+            "an unreadable credential must not be reported as a foreign uid"
+        );
+    }
+
+    /// The real refusal still reads as a refusal — the fix must not soften the
+    /// one case an operator is meant to see.
+    #[test]
+    fn a_uid_mismatch_is_still_a_foreign_uid() {
+        assert!(matches!(
+            PeerGate::classify(Ok(false)),
+            PeerGate::ForeignUid
+        ));
+    }
+
+    /// Only our own uid is served.
+    #[test]
+    fn our_own_uid_is_served() {
+        assert!(matches!(PeerGate::classify(Ok(true)), PeerGate::SameUid));
+    }
+
+    /// macOS only, because this is a macOS kernel behaviour: tokio's
+    /// `peer_cred` reads `LOCAL_PEEREPID` before `getpeereid`, and that
+    /// `getsockopt` fails `ENOTCONN` once the peer has disconnected. Linux's
+    /// `SO_PEERCRED` latches the credentials and keeps answering, so there is
+    /// nothing to assert there.
+    ///
+    /// This is the live case: a probe from THIS uid that hangs up before the
+    /// accepting task reads its credentials. It must classify as unreadable,
+    /// never as a foreign uid.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_same_uid_peer_that_hung_up_first_is_unreadable_not_foreign() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gate.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+
+        let client = tokio::net::UnixStream::connect(&path).await.unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        // While the peer is still there its uid reads fine: this is us.
+        assert!(
+            matches!(classify_peer(&server), PeerGate::SameUid),
+            "a live same-uid peer must be served"
+        );
+
+        drop(client);
+        // The disconnect is what breaks the credential read; give the kernel a
+        // moment to tear the pair down before asking again.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        match classify_peer(&server) {
+            PeerGate::Unreadable(e) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::NotConnected, "{e}");
+            }
+            other => panic!("a same-uid peer that hung up was classified {other:?}"),
+        }
+    }
 
     /// `ensure_socket_token` mints once and is then stable across calls: the
     /// digest in the database matches the sha256 of the on-disk plaintext, the
