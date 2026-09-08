@@ -348,7 +348,262 @@ final class FleetChatPresentationTests: XCTestCase {
         XCTAssertEqual(copilotDefaultProvider, "claude-agent-acp")
     }
 
+    // MARK: - Copilot mint ladder
+
+    /// The refusals a REAL daemon sends, verbatim.
+    ///
+    /// `parse_params` wraps every serde error as `expected {shape}: {error}`,
+    /// and the shape hint lists the OTHER fields, so a refusal about the
+    /// provider carries the word "cwd" as well. Feeding invented one-line
+    /// messages here is how a matcher that answered a provider refusal by
+    /// naming a directory kept a green suite.
+    private static let legacyMissingProvider =
+        "expected { provider, cwd, scope_key? }: missing field `provider`"
+    private static let cwdEraDaemonMissingProvider =
+        "expected { provider?, cwd, scope_key? }: missing field `provider`"
+    private static let legacyMissingCwd =
+        "expected { provider?, cwd, scope_key? }: missing field `cwd`"
+    /// This daemon's own refusal when a create has no live session to take a
+    /// root from. Not a skew, but answered by the same retry.
+    private static let cwdRequired =
+        "cwd is required unless the named scope already has a live session to take its root from"
+
+    /// Rung 1 is what a modern daemon gets, and it names NOTHING.
+    ///
+    /// Naming either half is how this client was refused on every poll: the
+    /// live copilot scope is held by a session opened from a worktree, and an
+    /// app that names the operator's home directory is told the scope is held
+    /// with a different cwd, forever.
+    @MainActor
+    func testTheFirstRungNamesNeitherProviderNorCwd() async throws {
+        let recorder = MintRecorder()
+        let created = try await FleetStore.mintCopilotSession(
+            scopeKey: "channel:c1",
+            home: "/Users/operator",
+            create: recorder.answer
+        )
+
+        XCTAssertEqual(created.sessionKey, "acp:01J0KEY")
+        XCTAssertEqual(recorder.sent.count, 1, "a daemon that answers must not be asked twice")
+        let attach = try XCTUnwrap(recorder.sent.first)
+        XCTAssertNil(attach.provider, "the engine is the operator's choice, not this client's")
+        XCTAssertNil(attach.cwd, "the root is the session's, and this client cannot know it")
+        XCTAssertEqual(attach.scopeKey, "channel:c1")
+    }
+
+    /// Rung 2: a daemon that asks for a cwd gets one, and only then.
+    ///
+    /// Both refusals are fed VERBATIM as the daemon sends them, wrapped in the
+    /// `expected {shape}: {error}` envelope every parse failure carries. That
+    /// envelope is the whole reason the matcher is anchored: its shape hint
+    /// names every field, so a legacy refusal about the provider mentions "cwd"
+    /// too.
+    @MainActor
+    func testACwdIsNamedOnlyWhenTheDaemonAsksForOne() async throws {
+        for refusal in [Self.legacyMissingCwd, Self.cwdRequired] {
+            let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
+            _ = try await FleetStore.mintCopilotSession(
+                scopeKey: "channel:c1",
+                home: "/Users/operator",
+                create: recorder.answer
+            )
+
+            XCTAssertEqual(recorder.sent.count, 2, "\(refusal): one retry, not a loop")
+            let rooted = try XCTUnwrap(recorder.sent.last)
+            XCTAssertEqual(rooted.cwd, "/Users/operator", "\(refusal)")
+            XCTAssertNil(rooted.provider, "\(refusal): the engine is still not this client's to name")
+        }
+    }
+
+    /// Rung 3: the legacy daemon, which requires both fields, gets the frame
+    /// this client sent before either became optional.
+    ///
+    /// Both legacy generations are covered: the one that requires provider and
+    /// cwd, and the one that made provider optional but still requires cwd, and
+    /// therefore answers an attach by naming provider first.
+    @MainActor
+    func testTheLegacyRungNamesBothFieldsForADaemonThatRequiresThem() async throws {
+        for refusal in [Self.legacyMissingProvider, Self.cwdEraDaemonMissingProvider] {
+            let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
+            _ = try await FleetStore.mintCopilotSession(
+                scopeKey: "channel:c1",
+                home: "/Users/operator",
+                create: recorder.answer
+            )
+
+            XCTAssertEqual(
+                recorder.sent.count, 2,
+                "\(refusal): a refusal naming provider must skip the cwd rung, not spend it"
+            )
+            let named = try XCTUnwrap(recorder.sent.last)
+            XCTAssertEqual(named.provider, copilotDefaultProvider, "\(refusal)")
+            XCTAssertEqual(named.cwd, "/Users/operator", "\(refusal)")
+        }
+    }
+
+    /// A refusal for one field never satisfies the other rung.
+    ///
+    /// This is the assertion a loose two-substring matcher failed while its
+    /// tests passed, because those tests fed messages no daemon emits. Here the
+    /// SECOND frame is the assertion: a provider refusal must be answered by
+    /// naming the provider, never by naming a directory the daemon did not ask
+    /// for.
+    @MainActor
+    func testAProviderRefusalIsNeverAnsweredByNamingADirectoryAlone() async throws {
+        for refusal in [Self.legacyMissingProvider, Self.cwdEraDaemonMissingProvider] {
+            let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
+            _ = try await FleetStore.mintCopilotSession(
+                scopeKey: "channel:c1",
+                home: "/Users/operator",
+                create: recorder.answer
+            )
+
+            let retry = try XCTUnwrap(recorder.sent.last)
+            XCTAssertNotNil(
+                retry.provider,
+                "the shape hint names cwd, but the daemon asked for a provider: \(refusal)"
+            )
+        }
+    }
+
+    /// And the reverse: a daemon asking for a root must not be answered with an
+    /// adapter it never asked about, which would revert an engine the operator
+    /// swapped.
+    @MainActor
+    func testACwdRefusalIsNeverAnsweredByNamingAnAdapter() async throws {
+        for refusal in [Self.legacyMissingCwd, Self.cwdRequired] {
+            let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
+            _ = try await FleetStore.mintCopilotSession(
+                scopeKey: "channel:c1",
+                home: "/Users/operator",
+                create: recorder.answer
+            )
+
+            let retry = try XCTUnwrap(recorder.sent.last)
+            XCTAssertNil(retry.provider, "\(refusal)")
+            XCTAssertEqual(retry.cwd, "/Users/operator", "\(refusal)")
+        }
+    }
+
+    /// A held scope is a REAL refusal and must propagate untouched.
+    ///
+    /// Its wording names the directory that holds the scope, which is the only
+    /// actionable thing the operator gets. Retrying would spend a rung to
+    /// receive the same refusal and would replace that wording with itself.
+    @MainActor
+    func testAHeldScopeIsReportedRatherThanRetried() async {
+        let recorder = MintRecorder(
+            refuseUntilAttempt: .max,
+            message: "scope_key \"channel:c1\" is already held by a session whose cwd is "
+                + "\"/work/api\", not \"/Users/operator\"; stop it before creating a different one"
+        )
+
+        do {
+            _ = try await FleetStore.mintCopilotSession(
+                scopeKey: "channel:c1",
+                home: "/Users/operator",
+                create: recorder.answer
+            )
+            XCTFail("a held scope is not something this client can retry its way out of")
+        } catch {
+            XCTAssertEqual(recorder.sent.count, 1, "no rung may be spent on a real refusal")
+            XCTAssertTrue(
+                String(describing: error).contains("/work/api"),
+                "the directory that holds the scope must reach the operator: \(error)"
+            )
+        }
+    }
+
+    /// The predicate that forgets a remembered session fires only for the
+    /// daemon's DEAD-SESSION tokens, on the target's own leg.
+    ///
+    /// The tokens are the daemon's, not invented here: `session_gone` comes
+    /// from the ACP pool, `target_unknown` and `target_not_running` from the
+    /// delivery leg.
+    @MainActor
+    func testOnlyADeadSessionRejectionForgetsTheRememberedSession() throws {
+        for detail in ["session_gone", "target_unknown", "target_not_running"] {
+            let legs = try Self.deliveries(
+                #"{"session_key":"acp:1","state":"REJECTED","detail":"\#(detail)"}"#
+            )
+            XCTAssertTrue(FleetStore.reportsSessionGone("acp:1", in: legs), detail)
+            XCTAssertFalse(
+                FleetStore.reportsSessionGone("acp:2", in: legs),
+                "\(detail): another target's refusal says nothing about ours"
+            )
+        }
+
+        XCTAssertFalse(
+            FleetStore.reportsSessionGone(
+                "acp:1",
+                in: try Self.deliveries(#"{"session_key":"acp:1","state":"PENDING"}"#)
+            ),
+            "a turn still running is the normal case, not a dead session"
+        )
+        XCTAssertFalse(
+            FleetStore.reportsSessionGone(
+                "acp:1",
+                in: try Self.deliveries(#"{"session_key":"acp:1","state":"DELIVERED"}"#)
+            )
+        )
+    }
+
+    /// A session that is still ALIVE keeps its mint.
+    ///
+    /// `queue_full` and `breaker_open` are transient back-pressure from a pool
+    /// that still holds the session, and `task_scope_refused` names a scope
+    /// this surface never addresses. Forgetting on any of them would spend the
+    /// write transaction the cache exists to remove, on a session that would
+    /// have answered the next prompt.
+    @MainActor
+    func testATransientRejectionKeepsTheRememberedSession() throws {
+        for detail in ["queue_full", "breaker_open", "task_scope_refused", "provider_at_capacity"] {
+            XCTAssertFalse(
+                FleetStore.reportsSessionGone(
+                    "acp:1",
+                    in: try Self.deliveries(
+                        #"{"session_key":"acp:1","state":"REJECTED","detail":"\#(detail)"}"#
+                    )
+                ),
+                "\(detail) is not a dead session and must not cost a re-mint"
+            )
+        }
+    }
+
+    /// A refusal this build cannot name is not a reason to forget.
+    ///
+    /// Fail-closed on the cheap side: a daemon that grows a token this build
+    /// has never heard of would otherwise re-mint on every send, reintroducing
+    /// the per-send write transaction silently, through a wire change nobody
+    /// here would see. An absent detail is the same case.
+    @MainActor
+    func testAnUnrecognisedOrAbsentDetailKeepsTheRememberedSession() throws {
+        XCTAssertFalse(
+            FleetStore.reportsSessionGone(
+                "acp:1",
+                in: try Self.deliveries(
+                    #"{"session_key":"acp:1","state":"REJECTED","detail":"some_future_token"}"#
+                )
+            ),
+            "an unknown token must not be read as a dead session"
+        )
+        XCTAssertFalse(
+            FleetStore.reportsSessionGone(
+                "acp:1",
+                in: try Self.deliveries(#"{"session_key":"acp:1","state":"REJECTED"}"#)
+            ),
+            "a refusal with no reason says nothing about the session"
+        )
+    }
+
     // MARK: - Helpers
+
+    private static func deliveries(_ legs: String) throws -> [FleetMessageDelivery] {
+        try FleetWire.decoder().decode(
+            FleetMessageSendResult.self,
+            from: Data(#"{"message_id":"01J0MSG","deliveries":[\#(legs)]}"#.utf8)
+        ).deliveries
+    }
 
     private func assertLabelsAreDistinctAndNamed<Value: Hashable>(
         _ values: [Value],
@@ -403,5 +658,36 @@ final class FleetChatPresentationTests: XCTestCase {
         return try Data(contentsOf: repository
             .appendingPathComponent("ainb-tui/crates/ainb-hangar-proto/fixtures/chat")
             .appendingPathComponent(name))
+    }
+}
+
+/// A stand-in for `fleet/acp_session_create` that records what each rung sent.
+///
+/// The ladder is tested through this rather than through a socket because what
+/// is under test is WHICH frame goes out for a given refusal, and a socket adds
+/// a daemon's opinion to an assertion about this client's decision.
+@MainActor
+private final class MintRecorder {
+    private(set) var sent: [FleetAcpSessionCreateParams] = []
+    private let refuseUntilAttempt: Int
+    private let message: String
+
+    /// `refuseUntilAttempt` is the first attempt that SUCCEEDS; every earlier
+    /// one is refused with `message`.
+    init(refuseUntilAttempt: Int = 1, message: String = "") {
+        self.refuseUntilAttempt = refuseUntilAttempt
+        self.message = message
+    }
+
+    func answer(_ params: FleetAcpSessionCreateParams) async throws -> FleetAcpSessionCreateResult {
+        sent.append(params)
+        guard sent.count >= refuseUntilAttempt else {
+            throw FleetConnectionError.rpc(RPCError(code: -32602, message: message, data: nil))
+        }
+        return FleetAcpSessionCreateResult(
+            sessionKey: "acp:01J0KEY",
+            scopeKey: params.scopeKey ?? "session:acp:01J0KEY",
+            turnDeadlineMs: 1_800_000
+        )
     }
 }
