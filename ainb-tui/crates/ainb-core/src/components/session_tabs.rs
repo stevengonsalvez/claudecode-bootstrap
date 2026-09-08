@@ -48,6 +48,12 @@ pub const ALL_TABS: [SessionTab; 5] = [
     SessionTab::Log,
 ];
 
+/// What `Enter` does while the copilot pane is offering to start the daemon.
+///
+/// One constant, read by the footer, the offer's own key line and the key
+/// handler's test, so the three cannot advertise different things.
+pub const START_DAEMON_VERB: &str = "start the hangar daemon";
+
 impl SessionTab {
     /// The strip label as it renders RIGHT NOW.
     ///
@@ -92,12 +98,32 @@ impl SessionTab {
     /// than a dialog is to dismiss.
     #[must_use]
     pub fn enter_verb_in(self, state: &AppState) -> std::borrow::Cow<'static, str> {
+        // The daemon offer OWNS Enter while it is up: the composer beneath it
+        // has nothing to send to, so this is the only verb the key has. While a
+        // start is already out the key is a no-op, and the footer says nothing
+        // rather than advertising a second press that the offer declines.
+        if self == Self::Copilot && state.copilot_daemon_cta_open() {
+            return std::borrow::Cow::Borrowed(
+                if *state.daemon_start_cta.status() == crate::fleet::daemon_cta::CtaStatus::Starting
+                {
+                    ""
+                } else {
+                    START_DAEMON_VERB
+                },
+            );
+        }
         let targets = state.broadcast_targets().len();
         if self == Self::Thread && targets > 0 {
-            std::borrow::Cow::Owned(format!("broadcast to {targets}"))
-        } else {
-            std::borrow::Cow::Borrowed(self.enter_verb())
+            return std::borrow::Cow::Owned(format!("broadcast to {targets}"));
         }
+        // A pane that cannot send advertises NO verb. `send message` printed
+        // over a composer reading "nothing to send to" is a footer promising a
+        // key that does nothing, which is the same dead end as a greyed chip
+        // with no reason — and it was on screen at the same time as the reason.
+        if state.session_tab_send_block(self).is_some() {
+            return std::borrow::Cow::Borrowed("");
+        }
+        std::borrow::Cow::Borrowed(self.enter_verb())
     }
 
     /// What `Enter` does on this tab. One sentence, shown in the footer, so the
@@ -680,6 +706,72 @@ pub fn render_copilot(
     }
 }
 
+/// Render the copilot pane's offer to start the hangar daemon.
+///
+/// Replaces the conversation rather than annotating it, and that is the point:
+/// with no daemon there is no channel, no session and no timeline, so a
+/// composer under this would be a control that cannot act. The offer is
+/// answered HERE, with one key, instead of sending the operator to the Daemons
+/// screen to work out for themselves which row the copilot needs.
+///
+/// Every state says what it is. A start that failed keeps the key, because the
+/// remedy for "the port was busy" is to try again; a start that is out shows no
+/// key at all, so the offer cannot be fired twice into one home.
+pub fn render_copilot_daemon_cta(
+    frame: &mut Frame,
+    area: Rect,
+    cta: &crate::fleet::daemon_cta::DaemonStartCta,
+) {
+    use crate::fleet::daemon_cta::CtaStatus;
+    use ratatui::widgets::{Paragraph, Wrap};
+
+    let mut lines = vec![
+        Line::raw(""),
+        Line::styled(
+            " copilot needs the hangar daemon, which is not running.",
+            Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(""),
+    ];
+    match cta.status() {
+        CtaStatus::Offered => lines.push(offer_line()),
+        CtaStatus::Starting => lines.push(Line::styled(
+            "   \u{25cf} starting the hangar daemon\u{2026}",
+            Style::default().fg(ALERT_AMBER),
+        )),
+        // The command's own closing line, never a paraphrase: `start` reports
+        // "already running" as a SUCCESS, and an operator still staring at this
+        // pane afterwards needs to read that rather than a tick.
+        CtaStatus::Reported { ok, detail } => {
+            lines.push(Line::styled(
+                format!("   {} {detail}", if *ok { "\u{2713}" } else { "\u{2717}" }),
+                Style::default().fg(if *ok { SELECTION_GREEN } else { ALERT_RED }),
+            ));
+            lines.push(Line::raw(""));
+            // The offer stands on BOTH outcomes. A start that exited zero and
+            // left this pane still asking for a daemon has not produced one,
+            // and withdrawing the key there would leave the operator with a
+            // green tick and nothing to press.
+            lines.push(offer_line());
+        }
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+}
+
+/// The key line, worded once so the two states that offer it cannot differ.
+fn offer_line() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            "   \u{23ce}  ",
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{START_DAEMON_VERB} now"),
+            Style::default().fg(SOFT_WHITE),
+        ),
+    ])
+}
+
 /// One setting row: label, value, and the key that cycles it.
 fn dial_row(label: &str, value: String, key: char, dim: bool) -> Line<'static> {
     Line::from(vec![
@@ -1060,6 +1152,96 @@ mod tests {
         state.selected_workspace_index = Some(0);
         state.selected_session_index = select.then_some(0);
         state
+    }
+
+    /// Everything the footer actually paints, as one line of text.
+    fn footer_text(state: &AppState, tab: SessionTab, capturing: bool) -> String {
+        footer(state, tab, capturing)
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    /// Put the attention poller's cell in the state it reaches when the socket
+    /// is dialled and nothing accepts.
+    fn with_daemon(state: &mut AppState, reachable: bool, not_running: bool) {
+        *state.daemon_attention.lock().unwrap() = crate::fleet::attention::DaemonAttention {
+            by_cwd: std::collections::HashMap::new(),
+            reachable,
+            error: (!reachable).then(|| "connect /x/hangar.sock: refused".to_string()),
+            not_running,
+        };
+    }
+
+    /// The footer's verb is the one the key fires. With no daemon that is the
+    /// offer, and `send message` — advertised over a pane that says "nothing to
+    /// send to" in the same breath — must be gone.
+    #[test]
+    fn a_pane_offering_a_daemon_advertises_that_and_not_a_send() {
+        let mut state = state_with(Vec::new(), true);
+        state.session_tab = SessionTab::Copilot;
+        with_daemon(&mut state, false, true);
+
+        assert!(state.copilot_daemon_cta_open());
+        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), START_DAEMON_VERB);
+        let footer = footer_text(&state, SessionTab::Copilot, false);
+        assert!(
+            footer.contains(START_DAEMON_VERB),
+            "the footer must name the verb Enter fires: {footer}"
+        );
+        assert!(
+            !footer.contains("send message"),
+            "and must not still promise a send: {footer}"
+        );
+        // A pane with no conversation behind it is not a composer, or a key
+        // typed at it lands in one nothing paints.
+        assert!(!state.session_tab_owns_keys());
+        assert!(!state.session_composer_captures_text());
+    }
+
+    /// The offer appears ONLY for a daemon that is not there. A daemon that
+    /// answered the dial and then wedged is equally unreachable and must not be
+    /// offered a start: that would be a fresh lie on the surface the offer was
+    /// added to fix.
+    #[test]
+    fn an_unreachable_daemon_that_is_still_running_is_not_offered_a_start() {
+        let mut state = state_with(Vec::new(), true);
+        state.session_tab = SessionTab::Copilot;
+        with_daemon(&mut state, false, false);
+
+        assert!(!state.hangar_daemon_not_running());
+        assert!(!state.copilot_daemon_cta_open());
+        assert_ne!(SessionTab::Copilot.enter_verb_in(&state), START_DAEMON_VERB);
+
+        // And with the daemon up, nothing about this offer is on screen.
+        with_daemon(&mut state, true, false);
+        assert!(!state.copilot_daemon_cta_open());
+    }
+
+    /// The footer asks the LIVE pane whether it can send. A copilot that opened
+    /// against a daemon which never minted its channel says it cannot, and the
+    /// footer must not promise otherwise — that is the exact pairing an
+    /// operator saw: `⊘ nothing to send to` under `Enter send message`.
+    #[test]
+    fn a_pane_that_cannot_send_advertises_no_verb_at_all() {
+        let mut state = state_with(Vec::new(), true);
+        state.session_tab = SessionTab::Copilot;
+        // Daemon UP: this is not the offer's case, it is the one where the
+        // conversation opened and its scope never resolved.
+        with_daemon(&mut state, true, false);
+        state.copilot_chat = Some(crate::fleet::chat_host::ChatHost::copilot());
+
+        assert!(
+            state.session_tab_send_block(SessionTab::Copilot).is_some(),
+            "a copilot with no minted scope has nothing to send to"
+        );
+        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), "");
+        let footer = footer_text(&state, SessionTab::Copilot, true);
+        assert!(
+            !footer.contains("Enter"),
+            "a footer with no verb must not print a bare Enter either: {footer}"
+        );
     }
 
     #[test]

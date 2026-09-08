@@ -171,6 +171,21 @@ impl LayoutComponent {
                 if state.copilot_dial.tick() {
                     state.ui_needs_refresh = true;
                 }
+                // The offer's own tick, for the same reason: the start runs on
+                // a detached worker, and its result has to reach the pane
+                // without the operator pressing anything else.
+                if state.daemon_start_cta.tick() {
+                    state.ui_needs_refresh = true;
+                }
+                // With no daemon there is no channel, no session and no
+                // timeline, so the pane offers the one thing that fixes it
+                // rather than painting a composer with nothing behind it. The
+                // dial header goes with it: its three settings are the DAEMON's
+                // registry, and none of them can be turned from here either.
+                if state.copilot_daemon_cta_open() {
+                    session_tabs::render_copilot_daemon_cta(frame, inner, &state.daemon_start_cta);
+                    return;
+                }
                 // Cloned rather than borrowed: `chat_host_for` needs `&mut
                 // state` to tick the conversation, and the header is three
                 // strings and a status.
