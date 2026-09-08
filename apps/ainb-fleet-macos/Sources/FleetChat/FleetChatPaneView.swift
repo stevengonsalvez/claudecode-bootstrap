@@ -11,7 +11,15 @@ import SwiftUI
 /// that always reads, and the rest make it glanceable.
 struct FleetChatPaneView: View {
     @ObservedObject var store: FleetStore
-    @Environment(\.dismiss) private var dismiss
+    /// How this host dismisses the pane.
+    ///
+    /// Injected rather than taken from `@Environment(\.dismiss)` because the
+    /// pane has two hosts with nothing in common: a sheet, where dismiss is the
+    /// right verb, and a ROUTE inside the notch panel, where there is no
+    /// presentation to dismiss and the close has to move the navigation back.
+    /// An environment dismiss in the second host is not an error, it is a
+    /// button that silently does nothing, which is the worse failure.
+    let close: () -> Void
     @State private var composer = ""
     @State private var editingCard: FleetChatConfirmCard?
     @State private var editedArguments = ""
@@ -31,12 +39,33 @@ struct FleetChatPaneView: View {
         }
         .frame(minWidth: 760, minHeight: 520)
         .background(FleetChatPalette.canvas)
+        // The bootstrap page, then a slow safety net.
+        //
+        // The conversation itself arrives on the store's live subscription,
+        // which belongs to the CONNECTION and is opened once when it comes up.
+        // This view opens nothing: a subscription per appearance would mean a
+        // second stream every time the sheet is reopened, all of them writing
+        // the same surface.
+        //
         // Bound to the pane's lifetime: the loop is cancelled when the sheet
-        // closes, so a closed chat costs the daemon nothing.
+        // closes, so a closed chat costs the daemon nothing. The sleep is where
+        // that cancellation is observed, and it RETURNS rather than falling
+        // through, so a sheet closed during the wait cannot spend one more page
+        // on a pane nobody is looking at.
         .task {
+            // The pane announces itself, and the store folds live events only
+            // while at least one is on screen. `chat` is observed by the whole
+            // notch, so an event folded with no pane open redraws the roster
+            // for nothing.
+            store.chatPaneAppeared()
+            defer { store.chatPaneDisappeared() }
             while !Task.isCancelled {
                 await store.refreshChatOnce()
-                try? await Task.sleep(for: fleetChatPollInterval)
+                do {
+                    try await Task.sleep(for: fleetChatSafetyNetInterval)
+                } catch {
+                    return
+                }
             }
         }
         .sheet(item: $editingCard) { card in
@@ -58,9 +87,9 @@ struct FleetChatPaneView: View {
             Button("Refresh") { store.refreshChat() }
                 .disabled(!store.canReadChat)
                 .accessibilityIdentifier("fleet.chat.refresh")
-            // Explicit, not Esc-only: the composer holds focus, and a sheet
+            // Explicit, not Esc-only: the composer holds focus, and a surface
             // whose only exit is a key the focused control might eat is a trap.
-            Button("Close") { dismiss() }
+            Button("Close", action: close)
                 .accessibilityIdentifier("fleet.chat.close")
         }
         .padding(.horizontal, 18)
@@ -343,6 +372,10 @@ private struct FleetChatMessageView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(row.actor.accessibilityLabel): \(row.body)")
+        // Addressable by the id the daemon minted, the way a confirm card is.
+        // A journey that has just filed a message knows that id and can assert
+        // on THE row rather than on a body string that could appear anywhere.
+        .accessibilityIdentifier("fleet.chat.message.\(row.id)")
     }
 
     private var attributionColor: Color {
@@ -359,9 +392,15 @@ private struct FleetChatMessageView: View {
     }
 }
 
-/// Local palette. `FleetPalette` is file-private to `FleetWindowView.swift`;
-/// these values match it rather than importing, and the chat-only accent
-/// (`violet`, the copilot's colour in the TUI too) lives here.
+/// The chat module's own palette. Owned here, borrowed from nowhere.
+///
+/// These are the Fleet surface colours, declared rather than imported, plus the
+/// chat-only accent (`violet`, the copilot's colour in the terminal client
+/// too). Copies of a palette are usually a smell, and this one is deliberate:
+/// the values also appear in the roster's file-private palette, and a shared
+/// one would have to live somewhere both can see, which is a module this app
+/// does not have. Owning them keeps this pane compiling no matter what happens
+/// to any other view.
 private enum FleetChatPalette {
     static let canvas = Color(red: 0.055, green: 0.071, blue: 0.086)
     static let sidebar = Color(red: 0.043, green: 0.057, blue: 0.071)

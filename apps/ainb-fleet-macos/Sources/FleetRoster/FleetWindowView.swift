@@ -43,7 +43,7 @@ struct FleetWindowView: View {
         .sheet(isPresented: $timelinePresented) { FleetTimelineList(store: store) }
         .sheet(isPresented: $broadcastPresented) { FleetBroadcastForm(store: store, isPresented: $broadcastPresented) }
         .sheet(isPresented: $answerQueuePresented) { FleetAnswerQueue(store: store) }
-        .sheet(isPresented: $chatPresented) { FleetChatPaneView(store: store) }
+        .sheet(isPresented: $chatPresented) { FleetChatPaneView(store: store, close: { chatPresented = false }) }
         .onAppear(perform: selectFirstVisibleSession)
         .onReceive(store.$sessions) { selectFirstVisibleSession(in: $0) }
         .onChange(of: presentation.filters) { _, _ in selectFirstVisibleSession() }
