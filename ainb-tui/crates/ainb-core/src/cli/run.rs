@@ -16,12 +16,30 @@ use super::RunArgs;
 use crate::config::CliProvider;
 use crate::git::worktree_manager::WorktreeManager;
 use crate::interactive::session_manager::{
-    InteractiveSessionManager, ModelSource, SessionMetadata, SessionStore, WorktreeRollback,
-    claim_codex_remote_thread, discard_codex_remote_thread, ensure_codex_remote_thread,
-    rollback_failed_interactive_launch,
+    CodexRemote, InteractiveSessionManager, ModelSource, SessionMetadata, SessionStore,
+    WorktreeRollback, claim_codex_remote_thread, discard_codex_remote_thread,
+    ensure_codex_remote_thread, rollback_failed_interactive_launch,
 };
 use crate::models::session::{SessionAgentType, is_default_model};
 use crate::tmux::TmuxSession;
+
+/// The degrade notice for this outcome, or `None` when there is nothing to say
+/// or it has already been said.
+///
+/// One launch can report the SAME degrade twice: `claim_codex_remote_thread`
+/// re-runs the ensure internally, so both call sites see it and both used to
+/// print, putting the identical sentence on stderr two times. The guard lives
+/// in the one function that decides, not at the call sites, for the reason
+/// `AppState::notify_codex_degraded` holds the TUI's: a call site that has to
+/// remember to check is a call site that eventually forgets.
+fn degrade_notice_once(announced: &mut bool, outcome: &CodexRemote) -> Option<String> {
+    if *announced {
+        return None;
+    }
+    let degrade = outcome.degrade()?;
+    *announced = true;
+    Some(degrade.notice())
+}
 
 /// Execute the run command
 pub async fn execute(args: RunArgs) -> Result<()> {
@@ -122,6 +140,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     }
 
     // Step 6: Allocate the daemon-owned remote thread before tmux starts.
+    // One launch, one notice, however many times the outcome reports it.
+    let mut degrade_announced = false;
     let codex_remote = if provider == CliProvider::Codex {
         match ensure_codex_remote_thread(
             session_id,
@@ -141,8 +161,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
             // without. The reason is printed rather than only logged: `ainb
             // run` has no notification strip, and stderr is its equivalent.
             Ok(outcome) => {
-                if let Some(degrade) = outcome.degrade() {
-                    eprintln!("{}", degrade.notice());
+                if let Some(notice) = degrade_notice_once(&mut degrade_announced, &outcome) {
+                    eprintln!("{notice}");
                 }
                 outcome.thread()
             }
@@ -234,8 +254,8 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         .await
         {
             Ok(outcome) => {
-                if let Some(degrade) = outcome.degrade() {
-                    eprintln!("{}", degrade.notice());
+                if let Some(notice) = degrade_notice_once(&mut degrade_announced, &outcome) {
+                    eprintln!("{notice}");
                 }
                 outcome.thread()
             }
@@ -787,6 +807,61 @@ fn attach_to_session(session_name: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::cli::Tool;
+
+    /// One launch prints the degrade notice once, not once per reporting site.
+    ///
+    /// `ensure` and `claim` both report the SAME degrade for one launch,
+    /// because the claim re-runs the ensure internally. Printing at each site
+    /// put the identical sentence on stderr twice, which is the CLI half of the
+    /// guarantee `AppState::notify_codex_degraded` already gave the TUI.
+    #[test]
+    fn one_launch_prints_its_degrade_notice_once() {
+        use crate::interactive::session_manager::{CodexRemote, SharedThreadDegrade};
+
+        let mut announced = false;
+        let ensure = CodexRemote::Degraded(SharedThreadDegrade::StoreBusy);
+        let claim = CodexRemote::Degraded(SharedThreadDegrade::StoreBusy);
+
+        let first = degrade_notice_once(&mut announced, &ensure);
+        let second = degrade_notice_once(&mut announced, &claim);
+
+        assert!(
+            first.is_some_and(|notice| notice.contains(SharedThreadDegrade::StoreBusy.cause())),
+            "the first report must produce the notice, naming its cause"
+        );
+        assert_eq!(
+            second, None,
+            "the second report of the SAME launch must stay quiet, or the user reads \
+             the identical sentence twice"
+        );
+    }
+
+    /// A launch that got its shared thread prints nothing, and stays printable
+    /// if a later report degrades.
+    #[test]
+    fn a_healthy_outcome_prints_nothing_and_does_not_arm_the_guard() {
+        use crate::interactive::session_manager::{CodexRemote, SharedThreadDegrade};
+
+        let mut announced = false;
+        let healthy = CodexRemote::Shared(ainb_hangar_proto::fleet::CodexSessionEnsureResult {
+            thread_id: Some("thread-1".to_string()),
+            endpoint: "/tmp/hangar.sock".to_string(),
+        });
+
+        assert_eq!(
+            degrade_notice_once(&mut announced, &healthy),
+            None,
+            "a healthy outcome has nothing to announce"
+        );
+        // The guard must not have been armed by silence: an ensure that
+        // succeeded followed by a claim that degrades still owes the user a
+        // notice.
+        let later = CodexRemote::Degraded(SharedThreadDegrade::NoDaemon);
+        assert!(
+            degrade_notice_once(&mut announced, &later).is_some(),
+            "a degrade reported after a healthy step must still be announced"
+        );
+    }
 
     use crate::test_support::git_bin;
 
