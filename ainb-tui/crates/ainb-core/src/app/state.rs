@@ -12025,7 +12025,7 @@ impl AppState {
                 if host.tick(now_ms) {
                     self.ui_needs_refresh = true;
                 }
-                self.copilot_chat.as_ref()
+                self.chat_host(tab)
             }
             SessionTab::Thread => {
                 let key = self.selected_session_chat_key()?;
@@ -12041,7 +12041,7 @@ impl AppState {
                         self.ui_needs_refresh = true;
                     }
                 }
-                self.session_chat.as_ref().map(|(_, host)| host)
+                self.chat_host(tab)
             }
             SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
         }

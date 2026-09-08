@@ -181,9 +181,13 @@ impl LayoutComponent {
                 // state` to tick the conversation, and the header is three
                 // strings and a status.
                 let header = session_tabs::copilot_header(&state.copilot_dial);
-                // Ticked for its effect, then re-read: `chat_host_for` borrows
-                // the whole state mutably, and the offer beside it is another
-                // field of the same state.
+                // Ticked for its effect, then re-read through `chat_host`:
+                // `chat_host_for` borrows the whole state mutably and the offer
+                // beside it is another field of the same state, so the two
+                // borrows cannot be held at once. `chat_host_for` ENDS by
+                // calling `chat_host`, so what is painted below is what was
+                // ticked here rather than a second guess at which host this tab
+                // shows.
                 let _ = state.chat_host_for(active);
                 // Inserted between the header and the conversation rather than
                 // replacing either. Both still have something true to say with
@@ -191,13 +195,7 @@ impl LayoutComponent {
                 // with, and the call the chat could not make — and the offer is
                 // the one thing neither of them could say.
                 let offer = state.copilot_daemon_cta_open().then_some(&state.daemon_start_cta);
-                session_tabs::render_copilot(
-                    frame,
-                    inner,
-                    header,
-                    offer,
-                    state.copilot_chat.as_ref(),
-                );
+                session_tabs::render_copilot(frame, inner, header, offer, state.chat_host(active));
             }
             SessionTab::Thread => {
                 // Checked rows win over the cursor, the same rule `Enter` and
