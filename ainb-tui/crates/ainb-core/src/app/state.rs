@@ -3685,6 +3685,13 @@ pub struct AppState {
     /// open. It costs one `fleet/adapter_list` per session.
     pub copilot_dial: crate::fleet::copilot_dial::CopilotDial,
 
+    /// The copilot pane's offer to start the hangar daemon it needs.
+    ///
+    /// One per process, not one per pane: the offer starts the daemon the whole
+    /// TUI talks to, and a second copy would let two panes each shell a start
+    /// into the same home.
+    pub daemon_start_cta: crate::fleet::daemon_cta::DaemonStartCta,
+
     /// The broadcast composer, shown on `thread` while rows are checked.
     ///
     /// Survives a change of checkbox set on purpose: an operator who ticks a
@@ -4221,6 +4228,7 @@ impl Default for AppState {
             session_tab: crate::components::session_tabs::SessionTab::default(),
             ask_state: crate::fleet::answer::AskState::default(),
             copilot_dial: crate::fleet::copilot_dial::CopilotDial::new(),
+            daemon_start_cta: crate::fleet::daemon_cta::DaemonStartCta::default(),
             broadcast: crate::fleet::broadcast::Broadcast::default(),
             copilot_chat: None,
             session_chat: None,
@@ -11867,6 +11875,66 @@ impl AppState {
             && matches!(self.session_tab, SessionTab::Thread | SessionTab::Copilot)
     }
 
+    /// Whether the hangar daemon is DOWN, as opposed to merely not answering.
+    ///
+    /// The one condition the copilot pane's start offer may rest on. Read from
+    /// the attention poller's cell, which dials the same socket every five
+    /// seconds on its own thread and classifies the typed failure — so this is
+    /// a lock and two bools on the render path, never a dial.
+    ///
+    /// `reachable` alone is NOT enough and that is the whole point: a daemon
+    /// that is up but wedged is equally unreachable, and offering to start it
+    /// would put a fresh lie on the surface the offer exists to fix.
+    #[must_use]
+    pub fn hangar_daemon_not_running(&self) -> bool {
+        self.daemon_attention.lock().map_or_else(
+            |poisoned| {
+                let daemon = poisoned.into_inner();
+                (!daemon.reachable) && daemon.not_running
+            },
+            |daemon| (!daemon.reachable) && daemon.not_running,
+        )
+    }
+
+    /// Whether the copilot pane is showing its start-the-daemon offer instead
+    /// of a conversation.
+    ///
+    /// The single predicate the renderer, the footer and the key path all ask,
+    /// so the pane cannot paint an offer the footer does not advertise or the
+    /// key does not fire.
+    #[must_use]
+    pub fn copilot_daemon_cta_open(&self) -> bool {
+        self.session_tab == crate::components::session_tabs::SessionTab::Copilot
+            && self.hangar_daemon_not_running()
+    }
+
+    /// Why a conversation tab cannot send right now, in the pane's own words.
+    ///
+    /// Asked of the LIVE chat surface rather than inferred from the tab, so the
+    /// footer's promise and the composer's `⊘` are one fact. A footer that
+    /// advertised `Enter send message` over a pane reading "nothing to send to"
+    /// is the same class of lie as a chip offering an answer no transport can
+    /// deliver.
+    #[must_use]
+    pub fn session_tab_send_block(
+        &self,
+        tab: crate::components::session_tabs::SessionTab,
+    ) -> Option<String> {
+        use crate::components::session_tabs::SessionTab;
+        // A broadcast replaces the thread's composer with one that is not a
+        // conversation at all, so the thread host has nothing to say about it.
+        if tab == SessionTab::Thread && !self.broadcast_targets().is_empty() {
+            return None;
+        }
+        match tab {
+            SessionTab::Copilot => self.copilot_chat.as_ref(),
+            SessionTab::Thread => self.session_chat.as_ref().map(|(_, host)| host),
+            SessionTab::Preview | SessionTab::Ask | SessionTab::Log => None,
+        }?
+        .state()
+        .send_block()
+    }
+
     /// Whether a conversation pane currently owns the keyboard.
     ///
     /// Broader than [`Self::session_composer_captures_text`] on purpose. That
@@ -11883,7 +11951,12 @@ impl AppState {
             return false;
         }
         match self.session_tab {
-            SessionTab::Copilot => self.copilot_chat.is_some(),
+            // A copilot pane showing the start-the-daemon offer is NOT a
+            // composer: there is no conversation behind it, so a key routed
+            // into the chat reducer there would land in a composer nothing
+            // paints. It keeps the ordinary sessions-screen bindings instead,
+            // which is what its footer advertises.
+            SessionTab::Copilot => self.copilot_chat.is_some() && !self.copilot_daemon_cta_open(),
             // A broadcast owns the keyboard whether or not a thread host has
             // been opened: the composer is there the moment rows are checked.
             SessionTab::Thread => {
@@ -11907,6 +11980,12 @@ impl AppState {
         use crate::components::session_tabs::SessionTab;
         if self.session_tab == SessionTab::Thread && !self.broadcast_targets().is_empty() {
             return self.broadcast.capturing();
+        }
+        // Same rule as [`Self::session_tab_owns_keys`]: the offer is not a
+        // composer, so it must not suppress the screen's own shortcuts on
+        // behalf of one that is not on screen.
+        if self.copilot_daemon_cta_open() {
+            return false;
         }
         let host = match self.session_tab {
             SessionTab::Copilot => self.copilot_chat.as_ref(),
