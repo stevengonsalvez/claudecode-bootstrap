@@ -367,6 +367,17 @@ async fn version_showing_ask(client: &mut Client, session_key: &str, fingerprint
     }
 }
 
+/// Wall-clock epoch milliseconds, the unit every stored timestamp carries.
+fn epoch_ms() -> i64 {
+    i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after the epoch")
+            .as_millis(),
+    )
+    .expect("epoch milliseconds fit an i64")
+}
+
 struct Client {
     reader: BufReader<OwnedReadHalf>,
     writer: OwnedWriteHalf,
@@ -2232,6 +2243,118 @@ async fn transcript_prune_honours_an_explicit_no_export_and_refuses_both_at_once
             "{event_id} is outside the prune's blast radius and must survive"
         );
     }
+
+    harness.finish().await;
+}
+
+/// The RESTART WEDGE, end to end on the wire: a session left cleanly `IDLE` by a
+/// daemon that died is retired at boot, so its scope mints a FRESH session and
+/// the next prompt is delivered instead of refused forever.
+///
+/// The bug this pins is a disagreement between two tables, so a single-table
+/// assertion cannot see it. `fleet_acp_session.state` stayed `IDLE` because the
+/// dirty scan only visits sessions with an open turn or a `PENDING` leg, while
+/// `fleet_session.lifecycle_state` went `EXITED` under the stale reaper. The
+/// mint reads the first table and keeps handing back the dead session; delivery
+/// reads the second and refuses it `target_not_running`. A client that
+/// invalidates its cache and re-mints gets the same corpse, so the chat pane can
+/// never send again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_session_left_live_by_a_dead_daemon_is_retired_at_boot() {
+    use ainb_hangar_store::repo::fleet::FleetRepo;
+    use ainb_hangar_store::repo::fleet_acp_session::FleetAcpSessionRepo;
+
+    let harness = Harness::start(&[("FAKE_ACP_CHUNKS", "1")], |_| {}).await;
+    let mut client = harness.client().await;
+    let scope = "session:acp-restart";
+    let (stale, _) = harness.create_session(&mut client, Some(scope)).await;
+
+    // The previous daemon's death, in the state the two tables are ACTUALLY
+    // left in. Nothing touches the ACP row, and the Fleet twin is retired by
+    // the stale-session reaper, which is the real producer of the `EXITED` that
+    // delivery then refuses on. Driven through the reaper rather than a hand
+    // written UPDATE so the precondition cannot drift away from the code that
+    // creates it in production.
+    let events = EventBroker::new();
+    // A DAY past the row's own `last_observed_at`, which is wall-clock epoch
+    // milliseconds: the reaper compares the two directly, so a small sentinel
+    // reads as far in the PAST and retires nothing. A day is slack over the
+    // private staleness TTL rather than a copy of it.
+    let long_after = epoch_ms() + 24 * 60 * 60 * 1_000;
+    let retired = ainb_hangar_daemon::fleet::reap_stale_sessions(
+        harness.store.pool(),
+        &events.sink(),
+        long_after,
+    )
+    .await
+    .expect("reap the fleet twin");
+    assert!(retired >= 1, "the reaper must have retired the fleet twin");
+    let twin = FleetRepo::get_session(harness.store.pool(), &stale)
+        .await
+        .expect("fleet twin")
+        .expect("the twin row exists");
+    assert_eq!(twin.lifecycle_state, "EXITED", "the wedge's other half");
+    assert_eq!(
+        FleetAcpSessionRepo::get(harness.store.pool(), &stale)
+            .await
+            .expect("acp row")
+            .expect("the acp row exists")
+            .state,
+        "IDLE",
+        "the ACP row still claims a live adapter: this is the disagreement"
+    );
+
+    // Boot, in the daemon's own order: converge the dirty sessions first so
+    // open turns and pending legs still resolve, THEN retire what is left.
+    ainb_hangar_daemon::acp_pool::converge_dirty_sessions_at_boot(
+        harness.store.pool(),
+        &events.sink(),
+    )
+    .await;
+    ainb_hangar_daemon::acp_pool::retire_live_sessions_at_boot(harness.store.pool()).await;
+
+    assert_eq!(
+        FleetAcpSessionRepo::get(harness.store.pool(), &stale)
+            .await
+            .expect("acp row")
+            .expect("the acp row exists")
+            .state,
+        "DEAD",
+        "a session whose adapter died with the daemon is not live"
+    );
+
+    // The user-visible half: attaching to the same scope now yields a session
+    // that can actually be prompted.
+    let (fresh, fresh_scope) = harness.create_session(&mut client, Some(scope)).await;
+    assert_ne!(
+        fresh, stale,
+        "the retired session must not be handed back to the next mint"
+    );
+    assert_eq!(fresh_scope, scope, "on the SAME scope");
+
+    let sent = client
+        .call(
+            methods::FLEET_MESSAGE_SEND,
+            serde_json::json!({
+                "targets": [fresh],
+                "text": "after the restart",
+                "request_id": "req-acp-restart",
+            }),
+        )
+        .await;
+    assert!(sent["error"].is_null(), "{sent}");
+    let message_id = sent["result"]["message_id"].as_str().expect("message id").to_string();
+    let leg = &sent["result"]["deliveries"][0];
+    assert_ne!(
+        leg["detail"],
+        serde_json::json!("target_not_running"),
+        "the wedge is exactly this refusal: {sent}"
+    );
+    assert_eq!(
+        leg["state"], "PENDING",
+        "an ACP leg resolves at TURN END, not at write-ack: {sent}"
+    );
+    harness.await_delivered(&message_id, &fresh).await;
 
     harness.finish().await;
 }

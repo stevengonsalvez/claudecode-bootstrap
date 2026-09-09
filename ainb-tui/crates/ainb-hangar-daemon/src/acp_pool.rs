@@ -1798,6 +1798,39 @@ pub async fn converge_dirty_sessions_at_boot(pool: &SqlitePool, events: &crate::
     }
 }
 
+/// The BOOT retire: every session a previous daemon left claiming to be live
+/// is `DEAD`, because its adapter cannot have survived.
+///
+/// The pool spawns each adapter as a CHILD of the daemon, so after a restart no
+/// adapter session is still running and any `ACTIVE`/`IDLE` row is stale by
+/// definition. [`converge_dirty_sessions_at_boot`] does not reach these: a
+/// session that was cleanly `IDLE` when the daemon died has no open turn and no
+/// `PENDING` leg, so it is not dirty and nothing ever revisits it.
+///
+/// Left alone, that row wedges its scope for good. The Fleet twin
+/// (`fleet_session.lifecycle_state`) is retired `EXITED` by the stale-session
+/// reaper while the ACP row stays `IDLE`, so the mint keeps handing the same
+/// dead session back and delivery keeps refusing it as `target_not_running`. A
+/// client cannot escape by re-minting, because the corpse still holds the
+/// scope.
+///
+/// MUST run after [`converge_dirty_sessions_at_boot`]: retiring first would
+/// take the dirty sessions out of that scan's reach and strand their open
+/// turns and pending legs unresolved.
+pub async fn retire_live_sessions_at_boot(pool: &SqlitePool) {
+    match FleetAcpSessionRepo::retire_live_sessions(pool, SystemClock.now_ms()).await {
+        Ok(0) => {}
+        Ok(retired) => tracing::info!(
+            sessions = retired,
+            "retired acp sessions left live by a previous daemon; \
+             their adapters died with it"
+        ),
+        Err(error) => {
+            tracing::error!(%error, "acp boot retire could not retire the live sessions");
+        }
+    }
+}
+
 /// Bring one ACP session back to a defined state, whatever left it dirty.
 ///
 /// THE shared routine (plan I16): [`converge_dirty_sessions_at_boot`] calls it,
