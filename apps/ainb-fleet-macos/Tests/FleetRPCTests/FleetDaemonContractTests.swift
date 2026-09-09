@@ -561,6 +561,184 @@ final class FleetDaemonContractTests: XCTestCase {
         XCTAssertEqual(roster.eventID, "both-2")
     }
 
+    // MARK: - The ACP transcript stream (PR C)
+
+    /// `fleet.transcript.read` is advertised, which is what a UI gating on the
+    /// catalogue depends on.
+    ///
+    /// The client-side half of the daemon's own advertisement test: gating a
+    /// surface on the catalogue is only safe if the catalogue never names a
+    /// method that answers -32601, and never omits one that works.
+    /// `fleet.transcript.prune` is asserted too, and separately, because the
+    /// destructive verb having its own id is the reason this pane can read a
+    /// transcript without being able to delete one.
+    func testRealDaemonAdvertisesTheTranscriptCapabilities() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedConnection()
+        defer { Task { await connection.close() } }
+
+        let result = try await connection.negotiate()
+        XCTAssertTrue(
+            result.capabilityIDs.contains("fleet.transcript.read"),
+            "the transcript arms exist but are not advertised, so a UI gating on the catalogue stays dark"
+        )
+        XCTAssertTrue(
+            result.capabilityIDs.contains("fleet.transcript.prune"),
+            "the destructive verb must be its own id, or a read surface cannot be granted without a delete"
+        )
+    }
+
+    /// The whole point of PR C, against a real daemon: a transcript chunk
+    /// committed by somebody else reaches this connection as a notification,
+    /// with nothing polled in between.
+    ///
+    /// The ack alone is deliberately not the assertion. `head_order` says the
+    /// daemon parsed the frame; only the event says it registered the forwarder
+    /// that makes the pane live, and that registration happens in `serve_conn`
+    /// AFTER the response is queued, i.e. in code the ack cannot reach.
+    ///
+    /// The chunk is committed by the FIXTURE rather than by this client because
+    /// there is no client-facing write for a transcript row: the production
+    /// writer is the ACP pool, driven by a real adapter subprocess. The fixture
+    /// writes the same `source='acp'` row through the same repo and rings the
+    /// same bell; the RPC, the head read and the forwarder are all the daemon's
+    /// own code under test.
+    func testRealDaemonPushesACommittedTranscriptChunkToASubscribedConnection() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let reader = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await reader.close() } }
+
+        let stream = await reader.incoming()
+        let acknowledgement = try await reader.transcriptSubscribe(
+            FleetTranscriptSubscribeParams(sessionKey: "acp:contract", afterOrder: nil)
+        )
+        XCTAssertNil(acknowledgement.headOrder, "an empty transcript has no head")
+
+        async let incoming = Self.nextTranscriptEvent(from: stream)
+        let order = try fixture.seedTranscript(
+            eventID: "chunk-1",
+            sessionKey: "acp:contract",
+            payload: ["text": "reading the code"]
+        )
+        let event = try await incoming
+
+        XCTAssertEqual(event.chunk.ingestOrder, order)
+        XCTAssertEqual(event.chunk.eventID, "chunk-1")
+        XCTAssertEqual(event.chunk.sessionKey, "acp:contract")
+        XCTAssertEqual(event.chunk.eventType, "acp.message")
+        XCTAssertEqual(event.chunk.payload.value("text")?.stringValue, "reading the code")
+
+        // And the SURFACE reaches the operator, not just the frame: the same
+        // fold the store runs, through the same taxonomy, on a chunk that came
+        // off a real socket rather than out of a literal.
+        var surface = FleetChatSurface()
+        surface.targetSessionKey = "acp:contract"
+        surface.apply(.transcript(event.chunk))
+        XCTAssertEqual(surface.transcriptState.rows.map(\.body), ["reading the code"])
+        XCTAssertEqual(surface.transcriptState.rows.map(\.lane), [.agent])
+    }
+
+    /// The paged half, against the real daemon: an UNCURSORED read answers the
+    /// tail of this session, a cursored one still walks forward, and both are
+    /// ascending. This is the fact the store's bootstrap is built on.
+    ///
+    /// The second session is what makes it mean anything. `ingest_order` is one
+    /// global AUTOINCREMENT sequence, so the newest orders in the table are not
+    /// the newest rows of a session; a client approximating a tail by naming
+    /// `head - limit` gets the neighbour's rows, or none. That approximation is
+    /// what the uncursored arm replaces, and only a real daemon proves the arm
+    /// is wired to the read it claims.
+    func testRealDaemonAnswersAnUncursoredTranscriptReadWithTheSessionTail() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        var orders: [Int64] = []
+        for index in 0..<5 {
+            orders.append(try fixture.seedTranscript(
+                eventID: "page-\(index)",
+                sessionKey: "acp:paged",
+                payload: ["text": "line \(index)"]
+            ))
+        }
+        // A NOISIER neighbour committed afterwards, so it owns every one of the
+        // newest global orders.
+        for index in 0..<8 {
+            _ = try fixture.seedTranscript(
+                eventID: "other-\(index)",
+                sessionKey: "acp:elsewhere",
+                payload: ["text": "not mine"]
+            )
+        }
+
+        let tail = try await connection.transcriptList(FleetTranscriptListParams(
+            sessionKey: "acp:paged",
+            afterOrder: nil,
+            limit: 2
+        ))
+        XCTAssertEqual(
+            tail.chunks.map(\.eventID), ["page-3", "page-4"],
+            "an uncursored read must answer the NEWEST page of this session, oldest first"
+        )
+        XCTAssertEqual(tail.nextAfterOrder, orders.last)
+        XCTAssertTrue(
+            tail.chunks.allSatisfy { $0.sessionKey == "acp:paged" },
+            "the neighbour's rows must never appear in this session's transcript"
+        )
+
+        let forward = try await connection.transcriptList(FleetTranscriptListParams(
+            sessionKey: "acp:paged",
+            afterOrder: orders[0],
+            limit: fleetTranscriptListMax
+        ))
+        XCTAssertEqual(
+            forward.chunks.map(\.eventID), ["page-1", "page-2", "page-3", "page-4"],
+            "the cursor is exclusive and forward, so a client resuming from a row it holds does not re-read it"
+        )
+
+        // The head the subscribe publishes is this session's own last order,
+        // not the table's, which is what makes the stream and the tail meet.
+        let acknowledgement = try await connection.transcriptSubscribe(
+            FleetTranscriptSubscribeParams(sessionKey: "acp:paged", afterOrder: nil)
+        )
+        XCTAssertEqual(acknowledgement.headOrder, orders.last)
+    }
+
+    /// The next `fleet/transcript_event`, or a FAILURE within `timeout`.
+    ///
+    /// Bounded for the reason its message sibling is: the failure under test is
+    /// one where the notification simply never comes, and an unbounded await
+    /// turns that into a suite that hangs instead of a test that fails.
+    private static func nextTranscriptEvent(
+        from stream: AsyncStream<FleetIncoming>,
+        timeout: Duration = .seconds(5)
+    ) async throws -> FleetTranscriptEventParams {
+        try await withThrowingTaskGroup(of: FleetTranscriptEventParams?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                while let incoming = await iterator.next() {
+                    if case let .transcriptEvent(event) = incoming {
+                        return event
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            guard let event = first else {
+                throw MissingChatNotification()
+            }
+            return event
+        }
+    }
+
     /// The next `fleet/message_event`, or a FAILURE within `timeout`.
     ///
     /// Bounded, unlike its `nextFleetEvent` sibling, because the thing it waits
@@ -723,6 +901,31 @@ private final class FixtureDaemon {
             throw FixtureError.invalidResponse
         }
         return revision.int64Value
+    }
+
+    /// Commit one ACP transcript chunk, returning its `ingest_order`.
+    ///
+    /// The fixture writes the row the ACP pool writes (`source='acp'`, through
+    /// the real repo) and then rings the daemon's own transcript bell. It does
+    /// NOT emulate the RPC, the head read, or the forwarder, which are exactly
+    /// what the tests above are about.
+    func seedTranscript(
+        eventID: String,
+        sessionKey: String,
+        eventType: String = "acp.message",
+        payload: [String: Any]
+    ) throws -> Int64 {
+        let response = try send([
+            "command": "seed_transcript",
+            "event_id": eventID,
+            "session_key": sessionKey,
+            "event_type": eventType,
+            "payload": payload,
+        ])
+        guard response["ok"] as? Bool == true, let order = response["ingest_order"] as? NSNumber else {
+            throw FixtureError.invalidResponse
+        }
+        return order.int64Value
     }
 
     private func send(_ command: [String: Any]) throws -> [String: Any] {

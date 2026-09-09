@@ -739,17 +739,200 @@ final class FleetChatPresentationTests: XCTestCase {
         XCTAssertEqual(surface.activity.first?.tool, "kill_session")
     }
 
-    /// Every event type reports the scope it was filed under, which is what
-    /// makes a fleet-wide stream safe to render in a scoped pane. Exhaustive
-    /// over the enum on purpose: a fourth event shape must fail here.
-    func testEveryLiveEventNamesItsScope() throws {
-        let events: [FleetChatEvent] = [
+    /// Every event type names EXACTLY ONE addressing axis, and which one it
+    /// names is which daemon stream it came off.
+    ///
+    /// This is what makes broad streams safe to render in a narrow pane: the
+    /// three chat frames are filed under a scope and the transcript chunk
+    /// belongs to a session, so each is filtered on the axis it carries. A
+    /// shape naming NEITHER could not be filtered at all, and one naming BOTH
+    /// would have two answers to which pane it belongs in. Exhaustive over the
+    /// enum on purpose: a fifth event shape must fail here.
+    func testEveryLiveEventNamesExactlyOneAddressingAxis() throws {
+        let scoped: [FleetChatEvent] = [
             .message(try Self.liveMessage(id: "01J0B", body: "b")),
             Self.liveConfirm(id: "01J0CARD", state: "open"),
             .activity(try Self.liveActivity(seq: 9)),
         ]
+        let sessioned: [FleetChatEvent] = [.transcript(try Self.liveChunk(order: 9))]
 
-        XCTAssertEqual(events.map(\.scopeKey), Array(repeating: "channel:copilot", count: events.count))
+        XCTAssertEqual(scoped.map(\.scopeKey), Array(repeating: "channel:copilot", count: scoped.count))
+        XCTAssertEqual(scoped.compactMap(\.sessionKey), [], "a chat frame must not claim a session")
+        XCTAssertEqual(sessioned.map(\.sessionKey), ["acp:1"])
+        XCTAssertEqual(sessioned.compactMap(\.scopeKey), [], "a transcript chunk must not claim a scope")
+    }
+
+    // MARK: - The transcript section of the surface
+
+    /// A chunk for the session on screen is classified and appended, and the
+    /// surface's cursor moves with it.
+    func testALiveTranscriptChunkForTheShownSessionAppends() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(order: 7, text: "on it")))
+
+        XCTAssertEqual(surface.transcriptState.rows.map(\.body), ["on it"])
+        XCTAssertEqual(surface.transcriptState.rows.map(\.lane), [.agent])
+        XCTAssertEqual(surface.transcriptState.cursor, 7)
+    }
+
+    /// A chunk from ANOTHER session is dropped, never rendered.
+    ///
+    /// The transcript's version of the scope filter, and it matters more: a
+    /// foreign chat message is at least visibly somebody else's conversation,
+    /// while a foreign transcript row reads as this agent's own execution.
+    func testATranscriptChunkForAnotherSessionIsDropped() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(order: 7, sessionKey: "acp:elsewhere")))
+
+        XCTAssertEqual(surface.transcriptState.rows, [])
+        XCTAssertNil(surface.transcriptState.cursor, "a foreign chunk must not move this session's cursor")
+    }
+
+    /// Nothing is folded before a page has resolved a session, exactly as
+    /// nothing is folded before one has resolved a scope.
+    func testATranscriptChunkArrivingBeforeASessionIsResolvedIsDropped() throws {
+        var surface = FleetChatSurface()
+        surface.apply(.transcript(try Self.liveChunk(order: 1)))
+
+        XCTAssertEqual(surface.transcriptState.rows, [])
+    }
+
+    /// A chunk at or below the cursor is dropped BEFORE the taxonomy sees it.
+    ///
+    /// Not merely a de-duplication: the classifier is stateful, so a second
+    /// pass over a tool call's update would find the pending title already
+    /// consumed and re-render the result under the unnamed `tool` form. The
+    /// guard is what stops a replayed chunk REWRITING a row that was correct.
+    func testAReplayedChunkIsDroppedBeforeItCanDegradeTheRowItAlreadyProduced() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(
+            order: 5,
+            eventType: "acp.tool_call",
+            payload: ["sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash"]
+        )))
+        surface.apply(.transcript(try Self.liveChunk(
+            order: 6,
+            eventType: "acp.tool_call",
+            payload: ["sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"]
+        )))
+        XCTAssertEqual(surface.transcriptState.rows.map(\.body), ["Bash", "Bash  (completed)"])
+
+        // The same chunk again, as a page window overlapping the stream.
+        surface.apply(.transcript(try Self.liveChunk(
+            order: 6,
+            eventType: "acp.tool_call",
+            payload: ["sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"]
+        )))
+        XCTAssertEqual(
+            surface.transcriptState.rows.map(\.body), ["Bash", "Bash  (completed)"],
+            "a replayed chunk must neither duplicate its rows nor degrade them to the unnamed form"
+        )
+        XCTAssertEqual(surface.transcriptState.cursor, 6)
+    }
+
+    /// The classifier CARRIES across chunks, which is the only reason a tool
+    /// result can name the tool it belongs to.
+    func testTheSurfaceCarriesTheClassifierAcrossChunks() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(
+            order: 1,
+            eventType: "acp.tool_call",
+            payload: ["sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read"]
+        )))
+        surface.apply(.transcript(try Self.liveChunk(
+            order: 2,
+            eventType: "acp.tool_call",
+            payload: [
+                "sessionUpdate": "tool_call_update", "toolCallId": "t1",
+                "status": "completed", "rawOutput": "hello",
+            ]
+        )))
+
+        XCTAssertEqual(
+            surface.transcriptState.rows.last?.body, "Read  hello",
+            "the result lost the title the call left behind, so the fold is not carrying the classifier"
+        )
+    }
+
+    /// One chunk classifying into many rows still yields one row per line, each
+    /// addressed by the chunk's cursor.
+    func testOneChunkClassifiesIntoManyAddressableRows() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(order: 3, text: "alpha\nbeta")))
+
+        XCTAssertEqual(surface.transcriptState.rows.map(\.id), ["3.0", "3.1"])
+        XCTAssertEqual(surface.transcriptState.rows.map(\.body), ["alpha", "beta"])
+    }
+
+    /// The transcript stays inside its display ceiling, dropping the OLDEST
+    /// rows, because it is a tail view of a running session.
+    func testTheTranscriptStaysBoundedByItsDisplayCeiling() throws {
+        var surface = try Self.shownSurface()
+        for order in 1...(fleetTranscriptRowMax + 10) {
+            surface.apply(.transcript(try Self.liveChunk(order: Int64(order), text: "row \(order)")))
+        }
+
+        XCTAssertEqual(surface.transcriptState.rows.count, fleetTranscriptRowMax)
+        XCTAssertEqual(surface.transcriptState.rows.first?.body, "row 11", "the ceiling drops the oldest row")
+        XCTAssertEqual(surface.transcriptState.rows.last?.body, "row \(fleetTranscriptRowMax + 10)")
+    }
+
+    /// A chunk this taxonomy does not carry moves the cursor and adds no row.
+    ///
+    /// Both halves matter. Skipping the row is the taxonomy's contract, and
+    /// moving the cursor is what stops a session that only emits bookkeeping
+    /// from re-reading the same chunk on every page.
+    func testASilentChunkMovesTheCursorWithoutAddingARow() throws {
+        var surface = try Self.shownSurface()
+        surface.apply(.transcript(try Self.liveChunk(order: 4, eventType: "acp.usage", payload: [:])))
+
+        XCTAssertEqual(surface.transcriptState.rows, [])
+        XCTAssertEqual(surface.transcriptState.cursor, 4)
+    }
+
+    /// A page's chunks and a live chunk go through ONE door, so a surface built
+    /// by replaying a page is identical to one built live.
+    func testAPagedFoldAndALiveFoldProduceTheSameSurface() throws {
+        let chunks = [
+            try Self.liveChunk(order: 1, eventType: "acp.tool_call", payload: [
+                "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash",
+            ]),
+            try Self.liveChunk(order: 2, text: "done"),
+        ]
+        var paged = try Self.shownSurface()
+        var live = try Self.shownSurface()
+        for chunk in chunks { paged.apply(.transcript(chunk)) }
+        for chunk in chunks { live.apply(.transcript(chunk)) }
+
+        XCTAssertEqual(paged, live)
+        XCTAssertEqual(paged.transcriptState.rows.map(\.body), ["Bash", "done"])
+    }
+
+    /// The buffer door matches on the axis the event carries, and the FIRST
+    /// page's unresolved axis is admitted rather than filtered out.
+    ///
+    /// The store's in-flight buffer reads this. Getting it wrong on the
+    /// transcript axis would drop exactly what the buffer exists for: a chunk
+    /// committed while the opening page was still reading.
+    func testTheBufferDoorMatchesOnTheAxisTheEventCarries() throws {
+        let resolved = try Self.shownSurface()
+        let opening = FleetChatSurface()
+
+        XCTAssertTrue(FleetChatEvent.transcript(try Self.liveChunk(order: 1)).belongsToPage(of: resolved))
+        XCTAssertFalse(
+            FleetChatEvent.transcript(try Self.liveChunk(order: 1, sessionKey: "acp:other")).belongsToPage(of: resolved),
+            "another session's chunk must not be buffered against this page"
+        )
+        XCTAssertTrue(
+            FleetChatEvent.transcript(try Self.liveChunk(order: 1)).belongsToPage(of: opening),
+            "the first page has no session yet, and dropping here loses the chunk entirely"
+        )
+        // And the chat axis is unchanged by any of it.
+        XCTAssertTrue(FleetChatEvent.activity(try Self.liveActivity(seq: 1)).belongsToPage(of: resolved))
+        XCTAssertFalse(
+            FleetChatEvent.activity(try Self.liveActivity(seq: 1, scope: "channel:other"))
+                .belongsToPage(of: resolved)
+        )
     }
 
     // MARK: - The chat route's way back
@@ -846,6 +1029,32 @@ final class FleetChatPresentationTests: XCTestCase {
         {"confirm_id":"\(id)","scope_key":"\(scope)","tool":"\(tool)","arguments":{},
          "state":"\(state)","created_at":1,"expires_at":2}
         """.utf8))) ?? .null
+    }
+
+    /// One transcript chunk, built through the REAL decoder so a renamed wire
+    /// key fails here rather than being renamed on both sides.
+    ///
+    /// THROWING, not `try?` with a hand-built fallback. A fallback defeats the
+    /// only guarantee this helper offers: a renamed key would decode to nothing,
+    /// the fallback would supply a chunk anyway, and the test would pass while
+    /// the wire and this build disagreed. Every caller is already `throws`.
+    private static func liveChunk(
+        order: Int64,
+        sessionKey: String = "acp:1",
+        eventType: String = "acp.message",
+        text: String = "hello",
+        payload: [String: Any]? = nil
+    ) throws -> FleetTranscriptChunk {
+        let frame: [String: Any] = [
+            "ingest_order": order,
+            "event_id": "evt-\(order)",
+            "session_key": sessionKey,
+            "event_type": eventType,
+            "payload": payload ?? ["text": text],
+            "observed_at": 1_700_000_000_000,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: frame)
+        return try FleetWire.decoder().decode(FleetTranscriptChunk.self, from: data)
     }
 
     private static func liveActivity(seq: Int64, tool: String = "list_sessions", scope: String = "channel:copilot") throws -> FleetActivityRow {
