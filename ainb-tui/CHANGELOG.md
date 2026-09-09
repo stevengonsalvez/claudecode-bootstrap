@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.2] - 2026-09-09
+### Added
+- **fleet-macos**: dial the copilot's engine, mode and model
+- **fleet-macos**: verify a stale Claude interview from its card
+- **notices**: keep a failure on screen for a minute, and make the queue survive it
+- **notices**: retire the corner notices with Ctrl+X
+- **notices**: size a notice to its message instead of clipping it
+
+### Fixed
+- **chat**: a cancel that worked must not read as a send that failed
+- **chat**: a refused cancel is not a failed send either
+- **chat**: page the conversation a confirm or a cancel was written in
+- **errors**: say what failed, why, and what to do about it
+- **notices**: stop the box from quietly showing less than it has
+
+
 ## [1.25.0] - 2026-09-07
 ### Added
 - **acp**: carry the pool's turn deadline to the client
