@@ -85,6 +85,17 @@ final class FleetStore: ObservableObject {
     @Published private(set) var quotaSummary: FleetQuotaSummaryResult?
     @Published private(set) var runtimeStatus: FleetRuntimeStatusResult?
     @Published private(set) var chat = FleetChatSurface()
+    /// The copilot's engine dial, held BESIDE `chat` rather than inside it.
+    ///
+    /// See `FleetCopilotDial`: nothing a chat page reads can rebuild this, so a
+    /// field on the surface would be wiped by the next safety-net page.
+    @Published private(set) var copilotDial = FleetCopilotDial()
+    /// Whether a `fleet/copilot_configure` is out.
+    ///
+    /// The engine dial's own mutual exclusion, published so the pickers grey
+    /// out while a swap is landing. Separate from `pendingIntentID` on purpose:
+    /// see `canConfigureCopilot`.
+    @Published private(set) var copilotConfigureInFlight = false
     @Published private(set) var pendingIntentID: String?
     @Published private(set) var controlNotice: String?
 
@@ -278,6 +289,36 @@ final class FleetStore: ObservableObject {
         connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.transcript.read") == true
     }
 
+    /// Whether this daemon will name the adapters it can spawn.
+    ///
+    /// `fleet.chat.read` is the id `handle_fleet_adapter_list` itself checks,
+    /// the same one the channel, confirm and activity reads use.
+    var canReadAdapters: Bool {
+        connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.chat.read") == true
+    }
+
+    /// Whether this daemon will let this client move the copilot's dial.
+    ///
+    /// `fleet.copilot.configure` is the id `handle_fleet_copilot_configure`
+    /// checks, and it is gated SEPARATELY from `canReadAdapters` because the
+    /// daemon holds it behind a stronger capability on purpose: reading the
+    /// registry and reconfiguring the agent that holds destructive tools are
+    /// not the same permission. Assuming one id for both would either hide a
+    /// readable engine list or offer a picker that errors on the click.
+    ///
+    /// Held off by `copilotConfigureInFlight`, this surface's OWN busy flag,
+    /// not by `pendingIntentID`. That one is the notch's fleet-action gate, and
+    /// borrowing it here would couple two unrelated surfaces through a single
+    /// flag with nothing naming the coupling: an interview submit in the notch
+    /// would grey out the chat pane's engine picker, and a reader of either
+    /// would have no way to see why. The mutual exclusion each surface needs is
+    /// within itself, so each keeps its own.
+    var canConfigureCopilot: Bool {
+        canWrite
+            && negotiation?.capabilityIDs.contains("fleet.copilot.configure") == true
+            && !copilotConfigureInFlight
+    }
+
     #if DEBUG
     var debugConnectionTaskCount: Int {
         [connectionTask, reconnectTask].compactMap { $0 }.count
@@ -431,6 +472,98 @@ final class FleetStore: ObservableObject {
         )
     }
 
+    /// Why this session cannot be reconciled, or `nil` when it can.
+    ///
+    /// The FIVE row refusals are the terminal client's
+    /// `reconcile_blocked_reason` (`ainb-plugin-hangar/src/screen/fleet.rs`),
+    /// in its order and its wording, because the two surfaces must refuse the
+    /// same row for the same stated reason. An operator who is told "not
+    /// waiting on a structured question" in the pane and offered a live button
+    /// in the notch has no way to know which one is lying.
+    ///
+    /// The sixth is this client's own, and it comes LAST on purpose: the row
+    /// reasons are facts about the session that hold whatever this app's
+    /// connection is doing, so naming a transport problem ahead of them would
+    /// send the reader off to check the daemon for a card that was never
+    /// reconcilable.
+    ///
+    /// Single source of truth for the precondition, exactly as the terminal
+    /// client's is: `reconcileStructuredInterview` refuses when this returns
+    /// non-nil and the control is disabled when it does, so the button and the
+    /// intent cannot drift apart.
+    func reconcileBlockedReason(on session: FleetSession) -> String? {
+        if session.provider != .claude {
+            return "reconcile is a Claude-only action"
+        }
+        if session.management != .managed {
+            return "degraded session has no reconcile channel"
+        }
+        if session.attention != .ask {
+            return "session is not waiting on a structured question"
+        }
+        if !session.capabilities.structuredAnswer {
+            return "session lacks structured_answer capability"
+        }
+        // TRIMMED, where the terminal client asks only `is_none()`. Same
+        // refusal, one case wider: a fingerprint that is present but blank is
+        // not a request, and passing it on would ask the daemon's broker about
+        // the empty string. The wording is kept identical because it is the
+        // same fact, and the frame still carries the STORED value verbatim
+        // rather than a trimmed copy, since the daemon compares it to the row.
+        let fingerprint = session.currentRequestFingerprint?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if fingerprint.isEmpty {
+            return "no live structured request to reconcile"
+        }
+        if !canAddressSession(session) {
+            return "Fleet cannot send an action on this session right now"
+        }
+        return nil
+    }
+
+    func canReconcileStructuredInterview(on session: FleetSession) -> Bool {
+        reconcileBlockedReason(on: session) == nil
+    }
+
+    /// Whether the interview card puts a Verify control on screen at all.
+    ///
+    /// The terminal client's `reconcile_available` decides whether the footer
+    /// ADVERTISES `r Reconcile`, and this is the same decision: a card that can
+    /// never be reconciled shows nothing rather than a dead button under a
+    /// sentence the operator cannot act on.
+    ///
+    /// Only the provider, and that is the whole difference from
+    /// `reconcileBlockedReason`. The other refusals name states a session moves
+    /// through and can move out of, so a disabled control with the reason is
+    /// useful for those. Being a Codex session is not a state; it is what the
+    /// row IS, so for that one the honest answer is to offer nothing.
+    ///
+    /// The one place the view asks, so the control, its refusal sentence and
+    /// this test-visible answer cannot disagree about what is rendered.
+    func offersReconcileControl(on session: FleetSession) -> Bool {
+        session.provider == .claude
+    }
+
+    /// Ask the daemon whether this Claude interview is still live.
+    ///
+    /// Answers nothing and rejects nothing, so there is no confirmation step:
+    /// the worst outcome is a card the daemon proves is finished and therefore
+    /// clears, which is the state the operator was already looking at a stale
+    /// copy of.
+    func reconcileStructuredInterview(on session: FleetSession) {
+        if let reason = reconcileBlockedReason(on: session) {
+            controlNotice = reason
+            return
+        }
+        performStructured(
+            .reconcileStructured(requestFingerprint: session.currentRequestFingerprint ?? ""),
+            on: session,
+            allowed: true,
+            failurePrefix: "Interview check",
+            notice: Self.reconcileNotice
+        )
+    }
+
     func canDecideApproval(_ decision: FleetApprovalDecision, on session: FleetSession) -> Bool {
         guard session.attention == .approval,
               session.capabilities.approvals,
@@ -455,10 +588,36 @@ final class FleetStore: ObservableObject {
     }
 
     private func canPerformRequest(on session: FleetSession) -> Bool {
-        canWrite
+        canAddressSession(session)
             && pendingIntentID == nil
-            && negotiation?.capabilityIDs.contains("fleet.action.execute") == true
             && selectedSessionKey == session.sessionKey
+    }
+
+    /// Whether this client could address this session AT ALL, setting aside the
+    /// two things that change from one moment to the next.
+    ///
+    /// Neither the selection nor an action already in flight is asked about
+    /// here, and both omissions are deliberate.
+    ///
+    /// The SELECTION, because the controls on the notch detail card set it as
+    /// the first line of their own action: that card can be showing the route's
+    /// first session while `selectedSessionKey` is still nil, so a disabled
+    /// state that included it would grey out a button whose click would have
+    /// made itself valid.
+    ///
+    /// The IN-FLIGHT action, because this answers a question an operator reads
+    /// as a sentence, and "Fleet cannot send an action on this session right
+    /// now" is a poor account of a card that is busy doing what that same
+    /// operator just asked for. A control should not accuse itself of being
+    /// unavailable because it is working. Busy is a separate, transient
+    /// condition that the buttons disable on directly, the way Submit already
+    /// does.
+    ///
+    /// Both are still asked by `canPerformRequest`, which is what every send
+    /// goes through, so nothing here loosens what actually reaches the wire.
+    private func canAddressSession(_ session: FleetSession) -> Bool {
+        canWrite
+            && negotiation?.capabilityIDs.contains("fleet.action.execute") == true
             && !session.sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && session.version > 0
     }
@@ -467,7 +626,8 @@ final class FleetStore: ObservableObject {
         _ action: ControlAction,
         on session: FleetSession,
         allowed: Bool,
-        failurePrefix: String
+        failurePrefix: String,
+        notice: ((FleetActionReceipt) -> String)? = nil
     ) {
         guard canPerformRequest(on: session),
               allowed,
@@ -496,7 +656,8 @@ final class FleetStore: ObservableObject {
                     requestID: requestID,
                     action: action
                 ))
-                self.controlNotice = Self.controlNotice(for: result.receipt, failurePrefix: failurePrefix)
+                self.controlNotice = notice.map { $0(result.receipt) }
+                    ?? Self.controlNotice(for: result.receipt, failurePrefix: failurePrefix)
                 await self.refreshAuthoritativeState(using: connection)
             } catch {
                 self.controlNotice = "\(failurePrefix) refused: \(String(describing: error))"
@@ -615,6 +776,160 @@ final class FleetStore: ObservableObject {
             if chat != paged { chat = paged }
         } catch {
             controlNotice = "Chat refresh refused: \(String(describing: error))"
+        }
+    }
+
+    // MARK: - The copilot engine dial
+
+    /// Read the adapter registry, unless it has already answered.
+    ///
+    /// Called from the chat pane's bootstrap, which runs ONCE per appearance,
+    /// so this is not on the safety-net loop: the registry is host config and
+    /// does not move under a running daemon. A read that FAILED leaves
+    /// `adaptersListed` false, so the next time the pane opens it asks again,
+    /// and the header's own retry covers the case where the operator does not
+    /// want to close and reopen to get it.
+    func refreshAdaptersIfNeeded() {
+        guard !copilotDial.adaptersListed else { return }
+        refreshAdapters()
+    }
+
+    /// Re-read the adapter registry now.
+    ///
+    /// The two ways this cannot read are DIFFERENT absences and are handled
+    /// differently, which is the whole shape of the guard below.
+    ///
+    /// A connection that is not live yet says nothing about the registry, so
+    /// this says nothing either: it leaves the last known list on screen and
+    /// leaves `adaptersListed` false so the next attempt asks again. Clearing
+    /// here would undo what `beginConnection` deliberately preserves, and it is
+    /// reachable, because the chat pane's bootstrap sits above its own
+    /// `canReadChat` branch and therefore fires while the socket is down. An
+    /// operator who dropped a connection and switched back to Chat before it
+    /// came up would have watched the picker empty itself.
+    ///
+    /// A LIVE connection whose negotiation does not carry `fleet.chat.read` is
+    /// a fact about the daemon, and the only case in which this may say so.
+    /// Saying it while merely offline is a claim about a daemon nobody asked,
+    /// and it is usually false: the same daemon served the list a moment ago.
+    func refreshAdapters() {
+        guard connectionState.isLive, let connection else { return }
+        guard canReadAdapters else {
+            copilotDial.adapters = []
+            copilotDial.adaptersListed = false
+            copilotDial.detail = "This daemon does not serve the adapter registry."
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await connection.adapterList()
+                self.copilotDial.adapters = result.adapters
+                self.copilotDial.adaptersListed = true
+                self.copilotDial.detail = nil
+            } catch {
+                // The list is NOT cleared on a refusal. A registry that answered
+                // once is still the best account this client has of what the
+                // daemon can spawn, and blanking it would take the engine picker
+                // away over a transient error while leaving the dial's own
+                // settings on screen.
+                self.copilotDial.detail = "Adapter list refused: \(String(describing: error))"
+            }
+        }
+    }
+
+    /// Move the copilot's engine, guardrail dial or model.
+    ///
+    /// `provider` is required by the wire and this client cannot supply one it
+    /// was never told, which is why the header disables the mode and model
+    /// pickers until an engine has been chosen: naming the wrong adapter here
+    /// would not fail, it would SWAP to it.
+    ///
+    /// Nothing is adopted from a failed call, matching the daemon, which rolls
+    /// its own dial back for exactly this reason: a `yolo` that survived a
+    /// failed configure would be armed underneath a header still reading
+    /// `guarded`.
+    func configureCopilot(
+        provider: String,
+        mode: FleetCopilotMode? = nil,
+        model: String? = nil
+    ) {
+        let adapter = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canConfigureCopilot, !adapter.isEmpty, let connection else {
+            copilotDial.detail = "Configuring the copilot is unavailable for this daemon."
+            return
+        }
+        // `.unknown` is the tolerant decode's fallback for a mode this build
+        // cannot name. Sending it back would be this client asking the daemon
+        // to set the literal string "unknown", which the daemon refuses, so the
+        // refusal is made here where it can be explained.
+        guard mode != .unknown else {
+            copilotDial.detail = "That guardrail mode is not one this build can set."
+            return
+        }
+        copilotConfigureInFlight = true
+        copilotDial.detail = nil
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.copilotConfigureInFlight = false }
+            let result: FleetCopilotConfigureResult
+            do {
+                result = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+                    provider: adapter,
+                    copilotMode: mode,
+                    model: model,
+                    // Neither is settable from this surface. `reasoningEffort`
+                    // has no declared value set anywhere on the wire, so a
+                    // picker here would be free text, and `persona` is a system
+                    // prompt for an agent holding destructive tools which this
+                    // notch has no editor for. `nil` leaves each where it is,
+                    // so a dial turned here cannot silently clear either.
+                    reasoningEffort: nil,
+                    persona: nil
+                ))
+            } catch {
+                self.copilotDial.detail = "Copilot configure refused: \(String(describing: error))"
+                return
+            }
+            self.adopt(result)
+        }
+    }
+
+    /// Take on a landed configure, and deal with the session it may have
+    /// replaced.
+    ///
+    /// A swap RETIRES the copilot session and mints a new one on the same
+    /// channel scope, so this client's remembered session key is dead the
+    /// moment `sessionReplaced` is true. Both things standing on that key have
+    /// to go, and `forgetCopilotSession` is the one door to both: it bumps the
+    /// cache generation, which disowns any page already in flight, and drops
+    /// the mint so the next page asks the daemon for the live session.
+    ///
+    /// The carried transcript is the second, and it is handled by the mechanism
+    /// that already exists rather than a new one: `carryTranscriptForward`
+    /// carries rows only while the target session key is UNCHANGED, so the page
+    /// that mints the replacement drops them. That is the required behaviour,
+    /// not a happy accident, because the retired session's execution belongs to
+    /// a different adapter and painting it under the new one's name would
+    /// attribute one agent's work to another.
+    ///
+    /// The re-page is not optional. Forgetting alone leaves the old, dead
+    /// target on screen until the safety net fires half a minute later, and the
+    /// composer would aim every message in that window at a session nobody is
+    /// listening on.
+    private func adopt(_ result: FleetCopilotConfigureResult) {
+        copilotDial.engine = result.provider
+        copilotDial.mode = result.copilotMode
+        copilotDial.model = result.model
+        copilotDial.reasoningEffort = result.reasoningEffort
+        copilotDial.detail = result.sessionReplaced
+            ? "Engine set to \(result.provider). The copilot session was replaced."
+            : nil
+        guard result.sessionReplaced, let scope = chat.scopeKey, let connection else { return }
+        forgetCopilotSession(inScope: scope)
+        Task { [weak self] in
+            guard let self else { return }
+            self.publish(try? await self.pagedChat(using: connection))
         }
     }
 
@@ -1211,6 +1526,26 @@ final class FleetStore: ObservableObject {
         // page still in flight against the connection being replaced.
         copilotCacheGeneration &+= 1
         copilotSessionKeyByScope.removeAll()
+        // The dial goes back to "not told" for the SAME reason, and it is the
+        // reason this state is nil-until-told rather than defaulted. A daemon
+        // restart tears the copilot session down and resets `yolo` to
+        // `guarded`, so an engine and a mode remembered from the last
+        // connection describe a process that no longer exists. Carrying them
+        // across would put a header reading `yolo` over a channel that is now
+        // guarded, or an engine name over a session minted from config.
+        //
+        // The listed REGISTRY is kept on screen but marked unread, so the next
+        // pane bootstrap asks again without the picker going blank in the
+        // meantime. A reconnect can be to a different daemon home with a
+        // different `[acp.adapters]`, so treating the last one's answer as
+        // still current is the same class of stale claim as the settings above;
+        // showing the last known list while a fresh read is on its way is not,
+        // because nothing is asserted about it.
+        copilotDial.adaptersListed = false
+        copilotDial.engine = nil
+        copilotDial.mode = nil
+        copilotDial.model = nil
+        copilotDial.reasoningEffort = nil
         let generation = connectionGeneration
         let currentConnection = connection
         connection = nil
@@ -1561,6 +1896,50 @@ final class FleetStore: ObservableObject {
             return reason.isEmpty
                 ? "\(failurePrefix) \(outcome)."
                 : "\(failurePrefix) \(outcome): \(reason)"
+        }
+    }
+
+    /// What the operator is told after a reconcile, which is NOT what they are
+    /// told after any other action.
+    ///
+    /// `controlNotice(for:failurePrefix:)` renders `UNKNOWN` as "could not be
+    /// confirmed", grouped with `FAILED` and `REJECTED`, and for every other
+    /// action that is right: a decision the daemon could not confirm delivering
+    /// is a decision that may not have landed. Reconcile inverts it. The
+    /// daemon's own arm answers `UNKNOWN` for the case it has deliberately
+    /// decided in the operator's favour, keeping a card it cannot prove is
+    /// dead, and its detail says so ("Fleet card retained"). Rendering that
+    /// beside the two real failures would report the working outcome as a
+    /// broken one, and an operator reading "could not be confirmed" would go
+    /// looking for a fault that is not there.
+    ///
+    /// So the three the daemon can answer read as three different things:
+    /// `DELIVERED` is a settled question (either the interview is live or the
+    /// picker closed and the card was cleared), `UNKNOWN` is still open with
+    /// the card kept, and `FAILED` or `REJECTED` is the check itself not
+    /// running. The daemon's `detail` is carried verbatim in each, because it
+    /// is the only place the WHICH of those is written down.
+    ///
+    /// Exhaustive on purpose, like `ActionReceiptStatus.operatorToken`: a new
+    /// receipt state must be a compile error here, not silently the last arm.
+    nonisolated static func reconcileNotice(for receipt: FleetActionReceipt) -> String {
+        let reason = receipt.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch receipt.status {
+        case .delivered:
+            return reason.isEmpty
+                ? "Interview checked."
+                : "Interview checked: \(reason)"
+        case .unknown:
+            return reason.isEmpty
+                ? "Still checking. The Fleet card is kept."
+                : "Still checking: \(reason)"
+        case .pending:
+            return "Interview check accepted, awaiting delivery."
+        case .failed, .rejected:
+            let outcome = receipt.status.operatorToken
+            return reason.isEmpty
+                ? "Interview check \(outcome)."
+                : "Interview check \(outcome): \(reason)"
         }
     }
 

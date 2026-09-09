@@ -219,6 +219,41 @@ enum FleetChatLabels {
         }
     }
 
+    /// The engine the header shows, or the honest absence.
+    ///
+    /// "not reported" rather than a name, because the daemon serves no read for
+    /// the running adapter and a plausible-looking guess in this slot is worse
+    /// than a gap: an operator reading a wrong engine has no reason to look
+    /// again, while one reading "not reported" knows to pick.
+    static func copilotEngine(_ dial: FleetCopilotDial) -> String {
+        dial.engine ?? "not reported"
+    }
+
+    /// The guardrail dial the header shows.
+    ///
+    /// `.unknown` is the tolerant decode's fallback, so it means the daemon
+    /// named a mode this build cannot, which is a DIFFERENT fact from never
+    /// having been told and reads differently.
+    static func copilotMode(_ dial: FleetCopilotDial) -> String {
+        guard let mode = dial.mode else { return "not reported" }
+        switch mode {
+        case .help: return "help"
+        case .guarded: return "guarded"
+        case .yolo: return "yolo"
+        case .unknown: return "unrecognised mode"
+        }
+    }
+
+    /// The model the header shows.
+    ///
+    /// Three states, not two. No engine means nothing can be said about a
+    /// model; a known engine with no override is running the adapter's own
+    /// default, which is a fact rather than an absence.
+    static func copilotModel(_ dial: FleetCopilotDial) -> String {
+        if let model = dial.model, !model.isEmpty { return model }
+        return dial.engine == nil ? "not reported" : "adapter default"
+    }
+
     static func confirmState(_ state: FleetConfirmState) -> String {
         switch state {
         case .open: "OPEN"
@@ -334,6 +369,77 @@ enum FleetChatLabels {
             line += " · " + undelivered.map(receiptLine).joined(separator: " · ")
         }
         return line
+    }
+}
+
+/// The copilot's engine, guardrail dial and model: what is in force, what it
+/// can be moved to, and what the last move did.
+///
+/// DELIBERATELY NOT A FIELD ON `FleetChatSurface`, and that placement is the
+/// whole design rather than a filing choice. A page REBUILDS the surface from
+/// an empty one, and nothing a page reads can rebuild this: the registry comes
+/// from `fleet/adapter_list`, which no page calls, and the settings come from a
+/// `fleet/copilot_configure` result, which only an operator's own action
+/// produces. On the surface it would be wiped by the next safety-net page
+/// thirty seconds later, which is exactly the defect the transcript's carried
+/// state was introduced to fix. It lives beside the surface on the store, so it
+/// outlives every page and is untouched by one.
+///
+/// It is also a different LIFETIME. The surface belongs to one conversation;
+/// this belongs to the channel behind it, and survives the session swap that
+/// replaces the conversation's target outright.
+struct FleetCopilotDial: Equatable {
+    /// Every adapter the daemon named, in the order it named them.
+    var adapters: [FleetAdapter] = []
+    /// Whether `fleet/adapter_list` has answered on THIS connection.
+    ///
+    /// Distinguishes "the registry is empty" from "nobody has asked yet". They
+    /// render differently, because the first is a fact about the daemon's
+    /// config and the second is a pending read that would otherwise look like
+    /// that fact.
+    ///
+    /// Per connection, not per app run: a reconnect can be to a different
+    /// daemon home with a different `[acp.adapters]`. `beginConnection` clears
+    /// this while LEAVING `adapters` in place, so the next pane bootstrap
+    /// re-reads without the picker going blank while it does.
+    var adaptersListed: Bool = false
+    /// The adapter in force, or `nil` when this client HAS NOT BEEN TOLD.
+    ///
+    /// `nil` is the state a freshly opened pane is in and it stays that way
+    /// until an operator applies a configure, because the daemon serves no read
+    /// for it: `fleet/adapter_list` names what COULD be spawned, the copilot
+    /// channel's wire form carries no provider, and the roster files an ACP
+    /// session under the token `acp` rather than its concrete adapter.
+    ///
+    /// The terminal client's dial defaults this to the registry's first entry.
+    /// That is a GUESS, and on a machine whose copilot is running the second
+    /// adapter it is a wrong one displayed as a fact. This surface reports the
+    /// gap instead, because a header that says "not reported" sends an operator
+    /// to the right question and a header naming the wrong engine does not.
+    var engine: String? = nil
+    /// The guardrail dial in force, `nil` until told, for the same reason.
+    ///
+    /// NEVER `.guarded` as a stand-in. `guarded` is the daemon's default, so
+    /// showing it unasked would read as a fact about the running channel, and
+    /// the one value it would be wrong about is `yolo`.
+    var mode: FleetCopilotMode? = nil
+    /// The model override in force. `nil` means either untold or no override,
+    /// which is why the header words it against `engine` rather than alone.
+    var model: String? = nil
+    /// The reasoning-effort override in force, when the daemon reported one.
+    var reasoningEffort: String? = nil
+    /// Why the dial is empty or what the last call refused with. Kept verbatim:
+    /// the daemon's own wording names the adapter it did not know, or the
+    /// channel that has no live session, and nothing else says which.
+    var detail: String? = nil
+
+    /// The models the CURRENT engine declares, in picker order.
+    ///
+    /// Empty whenever the engine is unknown, which is not the same shape as an
+    /// engine that declares none, and the picker words the two differently.
+    var models: [String] {
+        guard let engine else { return [] }
+        return adapters.first(where: { $0.name == engine })?.models ?? []
     }
 }
 

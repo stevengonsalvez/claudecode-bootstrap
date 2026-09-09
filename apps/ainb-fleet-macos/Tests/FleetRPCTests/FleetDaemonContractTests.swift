@@ -707,6 +707,245 @@ final class FleetDaemonContractTests: XCTestCase {
         XCTAssertEqual(acknowledgement.headOrder, orders.last)
     }
 
+    // MARK: - Reconcile and the copilot dial (PRs D and E)
+
+    /// The reconcile frame reaches the daemon's own dispatch, against a real
+    /// daemon, and is refused for a reason that is about the SESSION.
+    ///
+    /// The Swift unit tests prove which frame the case builds; only this proves
+    /// the daemon parses `reconcile_structured` at all. A tag the daemon does
+    /// not know fails at `parse_params` with `-32602` naming the action, which
+    /// is a different refusal from the version conflict a known tag gets
+    /// against a session that does not exist, and telling the two apart is the
+    /// whole assertion.
+    func testRealDaemonParsesTheReconcileActionRatherThanRejectingItsTag() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        do {
+            _ = try await connection.action(FleetActionParams(
+                sessionKey: "claude:absent",
+                expectedVersion: 1,
+                requestID: UUID().uuidString,
+                action: .reconcileStructured(requestFingerprint: "sha256:interview")
+            ))
+            XCTFail("a session that does not exist must not produce a receipt")
+        } catch let FleetConnectionError.rpc(refusal) {
+            XCTAssertFalse(
+                refusal.message.lowercased().contains("unknown variant"),
+                "the daemon could not parse the action tag, so this client is naming a variant it does not have: \(refusal)"
+            )
+            XCTAssertFalse(
+                refusal.message.contains("reconcile_structured"),
+                "a refusal quoting the tag back is a parse failure, not a session one: \(refusal)"
+            )
+        }
+    }
+
+    /// `fleet/adapter_list` answers a real daemon's live registry, and every
+    /// row decodes through this client's model.
+    ///
+    /// The built-in floor is what makes this assertable without a config file:
+    /// `chat_adapters` falls back to the config seed, which on a fixture home
+    /// is the two adapters compiled in. The assertion is on the SHAPE rather
+    /// than the exact names, because the registry is host config and a machine
+    /// with `[acp.adapters]` entries legitimately answers with more.
+    func testRealDaemonNamesItsAdapterRegistry() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        let adapters = try await connection.adapterList().adapters
+        XCTAssertFalse(
+            adapters.isEmpty,
+            "a daemon with no spawnable adapter cannot open a copilot at all, so the registry must never be empty"
+        )
+        XCTAssertTrue(
+            adapters.contains { $0.name == copilotDefaultProvider },
+            "the adapter the copilot scope is minted with must be one the registry offers: \(adapters.map(\.name))"
+        )
+        for adapter in adapters {
+            XCTAssertFalse(adapter.name.isEmpty)
+            XCTAssertFalse(adapter.command.isEmpty, "\(adapter.name) names no program to spawn")
+            XCTAssertFalse(adapter.permissionMode.isEmpty, "\(adapter.name) reports no pinned permission mode")
+        }
+    }
+
+    /// `fleet/copilot_configure` refuses an adapter the registry does not know,
+    /// and says so as an invalid parameter rather than attempting a spawn.
+    ///
+    /// This is why `provider` can be a validated STRING on the wire. The client
+    /// offers only names `fleet/adapter_list` gave it, and the daemon is the
+    /// backstop for everything else, so a name that reached this call by any
+    /// other route is never a spawn request for an arbitrary program.
+    func testRealDaemonRefusesAnAdapterItsRegistryDoesNotKnow() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        do {
+            _ = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+                provider: "not-an-adapter",
+                copilotMode: nil,
+                model: nil,
+                reasoningEffort: nil,
+                persona: nil
+            ))
+            XCTFail("the daemon must not accept a provider its registry cannot spawn")
+        } catch let FleetConnectionError.rpc(refusal) {
+            XCTAssertEqual(refusal.code, -32602, "\(refusal)")
+            XCTAssertTrue(
+                refusal.message.contains("unknown adapter"),
+                "the refusal must name the cause an operator can fix: \(refusal)"
+            )
+        }
+    }
+
+    /// The engine swap, end to end against a real daemon: a configure naming a
+    /// DIFFERENT adapter answers `session_replaced`, with a new session key on
+    /// the same channel scope, and a same-adapter one does not.
+    ///
+    /// This is the fact the client's invalidation hangs on. `session_replaced`
+    /// is the only signal that the copilot session key this client is holding
+    /// is dead, and everything the store does with it, dropping the mint,
+    /// disowning the in-flight page, refusing to carry the transcript, follows
+    /// from believing it. A scripted socket can only prove the store reacts;
+    /// this proves the daemon sends it, and sends it for the right call.
+    ///
+    /// The attach that follows is the other half. The client learns the
+    /// replacement's key by re-minting, not from the configure result, so the
+    /// assertion that matters is that an `acp_session_create` naming neither
+    /// provider nor cwd now answers with the NEW session.
+    func testRealDaemonSwapsTheCopilotEngineAndReportsTheReplacedSession() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        let adapters = try await connection.adapterList().adapters
+        let names = adapters.map(\.name)
+        guard let other = names.first(where: { $0 != copilotDefaultProvider }) else {
+            throw XCTSkip("this daemon's registry holds one adapter, so there is no swap to make: \(names)")
+        }
+
+        let channel = try await connection.channelCreate(
+            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+        ).channel
+        let opened = try await connection.acpSessionCreate(FleetAcpSessionCreateParams(
+            provider: copilotDefaultProvider,
+            cwd: "/work",
+            scopeKey: channel.scopeKey
+        ))
+
+        // The same adapter is a settings change, not a swap.
+        let unchanged = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+            provider: copilotDefaultProvider,
+            copilotMode: .help,
+            model: nil,
+            reasoningEffort: nil,
+            persona: nil
+        ))
+        XCTAssertFalse(
+            unchanged.sessionReplaced,
+            "a configure that did not change the adapter must not retire the conversation"
+        )
+        XCTAssertEqual(unchanged.sessionKey, opened.sessionKey)
+        XCTAssertEqual(unchanged.copilotMode, .help)
+
+        // A different adapter is a different process, so the session goes.
+        let swapped = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+            provider: other,
+            copilotMode: nil,
+            model: nil,
+            reasoningEffort: nil,
+            persona: nil
+        ))
+        XCTAssertTrue(swapped.sessionReplaced, "swapping the adapter must retire the session it was running")
+        XCTAssertNotEqual(
+            swapped.sessionKey, opened.sessionKey,
+            "a replaced session must carry a new key, or a client cannot tell it apart from the dead one"
+        )
+        XCTAssertEqual(swapped.provider, other)
+        XCTAssertEqual(
+            swapped.copilotMode, .help,
+            "an omitted copilot_mode leaves the guardrail where the last call put it"
+        )
+
+        let attached = try await connection.acpSessionCreate(
+            FleetAcpSessionCreateParams(provider: nil, cwd: nil, scopeKey: channel.scopeKey)
+        )
+        XCTAssertEqual(
+            attached.sessionKey, swapped.sessionKey,
+            "the re-mint the store does after a swap must land on the replacement, not the retired session"
+        )
+        XCTAssertEqual(attached.scopeKey, channel.scopeKey, "the swap keeps the channel's scope")
+    }
+
+    /// The permission mode is NOT settable per session, and the daemon refuses
+    /// the frame before it parses anything else.
+    ///
+    /// A settable mode here is a remote off-switch for the whole permission
+    /// surface, so this client must never grow a field for it. The assertion is
+    /// against a hand-built frame rather than `FleetCopilotConfigureParams`,
+    /// because the type deliberately has no such property: the test that the
+    /// door is shut has to knock on it.
+    func testRealDaemonRefusesAPermissionModeOnTheCopilotWire() async throws {
+        let fixture = try FixtureDaemon()
+        defer { fixture.stop() }
+        let connection = try await fixture.authenticatedAndNegotiatedConnection()
+        defer { Task { await connection.close() } }
+
+        for forbidden in [ForbiddenModeKey.permissionMode, .mode] {
+            do {
+                _ = try await connection.requestForTesting(
+                    "fleet/copilot_configure",
+                    params: ForbiddenModeParams(provider: copilotDefaultProvider, key: forbidden),
+                    result: FleetCopilotConfigureResult.self
+                )
+                XCTFail("\(forbidden.rawValue) must be refused on the copilot wire")
+            } catch let FleetConnectionError.rpc(refusal) {
+                XCTAssertEqual(refusal.code, -32602, "\(forbidden.rawValue): \(refusal)")
+                XCTAssertTrue(
+                    refusal.message.contains("not settable per session"),
+                    "\(forbidden.rawValue): \(refusal)"
+                )
+            }
+        }
+    }
+
+    /// The keys the daemon refuses outright on `fleet/copilot_configure`.
+    private enum ForbiddenModeKey: String {
+        case permissionMode = "permission_mode"
+        case mode
+    }
+
+    /// A configure frame carrying one of the refused keys.
+    ///
+    /// Hand-encoded because the shipped params type cannot carry them, which is
+    /// the property under test.
+    private struct ForbiddenModeParams: Encodable {
+        let provider: String
+        let key: ForbiddenModeKey
+
+        private struct RawKey: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(_ stringValue: String) { self.stringValue = stringValue }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: RawKey.self)
+            try container.encode(provider, forKey: RawKey("provider"))
+            try container.encode("bypassPermissions", forKey: RawKey(key.rawValue))
+        }
+    }
+
     /// The next `fleet/transcript_event`, or a FAILURE within `timeout`.
     ///
     /// Bounded for the reason its message sibling is: the failure under test is

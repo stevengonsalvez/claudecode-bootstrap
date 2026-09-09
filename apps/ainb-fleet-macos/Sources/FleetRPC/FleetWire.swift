@@ -420,6 +420,19 @@ enum ControlAction: Codable, Equatable {
     case structuredAnswer(requestFingerprint: String, requestIdentity: FleetRequestIdentity?, answers: [FleetQuestionAnswer])
     case dismissStructured(requestFingerprint: String, requestIdentity: FleetRequestIdentity?)
     case releaseStructured(requestFingerprint: String)
+    /// Ask the daemon whether this Claude interview is still live.
+    ///
+    /// A VERIFICATION, not a decision: it answers nothing and rejects nothing.
+    /// The daemon asks the notifyd broker whether the request is still waiting
+    /// and, for a native or mirrored picker only, whether that picker has
+    /// closed. A card it cannot prove either way is KEPT, which is why an
+    /// `UNKNOWN` receipt from this action is a normal outcome rather than a
+    /// failure. See `FleetStore.reconcileNotice`.
+    ///
+    /// Gated by `structured_answer`, the SAME capability the answer and the
+    /// release use, not one of its own: `action_capability` in the daemon's
+    /// `rpc/mod.rs` groups the three together.
+    case reconcileStructured(requestFingerprint: String)
     case approve(requestFingerprint: String, requestIdentity: FleetRequestIdentity?)
     case approveForSession(requestFingerprint: String, requestIdentity: FleetRequestIdentity?)
     case deny(requestFingerprint: String, requestIdentity: FleetRequestIdentity?)
@@ -430,7 +443,7 @@ enum ControlAction: Codable, Equatable {
     case restart, stop, kill, archive
 
     private enum CodingKeys: String, CodingKey { case action, requestFingerprint = "request_fingerprint", requestIdentity = "request_identity", answers, key, text, provider, cwd, prompt }
-    private enum Tag: String, Codable { case structuredAnswer = "structured_answer", dismissStructured = "dismiss_structured", releaseStructured = "release_structured", approve, approveForSession = "approve_for_session", deny, verifiedPicker = "verified_picker", sendPrompt = "send_prompt", `continue`, retry, interrupt, start, restart, stop, kill, archive }
+    private enum Tag: String, Codable { case structuredAnswer = "structured_answer", dismissStructured = "dismiss_structured", releaseStructured = "release_structured", reconcileStructured = "reconcile_structured", approve, approveForSession = "approve_for_session", deny, verifiedPicker = "verified_picker", sendPrompt = "send_prompt", `continue`, retry, interrupt, start, restart, stop, kill, archive }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -438,6 +451,7 @@ enum ControlAction: Codable, Equatable {
         case .structuredAnswer: self = .structuredAnswer(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint), requestIdentity: try c.decodeIfPresent(FleetRequestIdentity.self, forKey: .requestIdentity), answers: try c.decode([FleetQuestionAnswer].self, forKey: .answers))
         case .dismissStructured: self = .dismissStructured(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint), requestIdentity: try c.decodeIfPresent(FleetRequestIdentity.self, forKey: .requestIdentity))
         case .releaseStructured: self = .releaseStructured(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint))
+        case .reconcileStructured: self = .reconcileStructured(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint))
         case .approve: self = .approve(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint), requestIdentity: try c.decodeIfPresent(FleetRequestIdentity.self, forKey: .requestIdentity))
         case .approveForSession: self = .approveForSession(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint), requestIdentity: try c.decodeIfPresent(FleetRequestIdentity.self, forKey: .requestIdentity))
         case .deny: self = .deny(requestFingerprint: try c.decode(String.self, forKey: .requestFingerprint), requestIdentity: try c.decodeIfPresent(FleetRequestIdentity.self, forKey: .requestIdentity))
@@ -463,6 +477,8 @@ enum ControlAction: Codable, Equatable {
             try c.encode(Tag.dismissStructured, forKey: .action); try c.encode(fingerprint, forKey: .requestFingerprint); try c.encodeIfPresent(identity, forKey: .requestIdentity)
         case let .releaseStructured(fingerprint):
             try c.encode(Tag.releaseStructured, forKey: .action); try c.encode(fingerprint, forKey: .requestFingerprint)
+        case let .reconcileStructured(fingerprint):
+            try c.encode(Tag.reconcileStructured, forKey: .action); try c.encode(fingerprint, forKey: .requestFingerprint)
         case let .approve(fingerprint, identity):
             try c.encode(Tag.approve, forKey: .action); try c.encode(fingerprint, forKey: .requestFingerprint); try c.encodeIfPresent(identity, forKey: .requestIdentity)
         case let .approveForSession(fingerprint, identity):
@@ -1096,6 +1112,66 @@ struct FleetChannelListParams: Codable, Equatable { init() {} }
 
 struct FleetChannelListResult: Codable, Equatable {
     let channels: [FleetChannel]
+}
+
+/// One ACP adapter the daemon's registry can spawn.
+///
+/// The registry is `[acp.adapters.*]` in the host config plus the built-in
+/// floor, so it grows by editing config rather than by shipping a build. That
+/// is why `name` is a STRING everywhere it appears on the copilot wire and why
+/// the engine picker reads this list instead of a set compiled in here: an
+/// adapter an operator installed is selectable without a new client.
+struct FleetAdapter: Codable, Equatable, Identifiable {
+    /// The registry key, and the token `provider` carries on a configure.
+    let name: String
+    /// The program the daemon spawns, as configured.
+    let command: String
+    /// The mode pinned at `session/new`. Reported so an operator can SEE it; it
+    /// is not settable over this wire, deliberately.
+    let permissionMode: String
+    /// Whether this came from the built-in floor rather than config.
+    let builtIn: Bool
+    /// The model ids an operator declared, in picker order.
+    ///
+    /// EMPTY IS THE ANSWER, not a missing one: ACP has no model-discovery call,
+    /// so an empty list means the adapter runs its own default and the picker
+    /// must say that rather than offering a guess.
+    let models: [String]
+
+    var id: String { name }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, command, models
+        case permissionMode = "permission_mode"
+        case builtIn = "built_in"
+    }
+
+    init(name: String, command: String, permissionMode: String, builtIn: Bool, models: [String]) {
+        self.name = name
+        self.command = command
+        self.permissionMode = permissionMode
+        self.builtIn = builtIn
+        self.models = models
+    }
+
+    /// Hand-written because `models` is `#[serde(default)]` on the Rust side.
+    /// The synthesized decoder would reject a daemon that omitted the key, and
+    /// an adapter with no declared models is the ordinary case rather than an
+    /// error.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        command = try container.decode(String.self, forKey: .command)
+        permissionMode = try container.decode(String.self, forKey: .permissionMode)
+        builtIn = try container.decode(Bool.self, forKey: .builtIn)
+        models = try container.decodeIfPresent([String].self, forKey: .models) ?? []
+    }
+}
+
+struct FleetAdapterListParams: Codable, Equatable { init() {} }
+
+struct FleetAdapterListResult: Codable, Equatable {
+    let adapters: [FleetAdapter]
 }
 
 /// Params for `fleet/copilot_configure`.

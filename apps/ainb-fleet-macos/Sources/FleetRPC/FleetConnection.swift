@@ -246,6 +246,34 @@ actor FleetConnection {
         return try await request("fleet/confirm_list", params: params, result: FleetConfirmListRawResult.self)
     }
 
+    /// Every adapter this daemon's registry can spawn.
+    ///
+    /// Gated by `fleet.chat.read`, which is what `handle_fleet_adapter_list`
+    /// checks. Its NEIGHBOUR on this surface, `copilotConfigure`, checks a
+    /// different and stronger id, so the two are gated SEPARATELY: a daemon can
+    /// serve the registry to a caller it will not let reconfigure the copilot,
+    /// and one combined gate would either hide the engine list or offer a
+    /// picker whose every choice answers -32601.
+    func adapterList() async throws -> FleetAdapterListResult {
+        try requireReadCapability("fleet.chat.read")
+        return try await request("fleet/adapter_list", params: FleetAdapterListParams(), result: FleetAdapterListResult.self)
+    }
+
+    /// Set the copilot session's adapter, guardrail dial and model.
+    ///
+    /// Gated by `fleet.copilot.configure`, its OWN id and not the
+    /// `fleet.chat.write` its channel neighbour uses: the daemon holds this
+    /// behind a stronger capability because the persona it can carry is a
+    /// system prompt for an agent holding destructive tools.
+    ///
+    /// A result whose `sessionReplaced` is true means the caller's previous
+    /// copilot session key is DEAD: a provider swap retires the old session and
+    /// mints a new one on the same channel scope.
+    func copilotConfigure(_ params: FleetCopilotConfigureParams) async throws -> FleetCopilotConfigureResult {
+        try requireWriteCapability("fleet.copilot.configure")
+        return try await request("fleet/copilot_configure", params: params, result: FleetCopilotConfigureResult.self)
+    }
+
     func confirmAnswer(_ params: FleetConfirmAnswerParams) async throws -> FleetConfirmAnswerResult {
         try requireWriteCapability("fleet.confirm.answer")
         return try await request("fleet/confirm_answer", params: params, result: FleetConfirmAnswerResult.self)
@@ -329,6 +357,25 @@ actor FleetConnection {
         }
         try Self.writeAll(frame, to: descriptor)
     }
+
+    #if DEBUG
+    /// One request with a caller-supplied params type, for the contract suite's
+    /// NEGATIVE tests.
+    ///
+    /// The proofs it exists for are ones this client's own types cannot express
+    /// by design: `FleetCopilotConfigureParams` deliberately has no
+    /// permission-mode field, because a settable one would be a remote
+    /// off-switch for the guardrails, and the test that the daemon's door is
+    /// shut has to knock on it. Debug-only and unused by the app, so the shape
+    /// the shipped client can build is still exactly the shape its types allow.
+    func requestForTesting<Params: Encodable, Result: Decodable>(
+        _ method: String,
+        params: Params,
+        result: Result.Type
+    ) async throws -> Result {
+        try await request(method, params: params, result: result)
+    }
+    #endif
 
     private func request<Params: Encodable, Result: Decodable>(
         _ method: String,

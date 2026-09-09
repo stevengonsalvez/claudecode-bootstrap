@@ -723,6 +723,29 @@ private struct FleetNotchDetail: View {
                     .font(.caption)
                     .help("Attach to this session in a terminal window")
             }
+            // No confirmation dialog, unlike Reject. This asks the daemon a
+            // QUESTION about the card in front of you; the only state it can
+            // change is clearing a card whose picker the daemon proves has
+            // already closed, which is the stale copy the button exists to get
+            // rid of. Guarding a read behind a dialog trains the dialog away.
+            //
+            // Shown only for a CLAUDE card, matching the terminal client, which
+            // decides whether the footer advertises `r Reconcile` at all rather
+            // than offering a dead key. `FleetInterviewDeck` gates on
+            // attention, capability, fingerprint and a parseable payload but
+            // NOT on provider, so without this a Codex interview would carry a
+            // permanently disabled button under a permanent "Claude-only"
+            // sentence, neither of which the operator can do anything about.
+            if store.offersReconcileControl(on: session) {
+                Button("Verify") {
+                    store.selectedSessionKey = session.sessionKey
+                    store.reconcileStructuredInterview(on: session)
+                }
+                .font(.caption)
+                .disabled(reconcileRefusal != nil || store.pendingIntentID != nil)
+                .help(reconcileRefusal ?? "Ask the daemon whether this interview is still live")
+                .accessibilityIdentifier("fleet.notch.interview.verify")
+            }
             if session.capabilities.structuredDismiss && !deck.mirroredPicker {
                 Button("Reject", role: .destructive) { rejectConfirmation = true }
                     .font(.caption)
@@ -739,6 +762,36 @@ private struct FleetNotchDetail: View {
                     .disabled(!complete(deck) || store.pendingIntentID != nil)
             }
         }
+
+        // The refusal READ OUT, not left in the tooltip. A disabled button
+        // swallows the click, so `help` is only reachable by hovering a
+        // control that looks broken, and the operator's question is why it is
+        // greyed out rather than what it would have done.
+        //
+        // Beside the button and under the same condition, so a card with no
+        // Verify control carries no sentence about one either. What is left is
+        // the set an operator can act on: a degraded session to repair, an
+        // interview that has moved on, a capability the daemon does not offer,
+        // and a request that has gone.
+        if store.offersReconcileControl(on: session), let reconcileRefusal {
+            Text("Verify unavailable: \(reconcileRefusal)")
+                .font(.caption2)
+                .foregroundStyle(FleetNotchPalette.muted)
+                .accessibilityIdentifier("fleet.notch.interview.verify.refusal")
+        }
+    }
+
+    /// Why Verify is greyed out, or `nil` when it is live.
+    ///
+    /// The store owns the rule; this only names it twice on screen, once as
+    /// the disabled state and once as the sentence under the row.
+    ///
+    /// It does NOT answer "an action is already running", which the store
+    /// deliberately leaves out of the refusal: the button disables on that
+    /// directly, the way Submit does, so a card busy with the operator's own
+    /// Submit does not sprout a sentence calling itself unavailable.
+    private var reconcileRefusal: String? {
+        store.reconcileBlockedReason(on: session)
     }
 
     /// Attach to a session in a real terminal window.
