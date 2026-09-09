@@ -348,6 +348,86 @@ final class FleetChatPresentationTests: XCTestCase {
         XCTAssertEqual(copilotDefaultProvider, "claude-agent-acp")
     }
 
+    // MARK: - The copilot engine dial
+
+    /// An adapter that declares no models decodes, and declares none.
+    ///
+    /// `models` is `#[serde(default)]` on the Rust side, so a daemon simply
+    /// omits the key for the ordinary adapter: ACP has no model-discovery call.
+    /// The synthesized Swift decoder would have thrown on that, and the result
+    /// decodes as an ARRAY, so one such adapter would have emptied the whole
+    /// engine picker rather than losing a field.
+    func testAnAdapterWithNoDeclaredModelsDecodesWithAnEmptyList() throws {
+        let frame = Data(#"""
+        {"adapters":[
+          {"name":"claude-agent-acp","command":"/bin/claude","permission_mode":"default","built_in":true},
+          {"name":"house","command":"/bin/house","permission_mode":"acceptEdits","built_in":false,"models":["fast"]}
+        ]}
+        """#.utf8)
+        let result = try JSONDecoder().decode(FleetAdapterListResult.self, from: frame)
+
+        XCTAssertEqual(result.adapters.map(\.name), ["claude-agent-acp", "house"])
+        XCTAssertEqual(result.adapters[0].models, [], "an omitted models key is an adapter with none, not a decode failure")
+        XCTAssertTrue(result.adapters[0].builtIn)
+        XCTAssertEqual(result.adapters[1].models, ["fast"])
+        XCTAssertEqual(result.adapters[1].permissionMode, "acceptEdits")
+        XCTAssertFalse(result.adapters[1].builtIn)
+    }
+
+    /// The header words an unread dial as UNREAD, never as a default.
+    ///
+    /// The daemon serves no read for the running adapter or the channel's
+    /// guardrail, so every one of these slots starts as a gap. Filling one with
+    /// the registry's first entry or with `guarded` would print a guess in the
+    /// place an operator checks before turning `yolo` on.
+    func testAnUntoldDialReadsAsNotReportedRatherThanADefault() {
+        var dial = FleetCopilotDial()
+        dial.adapters = [
+            FleetAdapter(name: "claude-agent-acp", command: "/bin/claude", permissionMode: "default", builtIn: true, models: ["opus"]),
+        ]
+        dial.adaptersListed = true
+
+        XCTAssertEqual(FleetChatLabels.copilotEngine(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "not reported")
+        XCTAssertEqual(dial.models, [], "no engine means no adapter whose models these are")
+    }
+
+    /// Once told, each slot reads what it was told, and a known engine with no
+    /// model override reads as the adapter's own default rather than a gap.
+    func testAToldDialReadsTheSettingsAndNamesTheAdapterDefault() {
+        var dial = FleetCopilotDial()
+        dial.adapters = [
+            FleetAdapter(name: "claude-agent-acp", command: "/bin/claude", permissionMode: "default", builtIn: true, models: ["opus", "sonnet"]),
+        ]
+        dial.engine = "claude-agent-acp"
+        dial.mode = .yolo
+
+        XCTAssertEqual(FleetChatLabels.copilotEngine(dial), "claude-agent-acp")
+        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "yolo")
+        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "adapter default")
+        XCTAssertEqual(dial.models, ["opus", "sonnet"])
+
+        dial.model = "sonnet"
+        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "sonnet")
+    }
+
+    /// A guardrail value this build cannot name is a DIFFERENT fact from never
+    /// having been told, and reads differently.
+    ///
+    /// `.unknown` is the tolerant decode's fallback, so it means a newer daemon
+    /// named a mode this client does not have. Rendering that as "not reported"
+    /// would hide a real answer, and rendering it as one of the three would
+    /// claim a guardrail nobody set.
+    func testAnUnrecognisedGuardrailIsNotTheSameAsAnUnreadOne() {
+        var dial = FleetCopilotDial()
+        dial.mode = .unknown
+        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "unrecognised mode")
+
+        dial.mode = nil
+        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "not reported")
+    }
+
     // MARK: - Copilot mint ladder
 
     /// The refusals a REAL daemon sends, verbatim.

@@ -284,6 +284,45 @@ final class FleetConnectionTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(ControlAction.self, from: bypassData), bypass)
     }
 
+    /// The reconcile frame this client sends, key by key.
+    ///
+    /// The tag is what the daemon dispatches on and what a durable receipt
+    /// records as `action_kind`, so a misspelling here is an action the daemon
+    /// answers `-32602` for and a receipt nobody can search. The fingerprint is
+    /// the staleness check: without it the daemon would reconcile whatever
+    /// question the session happens to be on now.
+    ///
+    /// The frame carries NO `request_identity`, because the Rust variant has no
+    /// such field: reconcile asks the broker about a fingerprint, it does not
+    /// route an answer into a provider request.
+    func testReconcileStructuredEncodesTheDaemonsTagAndOnlyItsFingerprint() throws {
+        let action = ControlAction.reconcileStructured(requestFingerprint: "sha256:interview")
+        let data = try JSONEncoder().encode(action)
+        let encoded = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertEqual(encoded?["action"] as? String, "reconcile_structured")
+        XCTAssertEqual(encoded?["request_fingerprint"] as? String, "sha256:interview")
+        XCTAssertNil(
+            encoded?["request_identity"],
+            "the Rust variant has no identity field, so sending one asks the daemon to parse a key it does not know"
+        )
+        XCTAssertEqual(
+            Set((encoded ?? [:]).keys), ["action", "request_fingerprint"],
+            "the frame must carry exactly the two fields the variant declares"
+        )
+        XCTAssertEqual(try JSONDecoder().decode(ControlAction.self, from: data), action)
+    }
+
+    /// A daemon-shaped frame decodes back into the case, so the enum stays
+    /// exhaustive in BOTH directions.
+    func testReconcileStructuredDecodesADaemonFramedAction() throws {
+        let frame = Data(#"{"action":"reconcile_structured","request_fingerprint":"sha256:x"}"#.utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(ControlAction.self, from: frame),
+            .reconcileStructured(requestFingerprint: "sha256:x")
+        )
+    }
+
     func testUnavailablePromptNeverWritesActionWire() async throws {
         var descriptors = [Int32](repeating: 0, count: 2)
         XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
@@ -1660,6 +1699,357 @@ final class FleetConnectionTests: XCTestCase {
         }
     }
 
+    // MARK: - The copilot engine dial (PR E)
+
+    /// The registry read that fills the engine picker, and the ONE thing this
+    /// client refuses to guess.
+    ///
+    /// `fleet/adapter_list` names what the daemon COULD spawn. Nothing on the
+    /// wire names what it IS running: the copilot channel carries no provider
+    /// and the roster files an ACP session under the token `acp`. So a list
+    /// that has answered must leave `engine` nil, and the header must say "not
+    /// reported" rather than the first adapter's name, which is what the
+    /// terminal client's dial shows and is a guess.
+    func testTheAdapterListFillsThePickerWithoutClaimingWhichEngineIsRunning() async throws {
+        let counts = ChatServerCounts(adapters: [
+            Self.adapterObject(name: "claude-agent-acp", models: ["opus", "sonnet"]),
+            Self.adapterObject(name: "house-adapter", builtIn: false),
+        ])
+        try await withChatStore(serveCopilotDial: true, counts: counts) { store, _ in
+            await MainActor.run { store.refreshAdaptersIfNeeded() }
+            let listed = await Self.waitUntil {
+                await MainActor.run { store.copilotDial.adaptersListed }
+            }
+            XCTAssertTrue(listed, "the registry read never answered")
+
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.copilotDial.adapters.map(\.name),
+                    ["claude-agent-acp", "house-adapter"],
+                    "the picker must offer the daemon's live registry, in its order"
+                )
+                XCTAssertNil(
+                    store.copilotDial.engine,
+                    "the registry says what CAN be spawned; defaulting to its first entry states a fact nobody sent"
+                )
+                XCTAssertEqual(FleetChatLabels.copilotEngine(store.copilotDial), "not reported")
+                XCTAssertEqual(
+                    store.copilotDial.models, [],
+                    "with no engine known there is no adapter whose models these would be"
+                )
+            }
+        }
+    }
+
+    /// A refresh with the socket down keeps the registry on screen and blames
+    /// no daemon for it.
+    ///
+    /// Two absences that had been collapsed into one guard. "Not connected yet"
+    /// says nothing about what the daemon serves, so this must say nothing
+    /// either; only a LIVE negotiation missing `fleet.chat.read` is grounds for
+    /// the "does not serve" sentence. Collapsed, the offline path emptied the
+    /// picker and told the operator the daemon serves no registry, about a
+    /// daemon that had answered with one seconds earlier.
+    ///
+    /// It is reached in the app because the chat pane's bootstrap sits on the
+    /// outer stack, above its own `canReadChat` branch, so it runs while the
+    /// socket is down; a reconnect marks the registry unread, and switching
+    /// back to Chat before the socket comes up calls straight into this.
+    func testAnOfflineRefreshKeepsTheRegistryAndBlamesNoDaemon() async throws {
+        let counts = ChatServerCounts(adapters: [Self.adapterObject(name: "claude-agent-acp")])
+        try await withChatStore(serveCopilotDial: true, counts: counts) { store, server in
+            await MainActor.run { store.refreshAdaptersIfNeeded() }
+            let listed = await Self.waitUntil {
+                await MainActor.run { store.copilotDial.adaptersListed }
+            }
+            XCTAssertTrue(listed, "the registry read never answered, so there is nothing to preserve")
+
+            Darwin.shutdown(server, SHUT_RDWR)
+            let offline = await Self.waitUntil {
+                await MainActor.run { !store.connectionState.isLive }
+            }
+            XCTAssertTrue(offline, "the connection never dropped")
+
+            await MainActor.run {
+                store.refreshAdapters()
+                XCTAssertEqual(
+                    store.copilotDial.adapters.map(\.name), ["claude-agent-acp"],
+                    "an offline refresh emptied the engine picker the last live one had filled"
+                )
+                XCTAssertNotEqual(
+                    store.copilotDial.detail,
+                    "This daemon does not serve the adapter registry.",
+                    "a dropped socket is not a daemon that serves no registry, and it served one a moment ago"
+                )
+            }
+        }
+    }
+
+    /// A LIVE daemon that does not advertise `fleet.chat.read` is the one case
+    /// that MAY clear the registry and say so.
+    ///
+    /// The other half of the split above. Without this, an over-corrected guard
+    /// that never cleared would leave a stale picker up against a daemon that
+    /// genuinely cannot serve it.
+    func testALiveDaemonWithoutTheChatCapabilityClearsTheRegistryAndSaysSo() async throws {
+        var descriptors = [Int32](repeating: 0, count: 2)
+        XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let serverDescriptor = descriptors[1]
+        defer { Darwin.close(serverDescriptor) }
+        let location = try Self.testLocation()
+        defer { try? FileManager.default.removeItem(at: location.home) }
+        let serverDone = expectation(description: "capability-free server finished")
+        let serverResult = SocketServerResult()
+
+        DispatchQueue.global().async {
+            defer { serverDone.fulfill() }
+            do {
+                // A live, writable connection whose catalogue names only the
+                // action capability: no `fleet.chat.read` anywhere.
+                try Self.serveStoreBootstrap(
+                    descriptor: serverDescriptor,
+                    subscriptionSnapshot: try Self.snapshotObject(head: 1, sessions: []),
+                    eventBeforeSubscriptionResponse: false,
+                    snapshotAfterEvent: try Self.snapshotObject(head: 1, sessions: []),
+                    capabilityIDs: ["fleet.action.execute"]
+                )
+                while true {
+                    _ = try Self.readRequest(from: serverDescriptor)
+                }
+            } catch StoreServerError.closed {
+                // The client hung up at the end of the test. Not a failure.
+            } catch {
+                serverResult.record(error)
+            }
+        }
+
+        let store = await MainActor.run {
+            FleetStore(
+                location: location,
+                makeConnection: { _ in FleetConnection(location: location, injectedDescriptor: descriptors[0]) },
+                reconnectDelayNanoseconds: { _ in 10_000_000_000 }
+            )
+        }
+        await MainActor.run { store.start() }
+        let live = await Self.waitUntil {
+            await MainActor.run { store.connectionState.isLive }
+        }
+        XCTAssertTrue(live, "the fixture never reached a live connection")
+
+        await MainActor.run {
+            XCTAssertFalse(store.canReadAdapters, "the catalogue has no fleet.chat.read, so the registry is unreadable")
+            store.refreshAdapters()
+            XCTAssertEqual(
+                store.copilotDial.adapters, [],
+                "a daemon that cannot serve the registry must not leave one on screen"
+            )
+            XCTAssertFalse(store.copilotDial.adaptersListed)
+            XCTAssertEqual(store.copilotDial.detail, "This daemon does not serve the adapter registry.")
+            store.stop()
+        }
+        await fulfillment(of: [serverDone], timeout: 5)
+        try serverResult.throwIfRecorded()
+    }
+
+    /// The swap, and the two pieces of client state it must take with it.
+    ///
+    /// `session_replaced` says the daemon retired the copilot session and
+    /// minted a new one on the same channel scope, so this client is holding a
+    /// dead key in TWO places. The mint cache would send the operator's next
+    /// message to a session nobody is listening on. The carried transcript
+    /// would paint the RETIRED adapter's execution under the new one's name.
+    ///
+    /// The transcript half is falsified rather than assumed: the fixture's
+    /// chunks are emptied before the swap, so a row still on screen afterwards
+    /// can only have been carried across the boundary.
+    func testASwapThatReplacesTheSessionRetargetsThePaneAndDropsTheOldTranscript() async throws {
+        let counts = ChatServerCounts(
+            transcriptHeadOrder: 5,
+            transcriptChunks: [Self.transcriptChunkObject(order: 5, text: "the retired adapter's work")],
+            adapters: [
+                Self.adapterObject(name: "claude-agent-acp"),
+                Self.adapterObject(name: "house-adapter", builtIn: false),
+            ]
+        )
+        try await withChatStore(serveCopilotDial: true, counts: counts) { store, _ in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertEqual(store.chat.targetSessionKey, "acp:1")
+                XCTAssertEqual(
+                    store.chat.transcriptState.rows.map(\.body),
+                    ["the retired adapter's work"],
+                    "the swap needs a transcript on screen to be able to drop one"
+                )
+            }
+            XCTAssertEqual(counts.acpCreates, 1)
+
+            // What the daemon does on a provider swap: a new session key on the
+            // same scope, and a transcript that no longer holds the old rows.
+            counts.acpSessionKey = "acp:2"
+            counts.transcriptChunks = []
+            counts.copilotConfigureResult = [
+                "session_key": "acp:2",
+                "provider": "house-adapter",
+                "copilot_mode": "guarded",
+                "session_replaced": true,
+                "persona_set": false,
+            ]
+
+            await MainActor.run { store.configureCopilot(provider: "house-adapter") }
+            let retargeted = await Self.waitUntil {
+                await MainActor.run { store.chat.targetSessionKey == "acp:2" }
+            }
+            XCTAssertTrue(
+                retargeted,
+                "the pane kept aiming at the retired session, so the next message goes nowhere"
+            )
+
+            await MainActor.run {
+                XCTAssertEqual(store.copilotDial.engine, "house-adapter")
+                XCTAssertEqual(store.copilotDial.mode, .guarded)
+                // The replacement is asserted through what the OPERATOR is
+                // shown, which is the only place this client reports it. There
+                // is no separate flag to check, deliberately: nothing on screen
+                // read one, so a field carrying it would have been state kept
+                // alive by its own test.
+                XCTAssertEqual(
+                    store.copilotDial.detail,
+                    "Engine set to house-adapter. The copilot session was replaced.",
+                    "a swap that retired the conversation's session must say so on screen"
+                )
+                XCTAssertEqual(
+                    store.chat.transcriptState.rows, [],
+                    "the retired adapter's transcript was carried onto the new session's pane"
+                )
+            }
+            XCTAssertEqual(
+                counts.acpCreates, 2,
+                "the mint cache still held the retired key, so no page asked the daemon for the live one"
+            )
+            let configures = counts.copilotConfigures
+            XCTAssertEqual(configures.count, 1)
+            let params = configures[0]["params"] as? [String: Any]
+            XCTAssertEqual(params?["provider"] as? String, "house-adapter")
+            XCTAssertNil(
+                params?["copilot_mode"],
+                "an engine pick must not also move the guardrail dial"
+            )
+            XCTAssertNil(params?["persona"], "this surface has no persona editor and must send none")
+        }
+    }
+
+    /// A refused configure changes NOTHING this client displays.
+    ///
+    /// The daemon rolls its own dial back on a failure for a stated reason: the
+    /// client adopts a mode only from a successful configure, so a `yolo` that
+    /// survived a failure would be armed underneath a header still reading
+    /// `guarded`. That contract only holds if this side keeps its half.
+    func testARefusedConfigureLeavesTheDialOnTheLastSettingsThatLanded() async throws {
+        let counts = ChatServerCounts(
+            adapters: [
+                Self.adapterObject(name: "claude-agent-acp"),
+                Self.adapterObject(name: "house-adapter", builtIn: false),
+            ],
+            copilotConfigureResult: [
+                "session_key": "acp:1",
+                "provider": "claude-agent-acp",
+                "copilot_mode": "help",
+                "session_replaced": false,
+                "model": "opus",
+                "persona_set": false,
+            ]
+        )
+        try await withChatStore(serveCopilotDial: true, counts: counts) { store, _ in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            // A configure that LANDS, so the dial holds something a failure
+            // could plausibly move. Without this the assertions below cannot
+            // tell "does not adopt on failure" from "resets on failure", and
+            // both would pass against an untouched dial.
+            await MainActor.run { store.configureCopilot(provider: "claude-agent-acp", mode: .help) }
+            let landed = await Self.waitUntil {
+                await MainActor.run { store.copilotDial.engine == "claude-agent-acp" }
+            }
+            XCTAssertTrue(landed, "the first configure never landed, so there is no state to preserve")
+            await MainActor.run {
+                XCTAssertEqual(store.copilotDial.mode, .help)
+                XCTAssertEqual(store.copilotDial.model, "opus")
+            }
+
+            // Now one that fails, asking for a different engine and the
+            // loosest guardrail: the two values a rollback bug would leak.
+            counts.copilotConfigureResult = nil
+            await MainActor.run { store.configureCopilot(provider: "house-adapter", mode: .yolo) }
+            let refused = await Self.waitUntil {
+                await MainActor.run { store.copilotDial.detail?.hasPrefix("Copilot configure refused") == true }
+            }
+            XCTAssertTrue(refused, "a refused configure must say so")
+
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.copilotDial.engine, "claude-agent-acp",
+                    "a failed swap must neither name the engine it asked for nor forget the one in force"
+                )
+                XCTAssertEqual(
+                    store.copilotDial.mode, .help,
+                    "adopting the requested mode from a failure arms a guardrail the daemon rolled back"
+                )
+                XCTAssertEqual(store.copilotDial.model, "opus", "a failed configure must not clear the model in force")
+                XCTAssertEqual(store.chat.targetSessionKey, "acp:1", "nothing was replaced, so nothing is retargeted")
+            }
+            XCTAssertEqual(counts.acpCreates, 1, "a failed configure must not spend a re-mint")
+        }
+    }
+
+    /// A daemon that serves the chat but not `fleet.copilot.configure` gets a
+    /// dark dial rather than a picker whose every choice answers -32601.
+    ///
+    /// The two ids are checked by different daemon arms, so the registry can be
+    /// readable while the write is not, and this asserts the client splits them
+    /// the same way.
+    func testTheDialIsGatedOnTheCapabilityItsOwnDaemonArmChecks() async throws {
+        let counts = ChatServerCounts(adapters: [Self.adapterObject(name: "claude-agent-acp")])
+        try await withChatStore(serveCopilotDial: false, counts: counts) { store, _ in
+            await MainActor.run {
+                XCTAssertTrue(store.canReadAdapters, "fleet.chat.read is served, so the registry is readable")
+                XCTAssertFalse(
+                    store.canConfigureCopilot,
+                    "fleet.copilot.configure is absent, so the picker must not be offered"
+                )
+                store.configureCopilot(provider: "claude-agent-acp")
+                XCTAssertEqual(
+                    store.copilotDial.detail,
+                    "Configuring the copilot is unavailable for this daemon."
+                )
+            }
+            XCTAssertTrue(counts.copilotConfigures.isEmpty, "a gated-out dial must not reach the wire")
+        }
+    }
+
+    /// One `FleetAdapter` in the shape the daemon frames it.
+    ///
+    /// `models` is omitted when empty, which is the ordinary shape: the Rust
+    /// field is `#[serde(default)]` and ACP has no model-discovery call, so an
+    /// adapter that declares none simply has no key here.
+    private static func adapterObject(
+        name: String,
+        builtIn: Bool = true,
+        models: [String] = []
+    ) -> [String: Any] {
+        var object: [String: Any] = [
+            "name": name,
+            "command": "/usr/local/bin/\(name)",
+            "permission_mode": "default",
+            "built_in": builtIn,
+        ]
+        if !models.isEmpty {
+            object["models"] = models
+        }
+        return object
+    }
+
     /// Bring a store up against TWO scripted chat connections, so a test can
     /// drop the first and watch what the second asks for.
     ///
@@ -1800,6 +2190,7 @@ final class FleetConnectionTests: XCTestCase {
         pagesReturnMarkerRows: Bool = false,
         serveTranscript: Bool = true,
         refuseAcpSessionCreate: Bool = false,
+        serveCopilotDial: Bool = false,
         counts providedCounts: ChatServerCounts? = nil,
         _ body: (FleetStore, Int32) async throws -> Void
     ) async throws {
@@ -1824,7 +2215,14 @@ final class FleetConnectionTests: XCTestCase {
                     capabilityIDs: [
                         "fleet.chat.read", "fleet.chat.write",
                         "fleet.message.read", "fleet.message.send", "fleet.acp.spawn",
-                    ] + (serveTranscript ? ["fleet.transcript.read"] : []),
+                    ]
+                        + (serveTranscript ? ["fleet.transcript.read"] : [])
+                        // Opt-in, so a daemon that serves the chat but not the
+                        // dial stays the DEFAULT shape every other test here
+                        // runs against. `fleet.copilot.configure` is its own id
+                        // on the daemon side and this fixture keeps it separate
+                        // for the same reason.
+                        + (serveCopilotDial ? ["fleet.copilot.configure"] : []),
                     refuseMessageSubscribe: refuseMessageSubscribe
                 )
                 while true {
@@ -1905,10 +2303,18 @@ final class FleetConnectionTests: XCTestCase {
                 return
             }
             try writeResponse(to: descriptor, request: request, result: [
-                "session_key": "acp:1",
+                "session_key": counts.acpSessionKey,
                 "scope_key": "channel:c1",
                 "turn_deadline_ms": 1_800_000,
             ])
+        case "fleet/adapter_list":
+            try writeResponse(to: descriptor, request: request, result: ["adapters": counts.adapters])
+        case "fleet/copilot_configure":
+            guard let result = counts.recordCopilotConfigure(request) else {
+                try writeError(to: descriptor, request: request)
+                return
+            }
+            try writeResponse(to: descriptor, request: request, result: result)
         case "fleet/message_list":
             // The page's first call AFTER the mint decision, which makes it the
             // window a test needs to invalidate the cache in.
@@ -2345,7 +2751,73 @@ private final class ChatServerCounts: @unchecked Sendable {
     /// one. The store measures its page window back from this.
     let transcriptHeadOrder: Int64?
     /// The chunks `fleet/transcript_list` answers with.
-    let transcriptChunks: [[String: Any]]
+    ///
+    /// SETTABLE mid-test, so a test can prove the difference between rows the
+    /// store CARRIED and rows a page re-read: empty the fixture, page again,
+    /// and whatever is still on screen was carried.
+    var transcriptChunks: [[String: Any]] {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return scriptedTranscriptChunks
+        }
+        set {
+            lock.lock()
+            scriptedTranscriptChunks = newValue
+            lock.unlock()
+        }
+    }
+    private var scriptedTranscriptChunks: [[String: Any]]
+    /// The session key `fleet/acp_session_create` mints, settable so a test can
+    /// script the REPLACEMENT a copilot engine swap mints on the same scope.
+    var acpSessionKey: String {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return scriptedAcpSessionKey
+        }
+        set {
+            lock.lock()
+            scriptedAcpSessionKey = newValue
+            lock.unlock()
+        }
+    }
+    private var scriptedAcpSessionKey = "acp:1"
+    /// Every `fleet/copilot_configure` frame the store sent.
+    private var copilotConfigureRequests: [[String: Any]] = []
+    /// What the scripted `fleet/copilot_configure` answers with, or nil to
+    /// refuse. Settable because the two outcomes a client must tell apart, a
+    /// same-adapter configure and a swap, differ only in this result.
+    var copilotConfigureResult: [String: Any]? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return scriptedCopilotConfigureResult
+        }
+        set {
+            lock.lock()
+            scriptedCopilotConfigureResult = newValue
+            lock.unlock()
+        }
+    }
+    private var scriptedCopilotConfigureResult: [String: Any]?
+    /// The adapters `fleet/adapter_list` answers with. Fixed at construction,
+    /// which is before the server thread exists, so it needs no lock.
+    let adapters: [[String: Any]]
+
+    /// Record the configure and answer with whatever is scripted, or refuse.
+    func recordCopilotConfigure(_ request: [String: Any]) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        copilotConfigureRequests.append(request)
+        return scriptedCopilotConfigureResult
+    }
+
+    var copilotConfigures: [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return copilotConfigureRequests
+    }
     /// Whether the scripted tail read says it left older rows behind.
     let transcriptTruncated: Bool
     /// Which `fleet/transcript_subscribe` calls are refused, counted from one.
@@ -2362,14 +2834,18 @@ private final class ChatServerCounts: @unchecked Sendable {
         transcriptHeadOrder: Int64? = nil,
         transcriptChunks: [[String: Any]] = [],
         transcriptTruncated: Bool = false,
-        refusedTranscriptSubscribes: Set<Int> = []
+        refusedTranscriptSubscribes: Set<Int> = [],
+        adapters: [[String: Any]] = [],
+        copilotConfigureResult: [String: Any]? = nil
     ) {
         self.refusedTranscriptSubscribes = refusedTranscriptSubscribes
         self.rejectionDetail = rejectionDetail
         self.pagesReturnMarkerRows = pagesReturnMarkerRows
         self.transcriptHeadOrder = transcriptHeadOrder
-        self.transcriptChunks = transcriptChunks
+        self.scriptedTranscriptChunks = transcriptChunks
         self.transcriptTruncated = transcriptTruncated
+        self.adapters = adapters
+        self.scriptedCopilotConfigureResult = copilotConfigureResult
     }
 
     let refusedTranscriptSubscribes: Set<Int>

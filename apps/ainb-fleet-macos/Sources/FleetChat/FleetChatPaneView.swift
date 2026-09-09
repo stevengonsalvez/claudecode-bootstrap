@@ -59,6 +59,11 @@ struct FleetChatPaneView: View {
             // for nothing.
             store.chatPaneAppeared()
             defer { store.chatPaneDisappeared() }
+            // The registry, once. NOT in the loop below: the adapter list is
+            // the daemon's own config and does not move under a running
+            // daemon, so re-reading it every safety-net page would spend a
+            // round trip a minute to learn the same answer.
+            store.refreshAdaptersIfNeeded()
             while !Task.isCancelled {
                 await store.refreshChatOnce()
                 do {
@@ -74,26 +79,138 @@ struct FleetChatPaneView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Text("Copilot chat")
-                .font(.title3.weight(.bold))
-            if let scope = store.chat.scopeKey {
-                Text(scope)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(FleetChatPalette.muted)
-                    .accessibilityIdentifier("fleet.chat.scope")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Copilot chat")
+                    .font(.title3.weight(.bold))
+                if let scope = store.chat.scopeKey {
+                    Text(scope)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(FleetChatPalette.muted)
+                        .accessibilityIdentifier("fleet.chat.scope")
+                }
+                Spacer(minLength: 0)
+                Button("Refresh") { store.refreshChat() }
+                    .disabled(!store.canReadChat)
+                    .accessibilityIdentifier("fleet.chat.refresh")
+                // Explicit, not Esc-only: the composer holds focus, and a surface
+                // whose only exit is a key the focused control might eat is a trap.
+                Button("Close", action: close)
+                    .accessibilityIdentifier("fleet.chat.close")
             }
-            Spacer(minLength: 0)
-            Button("Refresh") { store.refreshChat() }
-                .disabled(!store.canReadChat)
-                .accessibilityIdentifier("fleet.chat.refresh")
-            // Explicit, not Esc-only: the composer holds focus, and a surface
-            // whose only exit is a key the focused control might eat is a trap.
-            Button("Close", action: close)
-                .accessibilityIdentifier("fleet.chat.close")
+            engineDial
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    /// The engine, guardrail and model the copilot is running under.
+    ///
+    /// Its own row under the title rather than more controls beside Refresh and
+    /// Close: these three describe the AGENT, while those two act on the pane,
+    /// and a swap here can replace the session the conversation is talking to.
+    ///
+    /// Every label reads what the store was TOLD, which is why the untouched
+    /// state of this row is three "not reported" values rather than a plausible
+    /// default. The daemon serves no read for the running adapter, so anything
+    /// else on this row before an operator has set one would be a guess.
+    @ViewBuilder private var engineDial: some View {
+        HStack(spacing: 8) {
+            Menu("Engine: \(FleetChatLabels.copilotEngine(store.copilotDial))") {
+                if store.copilotDial.adapters.isEmpty {
+                    Text(store.copilotDial.adaptersListed
+                         ? "No adapters in this daemon's registry"
+                         : "Reading the adapter registry")
+                }
+                ForEach(store.copilotDial.adapters) { adapter in
+                    Button(adapterLabel(adapter)) {
+                        store.configureCopilot(provider: adapter.name)
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!store.canConfigureCopilot || store.copilotDial.adapters.isEmpty)
+            .accessibilityIdentifier("fleet.chat.dial.engine")
+
+            // Both of these need an engine, and that is not a UI convenience.
+            // `provider` is required on every configure, so moving the mode
+            // with no engine known would mean naming one, and naming the wrong
+            // one does not fail, it SWAPS to it and retires the session.
+            Menu("Mode: \(FleetChatLabels.copilotMode(store.copilotDial))") {
+                ForEach([FleetCopilotMode.help, .guarded, .yolo], id: \.self) { mode in
+                    Button(mode.rawValue) {
+                        guard let engine = store.copilotDial.engine else { return }
+                        store.configureCopilot(provider: engine, mode: mode)
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!store.canConfigureCopilot || store.copilotDial.engine == nil)
+            .help(store.copilotDial.engine == nil
+                  ? "Pick an engine first: this daemon does not report the one in force"
+                  : "Move the copilot's guardrail dial")
+            .accessibilityIdentifier("fleet.chat.dial.mode")
+
+            Menu("Model: \(FleetChatLabels.copilotModel(store.copilotDial))") {
+                if store.copilotDial.models.isEmpty {
+                    Text("This adapter declares no models, so it runs its own default")
+                }
+                // Identified by POSITION, not by the string. These are operator
+                // -authored ids from `[acp.adapters.*].models`, so nothing stops
+                // the same one appearing twice, and two rows sharing an identity
+                // is undefined behaviour in SwiftUI rather than a cosmetic
+                // repeat. The engine picker above can key on the adapter name
+                // because that name is a registry KEY daemon-side and unique by
+                // construction; this list is a plain sequence and is not.
+                ForEach(Array(store.copilotDial.models.enumerated()), id: \.offset) { _, model in
+                    Button(model) {
+                        guard let engine = store.copilotDial.engine else { return }
+                        store.configureCopilot(provider: engine, model: model)
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(!store.canConfigureCopilot
+                      || store.copilotDial.engine == nil
+                      || store.copilotDial.models.isEmpty)
+            .accessibilityIdentifier("fleet.chat.dial.model")
+
+            if let effort = store.copilotDial.reasoningEffort, !effort.isEmpty {
+                Text("Effort: \(effort)")
+                    .font(.caption)
+                    .foregroundStyle(FleetChatPalette.muted)
+                    .accessibilityIdentifier("fleet.chat.dial.effort")
+            }
+
+            Button("Retry") { store.refreshAdapters() }
+                .font(.caption)
+                .disabled(!store.canReadAdapters)
+                .accessibilityIdentifier("fleet.chat.dial.retry")
+
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        // The last thing this row did, said out loud. A swap that replaced the
+        // session is the one an operator most needs to see, because the
+        // conversation below is now answered by a different process.
+        if let detail = store.copilotDial.detail {
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(FleetChatPalette.muted)
+                .accessibilityIdentifier("fleet.chat.dial.detail")
+        }
+    }
+
+    /// An adapter's picker row: its name, and where it came from.
+    ///
+    /// The origin is shown because a name in `[acp.adapters]` and one from the
+    /// built-in floor behave identically here but are fixed in different
+    /// places when they are wrong.
+    private func adapterLabel(_ adapter: FleetAdapter) -> String {
+        adapter.builtIn ? adapter.name : "\(adapter.name) (config)"
     }
 
     private var unavailable: some View {
