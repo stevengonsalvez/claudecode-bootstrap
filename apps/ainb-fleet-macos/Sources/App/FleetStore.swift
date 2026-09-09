@@ -53,17 +53,6 @@ enum FleetOperatorAction: CaseIterable, Identifiable, Equatable {
     }
 }
 
-enum FleetStartPreflight {
-    static func supports(_ provider: FleetProvider) -> Bool {
-        provider == .codex
-    }
-
-    static func isExistingDirectory(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-}
-
 enum FleetApprovalDecision: Equatable {
     case allowOnce, deny, bypassSession
 
@@ -91,10 +80,6 @@ final class FleetStore: ObservableObject {
     @Published private(set) var sessions: [FleetSession] = []
     @Published private(set) var connectionState: FleetConnectionState = .connecting
     @Published var selectedSessionKey: String?
-    @Published private(set) var receipts: [FleetActionReceipt] = []
-    @Published private(set) var atcInstances: [AtcInstance] = []
-    @Published private(set) var atcSchedulerOwnership: AtcSchedulerOwnership?
-    @Published private(set) var timeline: [FleetTimelineEntry] = []
     @Published private(set) var usageSummary: FleetUsageSummaryResult?
     @Published private(set) var usageDashboard: FleetUsageDashboardResult?
     @Published private(set) var quotaSummary: FleetQuotaSummaryResult?
@@ -102,7 +87,6 @@ final class FleetStore: ObservableObject {
     @Published private(set) var chat = FleetChatSurface()
     @Published private(set) var pendingIntentID: String?
     @Published private(set) var controlNotice: String?
-    @Published private(set) var lastStart: FleetStartResult?
 
     private let location: HangarLocation
     // Internal (not private) so the contract tests can assert the ranges the
@@ -226,18 +210,6 @@ final class FleetStore: ObservableObject {
         return writeCompatible && negotiation?.readCompatible == true
     }
 
-    var canReadReceipts: Bool {
-        connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.receipt.read") == true
-    }
-
-    var canReadATC: Bool {
-        connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.atc.read") == true
-    }
-
-    var canReadTimeline: Bool {
-        connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.timeline.read") == true
-    }
-
     var canReadUsage: Bool {
         connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.usage.read") == true
     }
@@ -273,14 +245,6 @@ final class FleetStore: ObservableObject {
 
     var canAnswerConfirms: Bool {
         canWrite && negotiation?.capabilityIDs.contains("fleet.confirm.answer") == true && pendingIntentID == nil
-    }
-
-    var canStart: Bool {
-        canWrite && negotiation?.capabilityIDs.contains("fleet.start.execute") == true && pendingIntentID == nil
-    }
-
-    var canBroadcast: Bool {
-        canWrite && negotiation?.capabilityIDs.contains("fleet.broadcast.execute") == true && pendingIntentID == nil
     }
 
     #if DEBUG
@@ -390,7 +354,6 @@ final class FleetStore: ObservableObject {
                     requestID: requestID,
                     action: action.wireAction(prompt: trimmedPrompt)
                 ))
-                self.record(result.receipt)
                 self.controlNotice = Self.controlNotice(for: result.receipt, failurePrefix: "Action")
                 await self.refreshAuthoritativeState(using: connection)
             } catch {
@@ -502,126 +465,10 @@ final class FleetStore: ObservableObject {
                     requestID: requestID,
                     action: action
                 ))
-                self.record(result.receipt)
                 self.controlNotice = Self.controlNotice(for: result.receipt, failurePrefix: failurePrefix)
                 await self.refreshAuthoritativeState(using: connection)
             } catch {
                 self.controlNotice = "\(failurePrefix) refused: \(String(describing: error))"
-            }
-        }
-    }
-
-    func start(provider: FleetProvider, cwd: String, prompt: String?) {
-        let trimmedCWD = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canStart,
-              FleetStartPreflight.supports(provider),
-              !trimmedCWD.isEmpty,
-              FleetStartPreflight.isExistingDirectory(trimmedCWD),
-              let connection else {
-            controlNotice = "Start is unavailable or incomplete."
-            return
-        }
-        let requestID = UUID().uuidString
-        pendingIntentID = requestID
-        controlNotice = nil
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.pendingIntentID = nil }
-            do {
-                let result = try await connection.start(FleetStartParams(
-                    requestID: requestID,
-                    provider: provider,
-                    cwd: trimmedCWD,
-                    prompt: prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ))
-                self.lastStart = result
-                self.record(result.receipt)
-                self.controlNotice = Self.controlNotice(for: result.receipt, failurePrefix: "Start")
-                await self.refreshAuthoritativeState(using: connection)
-            } catch {
-                self.controlNotice = "Start refused: \(String(describing: error))"
-            }
-        }
-    }
-
-    func broadcast(targetKeys: [String], text: String) {
-        var seen = Set<String>()
-        let orderedTargets = targetKeys.filter { seen.insert($0).inserted }
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canBroadcast,
-              !orderedTargets.isEmpty,
-              !trimmedText.isEmpty,
-              let connection,
-              orderedTargets.allSatisfy({ key in
-                  sessions.contains { $0.sessionKey == key && $0.version > 0 && ($0.capabilities.sendPrompt || $0.capabilities.tmuxText) }
-              }) else {
-            controlNotice = "Broadcast is unavailable or incomplete."
-            return
-        }
-        let intentID = UUID().uuidString
-        pendingIntentID = intentID
-        controlNotice = nil
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.pendingIntentID = nil }
-            do {
-                let result = try await connection.broadcast(FleetBroadcastParams(
-                    targetKeys: orderedTargets,
-                    text: trimmedText,
-                    idempotencyKey: intentID
-                ))
-                self.record(result.receipts)
-                self.controlNotice = Self.broadcastNotice(for: result.receipts)
-                await self.refreshAuthoritativeState(using: connection)
-            } catch {
-                self.controlNotice = "Broadcast refused: \(String(describing: error))"
-            }
-        }
-    }
-
-    func refreshReceipts() {
-        guard canReadReceipts, let connection else {
-            controlNotice = "Receipt reads are unavailable for this daemon."
-            return
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                self.receipts = try await connection.receiptList(FleetReceiptListParams(limit: 50)).receipts
-            } catch {
-                self.controlNotice = "Receipt refresh refused: \(String(describing: error))"
-            }
-        }
-    }
-
-    func refreshATC() {
-        guard canReadATC, let connection else {
-            controlNotice = "ATC reads are unavailable for this daemon."
-            return
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await connection.atcList()
-                atcInstances = result.instances
-                atcSchedulerOwnership = result.schedulerOwnership
-            } catch {
-                controlNotice = "ATC refresh refused: \(String(describing: error))"
-            }
-        }
-    }
-
-    func refreshTimeline() {
-        guard canReadTimeline, let connection else {
-            controlNotice = "Timeline reads are unavailable for this daemon."
-            return
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                timeline = try await connection.timeline(FleetTimelineParams(afterRevision: nil, sessionKey: nil, limit: 100)).entries
-            } catch {
-                controlNotice = "Timeline refresh refused: \(String(describing: error))"
             }
         }
     }
@@ -1234,30 +1081,6 @@ final class FleetStore: ObservableObject {
             if result.capabilityIDs.contains("fleet.message.read") {
                 await openChatStream(on: newConnection)
             }
-            if result.capabilityIDs.contains("fleet.receipt.read") {
-                do {
-                    receipts = try await newConnection.receiptList(FleetReceiptListParams(limit: 50)).receipts
-                } catch {}
-            } else {
-                receipts = []
-            }
-            if result.capabilityIDs.contains("fleet.atc.read") {
-                do {
-                    let atc = try await newConnection.atcList()
-                    atcInstances = atc.instances
-                    atcSchedulerOwnership = atc.schedulerOwnership
-                } catch {}
-            } else {
-                atcInstances = []
-                atcSchedulerOwnership = nil
-            }
-            if result.capabilityIDs.contains("fleet.timeline.read") {
-                do {
-                    timeline = try await newConnection.timeline(FleetTimelineParams(afterRevision: nil, sessionKey: nil, limit: 100)).entries
-                } catch {}
-            } else {
-                timeline = []
-            }
             if result.capabilityIDs.contains("fleet.runtime.read") {
                 runtimeStatus = try? await newConnection.runtimeStatus()
             } else {
@@ -1491,20 +1314,6 @@ final class FleetStore: ObservableObject {
     /// safe to overwrite.
     nonisolated static let deliveredNotice = "Delivered. Confirming Fleet state."
 
-    /// Operator-facing notice for a fan-out, where "some landed" is the case
-    /// that matters and a bare success string would hide it.
-    nonisolated static func broadcastNotice(for receipts: [FleetActionReceipt]) -> String {
-        guard !receipts.isEmpty else { return "Broadcast reached no sessions." }
-        let failed = receipts.filter { $0.status != .delivered }
-        if failed.isEmpty {
-            return "Delivered to \(receipts.count) session\(receipts.count == 1 ? "" : "s")."
-        }
-        let reason = failed.compactMap { $0.detail?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-        let head = "Broadcast: \(receipts.count - failed.count)/\(receipts.count) delivered, \(failed.count) failed"
-        return reason.map { "\(head): \($0)" } ?? "\(head)."
-    }
-
     nonisolated static func controlNotice(for receipt: FleetActionReceipt, failurePrefix: String) -> String {
         switch receipt.status {
         case .delivered:
@@ -1529,19 +1338,6 @@ final class FleetStore: ObservableObject {
         controlNotice = message
     }
 
-    private func record(_ receipt: FleetActionReceipt) {
-        record([receipt])
-    }
-
-    private func record(_ incoming: [FleetActionReceipt]) {
-        receipts = Self.mergedReceipts(incoming, existing: receipts)
-    }
-
-    static func mergedReceipts(_ incoming: [FleetActionReceipt], existing: [FleetActionReceipt]) -> [FleetActionReceipt] {
-        let incomingIDs = Set(incoming.map(\.requestID))
-        return incoming + existing.filter { !incomingIDs.contains($0.requestID) }
-    }
-
     private func refreshAuthoritativeState(using connection: FleetConnection) async {
         do {
             let snapshot = try await connection.snapshot()
@@ -1555,12 +1351,6 @@ final class FleetStore: ObservableObject {
             if controlNotice == nil || controlNotice == Self.deliveredNotice {
                 controlNotice = "Fleet refresh refused: \(String(describing: error))"
             }
-        }
-        guard canReadReceipts else { return }
-        do {
-            receipts = try await connection.receiptList(FleetReceiptListParams(limit: 50)).receipts
-        } catch {
-            controlNotice = "Receipt refresh refused: \(String(describing: error))"
         }
     }
 }

@@ -533,51 +533,6 @@ struct FleetActionReceipt: Codable, Equatable {
 
 struct FleetActionResult: Codable, Equatable { let receipt: FleetActionReceipt }
 
-struct FleetReceiptListParams: Codable, Equatable {
-    let limit: UInt32
-}
-
-struct FleetReceiptListResult: Codable, Equatable {
-    let receipts: [FleetActionReceipt]
-}
-
-struct FleetReceiptGetParams: Codable, Equatable {
-    let requestID: String
-    private enum CodingKeys: String, CodingKey { case requestID = "request_id" }
-}
-
-struct FleetReceiptGetResult: Codable, Equatable {
-    let receipt: FleetActionReceipt?
-}
-
-enum FleetTimelineKind: String, Codable, Equatable {
-    case sessionStarted = "session_started", turnRunning = "turn_running", questionRaised = "question_raised", approvalRequested = "approval_requested", attentionWaiting = "attention_waiting", turnCompleted = "turn_completed", turnFailed = "turn_failed", sessionEnded = "session_ended", managerUnavailable = "manager_unavailable", managerRecovered = "manager_recovered", managerStarted = "manager_started", transportUnavailable = "transport_unavailable", transportAvailable = "transport_available", sessionDiscovered = "session_discovered", sessionSuperseded = "session_superseded"
-}
-
-struct FleetTimelineParams: Codable, Equatable {
-    let afterRevision: Int64?
-    let sessionKey: String?
-    let limit: UInt32
-    private enum CodingKeys: String, CodingKey { case afterRevision = "after_revision", sessionKey = "session_key", limit }
-}
-
-struct FleetTimelineEntry: Codable, Equatable {
-    let revision: Int64
-    let sessionKey: String
-    let observedAt: Int64
-    let provenance: FleetProvenance
-    let kind: FleetTimelineKind
-    let applied: Bool
-    let sessionVersion: Int64
-    private enum CodingKeys: String, CodingKey { case revision, sessionKey = "session_key", observedAt = "observed_at", provenance, kind, applied, sessionVersion = "session_version" }
-}
-
-struct FleetTimelineResult: Codable, Equatable {
-    let entries: [FleetTimelineEntry]
-    let nextAfterRevision: Int64?
-    private enum CodingKeys: String, CodingKey { case entries, nextAfterRevision = "next_after_revision" }
-}
-
 enum FleetUsagePeriod: String, Codable, CaseIterable, Identifiable {
     case today
     case trailing7Days = "trailing_7_days"
@@ -854,69 +809,6 @@ struct FleetRuntimeStatusResult: Codable, Equatable {
         case daemonVersion = "daemon_version"
         case protocolVersion = "protocol_version"
         case hooks
-    }
-}
-
-struct FleetStartParams: Codable, Equatable {
-    let requestID: String
-    let provider: FleetProvider
-    let cwd: String
-    let prompt: String?
-    private enum CodingKeys: String, CodingKey { case requestID = "request_id", provider, cwd, prompt }
-}
-
-struct FleetStartResult: Codable, Equatable {
-    let prospectiveSessionKey: String
-    let receipt: FleetActionReceipt
-    private enum CodingKeys: String, CodingKey { case prospectiveSessionKey = "prospective_session_key", receipt }
-}
-
-struct FleetBroadcastParams: Codable, Equatable {
-    let targetKeys: [String]
-    let text: String
-    let idempotencyKey: String
-    private enum CodingKeys: String, CodingKey { case targetKeys = "target_keys", text, idempotencyKey = "idempotency_key" }
-}
-
-struct FleetBroadcastResult: Codable, Equatable { let receipts: [FleetActionReceipt] }
-
-enum AtcSchedulerOwnership: String, Codable, Equatable {
-    case legacyTimerReconciliationRequired = "legacy_timer_reconciliation_required"
-}
-
-struct AtcListParams: Codable, Equatable { init() {} }
-
-struct AtcInstance: Codable, Equatable {
-    let name: String
-    let cwd: String
-    let tmuxSession: String?
-    let heartbeatCron: String
-    let errRetryCap: Int64
-    let idlePauseMin: Int64
-    let nextTickAt: Int64?
-    let enabled: Bool
-    let lastHeartbeatAt: Int64?
-    let configGeneration: Int64
-
-    private enum CodingKeys: String, CodingKey {
-        case name, cwd, enabled
-        case tmuxSession = "tmux_session"
-        case heartbeatCron = "heartbeat_cron"
-        case errRetryCap = "err_retry_cap"
-        case idlePauseMin = "idle_pause_min"
-        case nextTickAt = "next_tick_at"
-        case lastHeartbeatAt = "last_heartbeat_at"
-        case configGeneration = "config_generation"
-    }
-}
-
-struct AtcListResult: Codable, Equatable {
-    let instances: [AtcInstance]
-    let schedulerOwnership: AtcSchedulerOwnership
-
-    private enum CodingKeys: String, CodingKey {
-        case instances
-        case schedulerOwnership = "scheduler_ownership"
     }
 }
 

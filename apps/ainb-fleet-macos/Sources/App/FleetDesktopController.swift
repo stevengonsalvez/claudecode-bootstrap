@@ -542,6 +542,16 @@ private struct FleetNotchSessionRow: View {
     }
 }
 
+/// Bounds-checked element read, used by the interview deck cursor below.
+///
+/// Two lines with one call site, so it lives next to that call site rather
+/// than in a utility file of its own.
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 private struct FleetNotchDetail: View {
     @ObservedObject var store: FleetStore
     let session: FleetSession

@@ -156,36 +156,6 @@ actor FleetConnection {
         return try await request("fleet/action", params: params, result: FleetActionResult.self)
     }
 
-    func start(_ params: FleetStartParams) async throws -> FleetStartResult {
-        try requireWriteCapability("fleet.start.execute")
-        return try await request("fleet/start", params: params, result: FleetStartResult.self)
-    }
-
-    func broadcast(_ params: FleetBroadcastParams) async throws -> FleetBroadcastResult {
-        try requireWriteCapability("fleet.broadcast.execute")
-        return try await request("fleet/broadcast", params: params, result: FleetBroadcastResult.self)
-    }
-
-    func receiptList(_ params: FleetReceiptListParams) async throws -> FleetReceiptListResult {
-        try requireReadCapability("fleet.receipt.read")
-        return try await request("fleet/receipt_list", params: params, result: FleetReceiptListResult.self)
-    }
-
-    func receiptGet(_ params: FleetReceiptGetParams) async throws -> FleetReceiptGetResult {
-        try requireReadCapability("fleet.receipt.read")
-        return try await request("fleet/receipt_get", params: params, result: FleetReceiptGetResult.self)
-    }
-
-    func atcList() async throws -> AtcListResult {
-        try requireReadCapability("fleet.atc.read")
-        return try await request("atc/list", params: AtcListParams(), result: AtcListResult.self)
-    }
-
-    func timeline(_ params: FleetTimelineParams) async throws -> FleetTimelineResult {
-        try requireReadCapability("fleet.timeline.read")
-        return try await request("fleet/timeline", params: params, result: FleetTimelineResult.self)
-    }
-
     func usageSummary(_ params: FleetUsageSummaryParams) async throws -> FleetUsageSummaryResult {
         try requireReadCapability("fleet.usage.read")
         return try await request("fleet/usage_summary", params: params, result: FleetUsageSummaryResult.self)
