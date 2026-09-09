@@ -37,12 +37,21 @@ pub enum ChatOutcome {
     /// surface has to put the operator's text BACK in the composer rather than
     /// leave them retyping it.
     SendFailed(String),
-    /// A write LANDED and has something to say about it.
+    /// A write has something to say, and it is not the SEND that went wrong.
     ///
-    /// Separate from [`Self::SendFailed`] because the failure outcome carries
-    /// failure semantics as well as a sentence: it clears the last send's legs
-    /// and prefixes the pane's feedback row with "send failed". A cancel that
-    /// worked reported itself through that channel and read as broken.
+    /// The axis here is not success: it is whether the last send's delivery
+    /// legs are still true. [`Self::SendFailed`] exists because a send that
+    /// failed has no legs, so it drops them and calls itself "send failed" on
+    /// the feedback row. Nothing else on this surface has earned either.
+    ///
+    /// A cancel is the case that made the difference visible, on BOTH verdicts:
+    /// the send whose turn is being cancelled is still the send the pane is
+    /// showing, whether the cancel landed or was refused. If anything the
+    /// refusal needs those legs more, because the operator has just failed to
+    /// stop what they describe.
+    ///
+    /// The sentence is the CALLER's: this carries it verbatim, so a failed
+    /// write says so in its own words rather than borrowing a send's.
     Notice(String),
     /// The per-recipient delivery legs of a send.
     Receipts(Vec<ainb_hangar_proto::fleet::FleetMessageDelivery>),
@@ -191,7 +200,16 @@ impl ChatHost {
                 ChatIntent::ConfirmAnswer(params) => {
                     match crate::fleet::control::chat_confirm_answer_blocking(params) {
                         Ok(_) => (None, surface_scope, None),
-                        Err(detail) => (Some(ChatOutcome::SendFailed(detail)), surface_scope, None),
+                        // Named for what it is. This is the same conflation the
+                        // cancel below had: answering a card is not a send, so
+                        // a card the daemon refused ("already answered") must
+                        // not print "send failed" nor drop the legs of a send
+                        // that is still running behind the card.
+                        Err(detail) => (
+                            Some(ChatOutcome::Notice(format!("answer failed: {detail}"))),
+                            surface_scope,
+                            None,
+                        ),
                     }
                 }
                 // Cancelling is a WRITE like a send, so it ends by paging for
@@ -203,13 +221,20 @@ impl ChatHost {
                         // A cancel that lands silently is as unreadable as a
                         // send that does, so a WORKING cancel still has to put
                         // a sentence on the pane's feedback row. It gets its
-                        // own outcome to do that with: routing it through the
-                        // send-failure channel printed "send failed: cancelled
-                        // 1 of 1 turn(s)" over a cancel that worked, and put
-                        // the failure reducer's composer and receipt handling
-                        // on a send that never failed.
+                        // own outcome to do that with, on BOTH verdicts:
+                        // routing it through the send-failure channel printed
+                        // "send failed: cancelled 1 of 1 turn(s)" over a cancel
+                        // that worked and "send failed: cancelled 0 of 1" over
+                        // one that was refused, and dropped the legs of the
+                        // send being cancelled either way. That send is still
+                        // running in the refused case, which is precisely when
+                        // the operator needs to see what is still in flight.
                         Ok(summary) => (Some(ChatOutcome::Notice(summary)), surface_scope, None),
-                        Err(detail) => (Some(ChatOutcome::SendFailed(detail)), surface_scope, None),
+                        Err(detail) => (
+                            Some(ChatOutcome::Notice(format!("cancel failed: {detail}"))),
+                            surface_scope,
+                            None,
+                        ),
                     }
                 }
                 // Neither belongs to a conversation: a create mints the scope a

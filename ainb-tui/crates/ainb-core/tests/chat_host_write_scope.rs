@@ -17,9 +17,9 @@
 //! Not proven here: a SUCCESSFUL `fleet/action` interrupt. `Delivered` needs a
 //! live ACP session in the pool, which needs a real adapter process; without
 //! one the daemon answers `Unknown` and the cancel reports a refusal. So the
-//! cancel case below pins the SCOPE the cancel pages on, which is what this
-//! file is about, and the success wording is covered where the outcome reaches
-//! the surface (`ainb::fleet::chat_host` unit tests).
+//! cancel cases below drive the REFUSAL, which is the verdict this fixture can
+//! produce honestly; what a cancel that landed says is covered where the
+//! outcome reaches the surface (`ainb::fleet::chat_host` unit tests).
 
 use std::time::{Duration, Instant};
 
@@ -36,9 +36,9 @@ mod fleet_hangar;
 
 use fleet_hangar::{EnvGuard, FleetHangar};
 
-/// `$AINB_HANGAR_HOME` is process-wide and both tests here set it. Cargo runs a
-/// test binary's tests on threads of ONE process, so without this the second
-/// test's home would be dialled by the first test's worker.
+/// `$AINB_HANGAR_HOME` is process-wide and every test here sets it. Cargo runs a
+/// test binary's tests on threads of ONE process, so without this one test's
+/// home would be dialled by another test's worker.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The clock every tick is handed.
@@ -265,14 +265,19 @@ fn cancelling_a_turn_pages_the_conversation_it_was_cancelled_in() {
     });
 }
 
-/// A cancel that the daemon REFUSED still reads as a failure.
+/// A cancel the daemon REFUSED reads as a failed CANCEL, and keeps the legs.
 ///
-/// The other half of splitting the cancel's success off the send-failure
-/// channel: the refusal must keep the wording and the semantics it had, so
-/// giving a working cancel its own outcome cannot quietly turn a cancel that
-/// did nothing into one that reads as though it worked.
+/// Three things at once, because the bug was that one of them was being used
+/// to buy the other two. The refusal must still read as a failure; it must say
+/// which write failed, since nothing was sent and "send failed" is a sentence
+/// about a message that does not exist; and it must leave the delivery legs
+/// alone, because the send whose turn the operator just failed to cancel is
+/// still running and those legs are the only thing telling them what is still
+/// in flight.
 #[test]
-fn a_refused_cancel_still_reads_as_a_failure() {
+fn a_refused_cancel_reads_as_a_failed_cancel_and_keeps_the_sends_legs() {
+    use ainb_hangar_proto::fleet::{ActionReceiptStatus, FleetMessageDelivery};
+
     let fixture = fixture("chat-host-cancel-refused-");
     let hangar = &fixture.hangar;
 
@@ -286,6 +291,18 @@ fn a_refused_cancel_still_reads_as_a_failure() {
     );
     let mut host = open_on(hangar, &scope);
 
+    // The precondition a cancel is pressed under: a send is out and one leg has
+    // not come back. Applied through the same reducer entry the `Receipts`
+    // outcome uses, because a send that actually produces a PENDING leg needs a
+    // live ACP session on the scope and therefore a real adapter process. What
+    // is under test below is unchanged by that: the refusal is the real
+    // daemon's, and what the host does with it is the real host's.
+    host.state_mut().apply_receipts(vec![FleetMessageDelivery {
+        session_key: "claude:one".to_string(),
+        state: ActionReceiptStatus::Pending,
+        detail: None,
+    }]);
+
     // A session key the daemon has never heard of: `chat_cancel_turns_blocking`
     // resolves every leg against `fleet/snapshot` and refuses the ones it cannot
     // find, which is a real refusal from the real daemon rather than a stubbed
@@ -294,16 +311,82 @@ fn a_refused_cancel_still_reads_as_a_failure() {
         session_keys: vec!["claude:nobody".to_string()],
     });
     tick_until(&mut host, "the refused cancel", |host| {
-        host.state().feedback().is_some()
+        host.state()
+            .feedback()
+            .is_some_and(|line| line.contains("not in the daemon's snapshot"))
     });
 
     let feedback = host.state().feedback().expect("the refusal said nothing at all");
     assert!(
-        feedback.starts_with("send failed: "),
-        "a refused cancel stopped reading as a failure: {feedback:?}"
+        feedback.starts_with("cancel failed: "),
+        "a refused cancel does not say the CANCEL is what failed: {feedback:?}"
+    );
+    assert!(
+        !feedback.contains("send failed"),
+        "nothing was sent, so nothing could have failed to send: {feedback:?}"
     );
     assert!(
         feedback.contains("not in the daemon's snapshot"),
         "the daemon's own words were swallowed: {feedback:?}"
+    );
+    assert_eq!(
+        host.state().receipts().len(),
+        1,
+        "the refused cancel dropped the legs of the send it failed to stop"
+    );
+}
+
+/// The same rule for the other write that is not a send: a refused answer.
+///
+/// Answering a card posts no message either, and a card is single-use, so
+/// "already answered" is the refusal an operator meets by pressing `y` twice.
+/// It has to name the answer, not a send, and leave a running send's legs where
+/// they are.
+#[test]
+fn a_refused_confirm_answer_reads_as_a_failed_answer_and_keeps_the_sends_legs() {
+    use ainb_hangar_proto::fleet::{ActionReceiptStatus, FleetMessageDelivery};
+
+    let fixture = fixture("chat-host-answer-refused-");
+    let hangar = &fixture.hangar;
+
+    let scope = seed_copilot_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
+    seed_message(
+        hangar,
+        &scope,
+        "01J0MSGREADINGONE",
+        "the line the operator is reading",
+        1_700_000_000_000,
+    );
+    let mut host = open_on(hangar, &scope);
+    host.state_mut().apply_receipts(vec![FleetMessageDelivery {
+        session_key: "claude:one".to_string(),
+        state: ActionReceiptStatus::Pending,
+        detail: None,
+    }]);
+
+    // A card id the daemon holds no row for, which is the same door the
+    // already-answered refusal comes through: `fleet/confirm_answer` resolves
+    // the id and refuses anything it cannot answer exactly once.
+    host.dispatch(ChatIntent::ConfirmAnswer(FleetConfirmAnswerParams {
+        confirm_id: "01J0CARDTHATNEVEREXISTED".to_string(),
+        answer: FleetConfirmAnswer::Approve,
+    }));
+    tick_until(&mut host, "the refused answer", |host| {
+        host.state().feedback().is_some_and(|line| line.contains("failed: "))
+    });
+
+    let feedback = host.state().feedback().expect("the refusal said nothing at all");
+    assert!(
+        feedback.starts_with("answer failed: "),
+        "a refused answer does not say the ANSWER is what failed: {feedback:?}"
+    );
+    assert!(
+        !feedback.contains("send failed"),
+        "nothing was sent, so nothing could have failed to send: {feedback:?}"
+    );
+    assert_eq!(
+        host.state().receipts().len(),
+        1,
+        "the refused answer dropped the legs of a send it has nothing to do with"
     );
 }
