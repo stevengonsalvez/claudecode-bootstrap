@@ -30,9 +30,10 @@ struct FleetResyncRequired: Decodable, Equatable, Sendable {
 /// Everything the daemon pushes at us on a socket we already own.
 ///
 /// The three chat cases arrive only after `fleet/message_subscribe` is
-/// acknowledged on THIS connection, and they ride the same socket as
+/// acknowledged on THIS connection, and the transcript case only after
+/// `fleet/transcript_subscribe`. They all ride the same socket as
 /// `fleet/event`: the daemon runs them as independent forwarders over one
-/// writer, so a client needs one connection, not two.
+/// writer, so a client needs one connection, not four.
 enum FleetIncoming: Equatable, Sendable {
     case event(FleetEvent)
     case resyncRequired(FleetResyncRequired)
@@ -41,6 +42,11 @@ enum FleetIncoming: Equatable, Sendable {
     /// pane as an unanswerable one instead of being dropped.
     case confirmEvent(FleetConfirmEventRawParams)
     case activityEvent(FleetActivityEventParams)
+    /// One ACP transcript chunk, after `fleet/transcript_subscribe` is
+    /// acknowledged on THIS connection. Unlike the three above it is addressed
+    /// by SESSION, so the daemon runs exactly one transcript forwarder per
+    /// socket and a second subscribe REPLACES the first.
+    case transcriptEvent(FleetTranscriptEventParams)
     /// A notification this connection did not turn into one of the above:
     /// either a method this build has never heard of, or a chat frame whose
     /// params did not decode. Both are named and dropped, never fatal.
@@ -250,6 +256,39 @@ actor FleetConnection {
         return try await request("fleet/activity_list", params: params, result: FleetActivityListResult.self)
     }
 
+    /// Page one ACP session's transcript by `ingest_order`.
+    ///
+    /// Gated by `fleet.transcript.read`, which is the id
+    /// `handle_fleet_transcript_list` itself checks, NOT the `fleet.chat.read`
+    /// its confirm and activity neighbours use: the transcript is a different
+    /// log with a different capability, and the daemon can advertise one
+    /// without the other. `fleet.transcript.prune` is a SEPARATE id naming the
+    /// destructive verb, and nothing on this surface asks for it.
+    func transcriptList(_ params: FleetTranscriptListParams) async throws -> FleetTranscriptListResult {
+        try requireReadCapability("fleet.transcript.read")
+        return try await request("fleet/transcript_list", params: params, result: FleetTranscriptListResult.self)
+    }
+
+    /// Open the live transcript stream for ONE session on this connection.
+    ///
+    /// Gated by the same `fleet.transcript.read`, because
+    /// `handle_fleet_transcript_subscribe` checks the same id: the ack is a
+    /// read of that session's transcript head and the daemon gates it as one.
+    ///
+    /// The daemon answers with the head order and THEN registers a per-session
+    /// forwarder on this socket, aborting whichever one it was already running.
+    /// So a second call for a different session MOVES the stream rather than
+    /// adding one, and `fleet/transcript_event` arrives on `incoming()`
+    /// alongside `fleet/event` and the chat frames.
+    func transcriptSubscribe(_ params: FleetTranscriptSubscribeParams) async throws -> FleetTranscriptSubscribeResult {
+        try requireReadCapability("fleet.transcript.read")
+        return try await request(
+            "fleet/transcript_subscribe",
+            params: params,
+            result: FleetTranscriptSubscribeResult.self
+        )
+    }
+
     func incoming() -> AsyncStream<FleetIncoming> {
         AsyncStream { continuation in
             let id = UUID()
@@ -407,6 +446,13 @@ actor FleetConnection {
                 yield(decoded(FleetConfirmEventRawParams.self, from: envelope, as: FleetIncoming.confirmEvent, method: method))
             case "fleet/activity_event":
                 yield(decoded(FleetActivityEventParams.self, from: envelope, as: FleetIncoming.activityEvent, method: method))
+            // The transcript frame takes the SAME degrade-and-name answer as
+            // the three chat frames, for the same reason and one more: its
+            // payload is arbitrary adapter-authored JSON, so it is the frame
+            // most likely to carry a shape this build has never seen. Throwing
+            // here would let an adapter's output close the operator's roster.
+            case "fleet/transcript_event":
+                yield(decoded(FleetTranscriptEventParams.self, from: envelope, as: FleetIncoming.transcriptEvent, method: method))
             // KEPT, and it is not the `default` this codebase bans: that rule is
             // about switches over a WIRE ENUM this build owns, where a new
             // variant must fail to compile. This switches over an open string
