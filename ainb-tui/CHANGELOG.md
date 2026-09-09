@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-09-09
+### Added
+- **fleet-macos**: carry the transcript across pages, not rebuild it
+- **fleet-macos**: port the ACP transcript classifier
+- **fleet-macos**: read and follow an ACP session's transcript
+- **fleet-macos**: show the transcript in the chat pane
+- **hangar**: name the code path that holds the SQLite writer too long
+
+### Fixed
+- **codex**: a slow Codex start must not delete the worktree
+- **hangar**: answer an uncursored transcript read with the newest rows
+- **sessions**: show the cause chain on screen, not just in the log
+
+
 ## [1.25.0] - 2026-09-07
 ### Added
 - **acp**: carry the pool's turn deadline to the client
