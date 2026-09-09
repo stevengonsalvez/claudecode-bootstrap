@@ -436,11 +436,26 @@ fn a_failed_answer_stays_on_its_own_question_across_a_navigation() {
 
     // And back. The failure belongs to the first question and is still there,
     // which is what makes the retry the pane offers mean anything.
-    let returned = focus_question(&tui_tmux, AMBIGUOUS_QUESTION, "Up", 5);
+    focus_question(&tui_tmux, AMBIGUOUS_QUESTION, "Up", 5);
+
+    // Polled rather than asserted on the capture `focus_question` handed back.
+    // That capture is the FIRST frame carrying the question and the composer,
+    // and a `capture-pane` can land mid-repaint: the pane is written top down,
+    // so the restored draft (above the composer) is already the new frame
+    // while the outcome line (below it) is still the old one. Both are drawn
+    // in the same frame, so the wait costs nothing when the surface is right.
+    //
+    // It cannot mask the regression this guards. An outcome cleared by
+    // navigating away never repaints at all, and no amount of polling
+    // conjures a line the state no longer holds — the deadline just expires.
+    let settled = poll(&tui_tmux, Instant::now() + Duration::from_secs(15), |c| {
+        c.contains(AMBIGUOUS_QUESTION) && c.contains("not answered")
+    });
     assert!(
-        returned.contains("not answered"),
+        settled.is_some(),
         "the failure must survive the round trip: an outcome cleared by walking \
-         away is an answer that silently evaporated:\n{returned}"
+         away is an answer that silently evaporated:\n{}",
+        capture_pane(&tui_tmux)
     );
 
     drop(tui);
