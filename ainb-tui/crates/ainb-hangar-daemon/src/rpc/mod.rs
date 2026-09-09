@@ -2550,8 +2550,8 @@ async fn handle_fleet_transcript_list(
     req: &RpcRequest,
 ) -> Result<serde_json::Value, RpcError> {
     use ainb_hangar_proto::fleet::{
-        FLEET_CAPABILITY_TRANSCRIPT_READ, FLEET_TRANSCRIPT_LIST_MAX, FleetTranscriptListParams,
-        FleetTranscriptListResult,
+        FLEET_CAPABILITY_TRANSCRIPT_READ, FLEET_TRANSCRIPT_LIST_MAX,
+        FLEET_TRANSCRIPT_LIST_MAX_BYTES, FleetTranscriptListParams, FleetTranscriptListResult,
     };
     use ainb_hangar_store::repo::fleet_provider_event::FleetProviderEventRepo;
 
@@ -2561,22 +2561,55 @@ async fn handle_fleet_transcript_list(
     if params.session_key.trim().is_empty() {
         return Err(invalid_params("session_key must not be empty"));
     }
-    let after_order = params.after_order.unwrap_or(0);
-    if after_order < 0 {
+    if params.after_order.is_some_and(|order| order < 0) {
         return Err(invalid_params("after_order must be non-negative"));
     }
-    let rows = FleetProviderEventRepo::list_by_session_after(
-        pool,
-        &params.session_key,
-        after_order,
-        i64::from(params.limit.clamp(1, FLEET_TRANSCRIPT_LIST_MAX)),
-    )
-    .await
+    let limit = i64::from(params.limit.clamp(1, FLEET_TRANSCRIPT_LIST_MAX));
+    // A transcript read with NO cursor answers with the newest page, because
+    // that is what opening an execution view means. With a cursor it walks
+    // forward from that row exactly as before, so paging is untouched.
+    //
+    // The same split `fleet/message_list` takes, and here it is not merely
+    // nicer: `ingest_order` is ONE global AUTOINCREMENT sequence across every
+    // provider's rows, so a client cannot approximate this by naming a cursor
+    // of its own. Absent was previously collapsed into `unwrap_or(0)`, which is
+    // what made an uncursored read answer with the START of a session; the
+    // newest hundred ORDERS on a busy machine hold zero rows for the session
+    // being watched, so a client computing that window instead saw its pane
+    // empty while its agent was mid-turn. Neither is answerable client-side.
+    //
+    // The uncursored arm is the SAME read the board timeline uses, byte budget
+    // and truncation flag included. A tail is bounded twice because a chunk's
+    // payload has no ceiling of its own, and which bound bit is not inferable
+    // from the row count, so it rides the wire.
+    let (rows, truncated) = match params.after_order {
+        Some(after_order) => FleetProviderEventRepo::list_by_session_after(
+            pool,
+            &params.session_key,
+            after_order,
+            limit,
+        )
+        .await
+        // A cursored walk is bounded by rows alone and answers "what came after
+        // this row", so it has nothing to admit: `next_after_order` already
+        // tells the caller more may follow.
+        .map(|rows| (rows, false)),
+        None => {
+            FleetProviderEventRepo::list_by_session_tail(
+                pool,
+                &params.session_key,
+                limit,
+                FLEET_TRANSCRIPT_LIST_MAX_BYTES,
+            )
+            .await
+        }
+    }
     .map_err(|error| store_err(&error))?;
     let chunks: Vec<_> = rows.iter().map(transcript_chunk_wire).collect();
     to_value(&FleetTranscriptListResult {
         next_after_order: chunks.last().map(|chunk| chunk.ingest_order),
         chunks,
+        truncated,
     })
 }
 
