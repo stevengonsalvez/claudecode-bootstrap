@@ -12,6 +12,11 @@ export default defineConfig({
   // The site is served from the apex domain, so there is no base path to
   // prepend here any more.
   redirects: {
+    '/docs': '/product/what-is-ainb',
+    '/install': '/tui/install',
+    '/quickstart': '/tui/quickstart',
+    '/concepts': '/product/concepts',
+    '/keyboard': '/tui/keyboard-shortcuts',
     '/knowledge/recall-by-example': '/knowledge/reflect-memory/recall',
   },
   // Docs live in the repo-root `docs/` tree (outside this site dir), so MDX
@@ -20,7 +25,7 @@ export default defineConfig({
   vite: {
     resolve: {
       // Exact-match (end-anchored) so we don't clobber Starlight's own
-      // `@astrojs/starlight/components/Banner.astro` etc. — only the bare
+      // `@astrojs/starlight/components/Banner.astro` etc. - only the bare
       // `@astrojs/starlight/components` specifier used by external docs MDX.
       alias: [
         {
@@ -74,141 +79,162 @@ export default defineConfig({
         {
           label: 'Start here',
           items: [
-            { label: 'What is ainb?', slug: 'product/what-is-ainb' },
-            { label: 'Value proposition', slug: 'product/value' },
-            { label: 'Architecture', slug: 'product/architecture' },
-          ],
-        },
-        {
-          label: 'TUI',
-          items: [
-            { label: 'Overview', slug: 'tui/overview' },
+            { label: 'Overview', slug: 'product/what-is-ainb' },
             { label: 'Install', slug: 'tui/install' },
-            { label: 'Quickstart', slug: 'tui/quickstart' },
-            { label: 'Starting a new session', slug: 'tui/start-session' },
-            { label: 'Attaching to a session', slug: 'tui/attach' },
-            { label: 'Code Review (diff)', slug: 'tui/code-review' },
+            { label: 'Quick start', slug: 'tui/quickstart' },
+            { label: 'Concepts', slug: 'product/concepts' },
+            { label: 'Keyboard', slug: 'tui/keyboard-shortcuts' },
+          ],
+        },
+        {
+          label: 'Using ainb',
+          items: [
+            { label: 'Starting sessions', slug: 'tui/start-session' },
+            { label: 'Attaching & tmux', slug: 'tui/attach' },
+            { label: 'Code review diff', slug: 'tui/code-review' },
+            { label: 'Fleet & multi-agent', slug: 'fleet-bridge' },
+            { label: 'ATC background watcher', slug: 'atc-plumbing' },
             { label: 'Shared MCP pool', slug: 'tui/mcp-pool' },
-            { label: 'Token optimisation (Headroom · RTK)', slug: 'tui/token-optimization' },
-            { label: 'Daemons overlay', slug: 'tui/daemons' },
-            { label: 'Keyboard shortcuts', slug: 'tui/keyboard-shortcuts' },
+            { label: 'Token optimisation', slug: 'tui/token-optimization' },
             { label: 'Inbox & notifications', slug: 'tui/inbox-notifications' },
-            { label: 'Browser dashboard (ainb web)', slug: 'tui/web' },
-            { label: 'Architecture', slug: 'tui/architecture' },
-            { label: 'FAQ', slug: 'tui/faq' },
+            { label: 'Browser dashboard', slug: 'tui/web' },
           ],
         },
         {
-          label: 'CLI',
+          label: 'Configure & Extend',
+          collapsed: true,
           items: [
-            { label: 'Full CLI reference', slug: 'tui/cli' },
-          ],
-        },
-        {
-          label: 'Fleet',
-          items: [
-            { label: 'Chat bridge (Telegram · Slack · Discord)', slug: 'fleet-bridge' },
-            { label: 'ATC — the always-on watcher', slug: 'atc-plumbing' },
-            { label: 'Fleet cost rollups', slug: 'tui/fleet-cost' },
-          ],
-        },
-        {
-          label: 'Skill manager',
-          items: [
-            { label: 'Guide', slug: 'skill-manager/guide' },
-            { label: 'Discovery & import', slug: 'skill-manager/discovery' },
-            { label: 'Catalog browse', slug: 'skill-manager/browse' },
-            { label: 'Sync', slug: 'skill-manager/sync' },
-            { label: 'Drift check', slug: 'skill-manager/check' },
-            { label: 'Usage tracking', slug: 'skill-manager/usage' },
-            { label: 'Promote', slug: 'skill-manager/promote' },
-            { label: 'Sandbox testing', slug: 'skill-manager/sandbox-testing' },
-          ],
-        },
-        {
-          label: 'Toolkit',
-          items: [
-            { label: 'Overview', slug: 'toolkit/overview' },
-            { label: 'Skills', slug: 'toolkit/skills' },
-            { label: 'Agents', slug: 'toolkit/agents' },
-            { label: 'Bootstrap engine', slug: 'toolkit/bootstrap' },
+            { label: 'Value proposition', slug: 'product/value' },
             {
-              label: 'Claude Code plugins',
+              label: 'Plugins',
               items: [
-                { label: 'Overview', slug: 'toolkit/plugins/overview' },
-                { label: 'reflect', slug: 'toolkit/plugins/reflect' },
-                { label: 'ainb-fleet', slug: 'toolkit/plugins/ainb-fleet' },
-                { label: 'ainb-hooks', slug: 'toolkit/plugins/ainb-hooks' },
+                { label: 'Overview', slug: 'plugins/overview' },
+                { label: 'User guide', slug: 'plugins/user-guide' },
+                {
+                  label: 'In-tree plugins',
+                  collapsed: true,
+                  items: [
+                    { label: 'burndown', slug: 'plugins/burndown' },
+                    { label: 'session-reader', slug: 'plugins/session-reader' },
+                    { label: 'witr', slug: 'plugins/witr' },
+                    { label: 'learnings', slug: 'plugins/learnings' },
+                    { label: 'abtop', slug: 'plugins/abtop' },
+                  ],
+                },
+                { label: 'Changelog', slug: 'plugins/changelog' },
               ],
             },
-          ],
-        },
-        {
-          label: 'Plugins',
-          items: [
-            { label: 'Disambiguation', slug: 'plugins/readme' },
-            { label: 'Overview', slug: 'plugins/overview' },
-            { label: 'User guide', slug: 'plugins/user-guide' },
-            { label: 'Authoring guide', slug: 'plugins/authoring' },
-            { label: 'Wire spec v2', slug: 'plugins/spec-v2' },
             {
-              label: 'In-tree plugins',
+              label: 'Skill manager',
               items: [
-                { label: 'burndown', slug: 'plugins/burndown' },
-                { label: 'session-reader', slug: 'plugins/session-reader' },
-                { label: 'witr', slug: 'plugins/witr' },
-                { label: 'learnings', slug: 'plugins/learnings' },
-                { label: 'abtop', slug: 'plugins/abtop' },
+                { label: 'Guide & demos', slug: 'skill-manager/guide' },
+                {
+                  label: 'Commands',
+                  collapsed: true,
+                  items: [
+                    { label: 'Discovery & import', slug: 'skill-manager/discovery' },
+                    { label: 'Catalog browse', slug: 'skill-manager/browse' },
+                    { label: 'Sync', slug: 'skill-manager/sync' },
+                    { label: 'Drift check', slug: 'skill-manager/check' },
+                    { label: 'Usage tracking', slug: 'skill-manager/usage' },
+                    { label: 'Promote', slug: 'skill-manager/promote' },
+                    { label: 'Sandbox testing', slug: 'skill-manager/sandbox-testing' },
+                  ],
+                },
               ],
             },
-            { label: 'Changelog', slug: 'plugins/changelog' },
-          ],
-        },
-        {
-          label: 'Reflect Memory',
-          items: [
-            { label: 'Problem & fit', slug: 'knowledge/reflect-memory/problem-and-fit' },
-            { label: 'The construct', slug: 'knowledge/reflect-memory/construct' },
-            { label: 'Recall reference (57 ports)', slug: 'knowledge/reflect-memory/recall' },
-            { label: 'Why build, not adopt', slug: 'knowledge/reflect-memory/comparison' },
-            { label: 'Memory browser (reflect serve)', slug: 'knowledge/reflect-memory/serve' },
-          ],
-        },
-        {
-          label: 'Knowledge',
-          items: [
-            { label: 'How reflection works', slug: 'knowledge/overview' },
-            { label: 'Hooks & platform (Claude · Codex · Copilot)', slug: 'knowledge/hooks-and-platform' },
-            { label: 'reflect CLI', slug: 'knowledge/reflect-cli' },
-          ],
-        },
-        {
-          label: 'Contributing',
-          items: [
-            { label: 'Building', slug: 'contributing/building' },
-            { label: 'CI / CD', slug: 'contributing/ci-cd' },
-            { label: 'Release process', slug: 'contributing/release-process' },
-            { label: 'Verifying on a loaded box', slug: 'contributing/verifying-on-a-loaded-box' },
-          ],
-        },
-        {
-          label: 'Hangar',
-          items: [
-            { label: 'Architecture & features', slug: 'hangar/architecture' },
-          ],
-        },
-        {
-          label: 'Observability',
-          items: [
-            { label: 'Overview', slug: 'observability/overview' },
-            { label: 'OpenTelemetry to Grafana', slug: 'reference/otel-grafana' },
+            {
+              label: 'Toolkit',
+              items: [
+                { label: 'Overview', slug: 'toolkit/overview' },
+                { label: 'Skills', slug: 'toolkit/skills' },
+                { label: 'Agents', slug: 'toolkit/agents' },
+                { label: 'Bootstrap engine', slug: 'toolkit/bootstrap' },
+                {
+                  label: 'Claude Code plugins',
+                  collapsed: true,
+                  items: [
+                    { label: 'Overview', slug: 'toolkit/plugins/overview' },
+                    { label: 'reflect', slug: 'toolkit/plugins/reflect' },
+                    { label: 'ainb-fleet', slug: 'toolkit/plugins/ainb-fleet' },
+                    { label: 'ainb-hooks', slug: 'toolkit/plugins/ainb-hooks' },
+                  ],
+                },
+              ],
+            },
+            {
+              label: 'Reflect memory',
+              items: [
+                { label: 'Overview', slug: 'knowledge/overview' },
+                { label: 'Memory browser (serve)', slug: 'knowledge/reflect-memory/serve' },
+                { label: 'Hooks & platform', slug: 'knowledge/hooks-and-platform' },
+                { label: 'reflect CLI', slug: 'knowledge/reflect-cli' },
+              ],
+            },
           ],
         },
         {
           label: 'Reference',
+          collapsed: true,
           items: [
-            { label: 'Architecture deep-dive', slug: 'reference/architecture' },
-            { label: 'Repositories', slug: 'reference/repositories' },
+            { label: 'CLI reference', slug: 'tui/cli' },
+            {
+              label: 'Plugin authoring & ABI',
+              collapsed: true,
+              items: [
+                { label: 'Authoring guide', slug: 'plugins/authoring' },
+                { label: 'Wire spec v2', slug: 'plugins/spec-v2' },
+                { label: 'Disambiguation', slug: 'plugins/readme' },
+              ],
+            },
+            { label: 'Fleet cost rollups', slug: 'tui/fleet-cost' },
+            {
+              label: 'Observability & Telemetry',
+              collapsed: true,
+              items: [
+                { label: 'Overview', slug: 'observability/overview' },
+                { label: 'OpenTelemetry to Grafana', slug: 'reference/otel-grafana' },
+              ],
+            },
+            {
+              label: 'Architecture & Repos',
+              collapsed: true,
+              items: [
+                { label: 'Architecture deep-dive', slug: 'reference/architecture' },
+                { label: 'TUI host architecture', slug: 'tui/architecture' },
+                { label: 'Monorepo architecture', slug: 'product/architecture' },
+                { label: 'Repositories map', slug: 'reference/repositories' },
+                { label: 'Hangar control center', slug: 'hangar/architecture' },
+              ],
+            },
+            {
+              label: 'Reflect memory deep-dive',
+              collapsed: true,
+              items: [
+                { label: 'Problem & fit', slug: 'knowledge/reflect-memory/problem-and-fit' },
+                { label: 'The construct', slug: 'knowledge/reflect-memory/construct' },
+                { label: 'Recall reference (57 ports)', slug: 'knowledge/reflect-memory/recall' },
+                { label: 'Why build, not adopt', slug: 'knowledge/reflect-memory/comparison' },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'Help',
+          collapsed: true,
+          items: [
+            { label: 'Troubleshooting & FAQ', slug: 'tui/faq' },
+            { label: 'Daemons overlay', slug: 'tui/daemons' },
+            {
+              label: 'Contributing',
+              collapsed: true,
+              items: [
+                { label: 'Building', slug: 'contributing/building' },
+                { label: 'CI / CD', slug: 'contributing/ci-cd' },
+                { label: 'Release process', slug: 'contributing/release-process' },
+                { label: 'Verifying on a loaded box', slug: 'contributing/verifying-on-a-loaded-box' },
+              ],
+            },
             { label: 'Glossary', slug: 'reference/glossary' },
           ],
         },
