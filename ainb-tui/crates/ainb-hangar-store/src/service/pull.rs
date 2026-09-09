@@ -200,6 +200,61 @@ impl PullService {
         idgen: &dyn IdGen,
         clock: &dyn HangarClock,
     ) -> Result<Option<PulledCard>, sqlx::Error> {
+        // Gate: when THIS runtime has no pullable card, skip the write entirely.
+        //
+        // `PULL_SQL` is an INSERT, so `SQLite` takes the WRITE lock at statement
+        // start, before evaluating a single predicate. A daemon whose pull can
+        // never match therefore burnt the full `busy_timeout` on a contended
+        // database (measured: 10.64s, every ~22s, `rows_affected=0` every time)
+        // queueing behind other writers for nothing. Two of those per main-loop
+        // tick — this one and the claim behind it — is what took the daemon from
+        // a 1s poll to a ~22s one.
+        //
+        // SCOPED THE SAME WAY THE PULL IS. An unscoped "is `board_card` empty"
+        // check only helps a database with no cards at all; one card belonging
+        // to ANY other runtime would put every runtime back on the 10s wait. So
+        // this carries the pull's own runtime, archived and issue predicates.
+        //
+        // THE SAFETY PROPERTY IS `PULL_SQL` ⊆ GATE, AND IT IS DIRECTIONAL.
+        // This gate must stay LOOSER than `PULL_SQL`: every row the pull could
+        // insert must also satisfy this query. It is looser today because it
+        // omits `board_column`, `issue`, `col.services_role IS NOT NULL` and a
+        // dozen further filters that `PULL_SQL` carries.
+        //
+        // Two edits break it, both SILENTLY:
+        //   * ADDING a filter or a join here that `PULL_SQL` does not have, and
+        //   * REMOVING a filter from `PULL_SQL` that this still has.
+        // Either makes the gate reject a card the pull would have taken, and
+        // the failure is `Ok(None)` forever — a card that never gets pulled,
+        // with no error, no log line and nothing red. Widening `PULL_SQL` is
+        // always safe; widening the gate is not.
+        // `a_card_that_matches_the_pull_passes_the_gate` is the guard on this.
+        //
+        // The gate is a READ, and in WAL mode readers never wait for the write
+        // lock, so it costs microseconds and cannot itself block. Checking is
+        // strictly cheaper than the write it avoids.
+        //
+        // NOT cached, deliberately: the check IS its own invalidation. The first
+        // card this runtime can pull makes the pull resume on the very next
+        // tick, with no daemon restart and no stale flag. This skips work that
+        // cannot match; it does not disable boards.
+        let pullable: bool = sqlx::query_scalar(
+            "SELECT EXISTS( \
+                SELECT 1 FROM board_card AS bc \
+                  JOIN board AS bd ON bd.id = bc.board_id \
+                  JOIN agent AS a ON a.workspace_id = bd.workspace_id \
+                 WHERE a.runtime_id = ?1 \
+                   AND a.archived = 0 \
+                   AND (?2 IS NULL OR bc.issue_id = ?2))",
+        )
+        .bind(runtime_id)
+        .bind(only_issue)
+        .fetch_one(pool)
+        .await?;
+        if !pullable {
+            return Ok(None);
+        }
+
         let task_id = idgen.new_ulid();
         let now = clock.now_ms();
 

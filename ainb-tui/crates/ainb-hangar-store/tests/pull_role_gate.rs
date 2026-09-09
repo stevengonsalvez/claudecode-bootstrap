@@ -1045,3 +1045,183 @@ const ONE_OWNER_CLAUSE: &str = "\
          WHERE o.issue_id = bc.issue_id \
            AND o.status IN ('queued','dispatched','running') \
        ) ";
+
+/// A board-less profile does NOT touch the write lock, so a contended database
+/// cannot block the pull tick.
+///
+/// The measured failure this pins: `PULL_SQL` is an INSERT, so `SQLite` takes
+/// the write lock at statement start, BEFORE evaluating a single predicate. On
+/// a profile with no `board_card` rows the statement can never match, yet a
+/// contended daemon still paid the full `busy_timeout` for it — 10.64s, every
+/// ~22 seconds, `rows_affected=0` every time — and the claim behind it paid
+/// another, which is what turned a 1-second poll interval into a ~22-second one.
+///
+/// The assertion is on the ERROR, not on elapsed time, so it cannot flake on a
+/// loaded CI runner: `busy_timeout` is zero here, so a statement that reaches
+/// for the write lock fails IMMEDIATELY with `database is locked`. Returning
+/// `Ok(None)` is only possible if the write was never attempted.
+///
+/// This reduces one victim's exposure to the contention. It does not fix the
+/// contention: something else still holds that lock.
+#[tokio::test]
+async fn a_board_less_profile_never_reaches_for_the_write_lock() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Real migrations, so the statement this guards is prepared against the
+    // real schema rather than a hand-rolled subset that could drift from it.
+    let store = Store::open_in(dir.path()).await.expect("store");
+    // Closed explicitly, not dropped: dropping a sqlx pool does not await its
+    // connections, so a migration checkpoint can still be in flight and the
+    // zero-`busy_timeout` connections below would race it during SETUP rather
+    // than testing anything.
+    store.pool().close().await;
+
+    let db = dir.path().join("hangar.db");
+    let base = |timeout_ms: u64| {
+        SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(false)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_millis(timeout_ms))
+    };
+
+    // The holder is SETUP, so it gets a normal timeout: it has to win the write
+    // lock reliably, and a flaky setup would make this test lie either way.
+    let holder = SqlitePool::connect_with(base(5_000)).await.expect("holder pool");
+    let mut held = holder.acquire().await.expect("hold a connection");
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *held)
+        .await
+        .expect("take the write lock");
+
+    // The subject gets ZERO, so a statement that reaches for the write lock
+    // fails immediately. That is what makes the assertion about behaviour
+    // rather than about how fast the runner is.
+    let pool = SqlitePool::connect_with(base(0)).await.expect("pull pool");
+    let pulled = PullService::pull_for_runtime(
+        &pool,
+        "runtime-with-no-boards",
+        &SeqIdGen::new(&["task-never-minted"]),
+        &FixedClock(NOW_MS),
+    )
+    .await;
+
+    match pulled {
+        Ok(None) => {}
+        Ok(Some(card)) => panic!("a board-less profile cannot pull a card, got {card:?}"),
+        Err(error) => panic!(
+            "the pull tick reached for the write lock on a profile that cannot match, \
+             so a contended daemon blocks here every tick: {error}"
+        ),
+    }
+}
+
+/// A runtime with no pullable card of its own skips the write, even when the
+/// database holds cards belonging to SOMEONE ELSE.
+///
+/// The gate this pins used to be `SELECT EXISTS(SELECT 1 FROM board_card)`,
+/// which short-circuits only when the ENTIRE table is empty. `PULL_SQL` is
+/// scoped — `a.runtime_id = ?3` — so on any database with a single card owned
+/// by another runtime, every other runtime went straight back to paying the
+/// full 10s write-lock wait per tick. That version happened to work on the one
+/// profile it was diagnosed against, whose whole table was empty, and would
+/// have silently done nothing for anyone else.
+///
+/// Assertion is on the ERROR, not on elapsed time: the subject pool has
+/// `busy_timeout(0)`, so any statement reaching for the held write lock fails
+/// at once. `Ok(None)` is only reachable if the write was never attempted.
+#[tokio::test]
+async fn a_runtime_with_no_cards_skips_even_when_another_runtime_has_one() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open_in(dir.path()).await.expect("store");
+
+    // A fully populated, genuinely pullable card — owned by `rt-1`.
+    seed_world(store.pool()).await;
+    add_agent(store.pool(), "ag-1", "impl", 4).await;
+    add_column(store.pool(), "col-1", 1, Some("impl"), None, false).await;
+    add_card(store.pool(), "iss-1", "col-1", 0).await;
+
+    // Closed, not dropped: dropping a sqlx pool does not await its connections,
+    // so a checkpoint still in flight would race the zero-timeout pools below
+    // during SETUP rather than testing anything.
+    store.pool().close().await;
+
+    let db = dir.path().join("hangar.db");
+    let base = |timeout_ms: u64| {
+        SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(false)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_millis(timeout_ms))
+    };
+
+    // Setup gets a normal timeout so winning the write lock is never flaky.
+    let holder = SqlitePool::connect_with(base(5_000)).await.expect("holder pool");
+    let mut held = holder.acquire().await.expect("hold a connection");
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *held)
+        .await
+        .expect("take the write lock");
+
+    // A DIFFERENT runtime, with no agent and so no reachable card. `board_card`
+    // is NOT empty, which is exactly what the unscoped gate could not survive.
+    let pool = SqlitePool::connect_with(base(0)).await.expect("pull pool");
+    let pulled = PullService::pull_for_runtime(
+        &pool,
+        "rt-2-has-no-agents",
+        &SeqIdGen::new(&["task-never-minted"]),
+        &FixedClock(NOW_MS),
+    )
+    .await;
+
+    match pulled {
+        Ok(None) => {}
+        Ok(Some(card)) => panic!("rt-2 owns no agent, so it cannot pull {card:?}"),
+        Err(error) => panic!(
+            "another runtime's card put this runtime back on the write lock, so the gate \
+             only ever helped an all-empty database: {error}"
+        ),
+    }
+}
+
+/// A card the pull WOULD take passes the gate.
+///
+/// The other direction, and the dangerous one. The gate's safety property is
+/// `PULL_SQL` ⊆ gate: every row the pull could insert must also satisfy the
+/// gate. Break that — by adding a filter to the gate, or removing one from
+/// `PULL_SQL` — and the gate starts rejecting pullable cards. That failure is
+/// SILENT: `Ok(None)` forever, no error, no log line, a card that simply never
+/// gets pulled while every other test stays green.
+///
+/// So this asserts the positive case end to end: a fully eligible card, and the
+/// pull returning it THROUGH the gate. `a_runtime_with_no_cards_skips_even_when
+/// _another_runtime_has_one` covers the reverse.
+#[tokio::test]
+async fn a_card_that_matches_the_pull_passes_the_gate() {
+    let (_dir, store) = store().await;
+    let pool = store.pool();
+
+    seed_world(pool).await;
+    add_agent(pool, "ag-1", "impl", 4).await;
+    add_column(pool, "col-1", 1, Some("impl"), None, false).await;
+    add_card(pool, "iss-1", "col-1", 0).await;
+
+    let pulled = PullService::pull_for_runtime(
+        pool,
+        "rt-1",
+        &SeqIdGen::new(&["task-1"]),
+        &FixedClock(NOW_MS),
+    )
+    .await
+    .expect("pull must not error");
+
+    let pulled = pulled.expect(
+        "an eligible card must survive the gate; if this is None the gate is now STRICTER \
+         than PULL_SQL and pullable cards are being starved silently",
+    );
+    assert_eq!(pulled.issue_id, "iss-1");
+    assert_eq!(pulled.agent_id, "ag-1");
+}
