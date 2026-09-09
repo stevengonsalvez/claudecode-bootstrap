@@ -1,5 +1,6 @@
 ---
-title: "What is agents-in-a-box?"
+title: "Overview"
+description: "A terminal-native workspace manager and supervisor for AI coding agents."
 ---
 
 A terminal-native ecosystem for managing AI coding agents. Three components share one monorepo, plus a supporting knowledge library:
@@ -23,16 +24,16 @@ Solo developers and small teams who:
 - Prefer keyboard-driven tools to web dashboards
 - Want a single learning system that captures insights across every coding session
 
-If you've ever had two Claude Code sessions stomp on each other's branches, lost context across compaction, or wanted to wire up swarm-style agent coordination from the terminal — this is built for that.
+If you have ever had two Claude Code sessions stomp on each other's branches, lost context across compaction, or wanted to wire up swarm-style agent coordination from the terminal, this is built for that.
 
 ---
 
 ## What it's not
 
 - **Not a hosted SaaS.** No accounts, no servers, no signup.
-- **Not a Claude Code replacement.** It orchestrates Claude Code (and other tools); it doesn't reimplement them.
+- **Not a Claude Code replacement.** It orchestrates Claude Code (and other tools); it does not reimplement them.
 - **Not Windows-native.** Use WSL2.
-- **Not an IDE plugin.** It's a terminal application.
+- **Not an IDE plugin.** It is a terminal application.
 
 ---
 
@@ -40,23 +41,23 @@ If you've ever had two Claude Code sessions stomp on each other's branches, lost
 
 ```
    ┌─────────────────────────────────────────────────────────────┐
-   │                       ainb TUI host                          │
-   │                                                              │
-   │   Rust · ratatui · tokio · 34 crates · Unix-only             │
-   │                                                              │
-   │   tmux ←─ session persistence                                │
-   │   git  ←─ worktree-per-session isolation                     │
-   │   ┌────────────────────────────────────────────────┐         │
-   │   │  Plugin runtime (v2 ABI)                       │         │
-   │   │   ↔ burndown / session-reader / your plugin    │         │
-   │   └────────────────────────────────────────────────┘         │
+   │                       ainb TUI host                         │
+   │                                                             │
+   │   Rust · ratatui · tokio · 34 crates · Unix-only            │
+   │                                                             │
+   │   tmux ←─ session persistence                               │
+   │   git  ←─ worktree-per-session isolation                    │
+   │   ┌────────────────────────────────────────────────┐        │
+   │   │  Plugin runtime (v2 ABI)                       │        │
+   │   │   ↔ burndown / session-reader / your plugin    │        │
+   │   └────────────────────────────────────────────────┘        │
    └─────────────────────────────────────────────────────────────┘
         │                              │
         ▼                              ▼
    ┌──────────────────────┐    ┌────────────────────────────────────┐
    │  Claude · Codex      │    │  ainb-toolkit (external repo)      │
    │  Gemini · Copilot    │    │  github.com/stevengonsalvez/       │
-   │  Kiro · shell · SSH  │    │  ainb-toolkit — deployed via       │
+   │  Kiro · shell · SSH  │    │  ainb-toolkit: deployed via        │
    └──────────────────────┘    │  bootstrap.js to:                  │
                                │  ~/.claude, ~/.codex,              │
                                │  ~/.copilot, ~/.gemini, …)         │
@@ -72,10 +73,10 @@ Each component is independently useful. You can use ainb-toolkit without ever op
 
 ---
 
-## See also
+## Where to go next
 
-- [Value proposition](value.md) — what specifically you get
-- [Whole-system architecture](architecture.md) — deeper diagram + box-by-box
-- [Install the TUI](../tui/install.md)
-- [Deploy the toolkit](../toolkit/overview.md)
-- [Write a plugin](../plugins/authoring.md)
+- [Install ainb](../tui/install.md)
+- [Quickstart](../tui/quickstart.md): first session in 60 seconds
+- [Concepts](concepts.md): workspaces, worktrees, and sessions
+- [Keyboard shortcuts](../tui/keyboard-shortcuts.md)
+- [CLI reference](../tui/cli.md)

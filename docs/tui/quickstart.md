@@ -1,12 +1,13 @@
 ---
-title: "Quickstart — first session in 60 seconds"
+title: "Quickstart: first session in 60 seconds"
+description: "From install to your first running isolated agent session."
 ---
 
 From install to your first running agent session.
 
 ## 1. Pre-flight
 
-Make sure you have `git`, `tmux`, and a provider CLI (e.g. Claude Code) installed, then:
+Ensure you have `git`, `tmux`, and a provider CLI (such as Claude Code) installed, then:
 
 ```bash
 ainb init --check    # verify prerequisites without changing anything
@@ -38,10 +39,7 @@ ainb run --repo . --worktree --tool codex         # use Codex instead of Claude
 ainb run --remote-repo owner/repo --worktree      # clone a GitHub repo first, then isolate
 ```
 
-Without `--worktree` (or `--create-branch`) the session runs directly in the
-checkout you point at, sharing that branch, index and working tree with your
-editor and with every other session started there. Reach for that only when you
-deliberately want the shared checkout:
+Without `--worktree` (or `--create-branch`) the session runs directly in the checkout you point at, sharing that branch, index and working tree with your editor and with every other session started there. Reach for that only when you deliberately want the shared checkout:
 
 ```bash
 ainb run --repo .                                 # shared checkout, NO isolation
@@ -54,7 +52,7 @@ ainb list                 # see running sessions
 ainb attach my-project    # drop into the session's tmux
 ```
 
-Detach with your tmux detach key (default `Ctrl-b d`) — the agent keeps running. Reattach any time with `ainb attach <name>`.
+Detach with your tmux detach key (default `Ctrl-b d`): the agent keeps running. Reattach any time with `ainb attach <name>`.
 
 ## 5. Kill a session safely
 
@@ -65,7 +63,7 @@ ainb kill my-project -f     # force, no prompt
 
 ## Where to go next
 
-- [Overview](overview.md) — every screen
-- [CLI reference](cli.md) — every subcommand and flag
+- [Concepts](../product/concepts.md): workspaces, worktrees, and persistence
 - [Keyboard shortcuts](keyboard-shortcuts.md)
-- [Docs hub](../README.md)
+- [CLI reference](cli.md): every subcommand and flag
+- [Starting a new session](start-session.md): new session wizard options
