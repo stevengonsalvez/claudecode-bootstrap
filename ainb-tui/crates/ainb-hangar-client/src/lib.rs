@@ -15,12 +15,12 @@
 //! stream. Shapes come from the pure `ainb-hangar-proto` crate.
 //!
 //! It lives in its own crate (rather than in `ainb-core`, where it was born)
-//! because the fleet copilot's MCP tool server has to dial the SAME socket with
+//! because the fleet Pal's MCP tool server has to dial the SAME socket with
 //! the SAME auth and framing, and `ainb-core` depends on `ainb-hangar-daemon`,
 //! so nothing below it can depend back. `ainb-core::fleet::bridge::daemon`
 //! re-exports this module, so every existing call site is unchanged.
 
-/// The part-2 chat and copilot calls, in their own file so two parallel
+/// The part-2 chat and Pal calls, in their own file so two parallel
 /// landings dedup across a boundary instead of inside one `impl` list.
 mod chat;
 
@@ -650,7 +650,7 @@ impl DaemonClient {
     /// `fleet/copilot_gate` holds a confirm-class tool call until an operator
     /// answers the card. The 5-second default would turn every confirm card
     /// into a transport timeout, and a timeout is indistinguishable from a
-    /// wedged daemon — the copilot would retry, and the retry would mint a
+    /// wedged daemon — Pal would retry, and the retry would mint a
     /// second card for the same action.
     ///
     /// Still BOUNDED, and the caller's bound must sit OUTSIDE the daemon's card

@@ -85,17 +85,17 @@ final class FleetStore: ObservableObject {
     @Published private(set) var quotaSummary: FleetQuotaSummaryResult?
     @Published private(set) var runtimeStatus: FleetRuntimeStatusResult?
     @Published private(set) var chat = FleetChatSurface()
-    /// The copilot's engine dial, held BESIDE `chat` rather than inside it.
+    /// Pal's engine dial, held BESIDE `chat` rather than inside it.
     ///
-    /// See `FleetCopilotDial`: nothing a chat page reads can rebuild this, so a
+    /// See `FleetPalDial`: nothing a chat page reads can rebuild this, so a
     /// field on the surface would be wiped by the next safety-net page.
-    @Published private(set) var copilotDial = FleetCopilotDial()
+    @Published private(set) var palDial = FleetPalDial()
     /// Whether a `fleet/copilot_configure` is out.
     ///
     /// The engine dial's own mutual exclusion, published so the pickers grey
     /// out while a swap is landing. Separate from `pendingIntentID` on purpose:
-    /// see `canConfigureCopilot`.
-    @Published private(set) var copilotConfigureInFlight = false
+    /// see `canConfigurePal`.
+    @Published private(set) var palConfigureInFlight = false
     @Published private(set) var pendingIntentID: String?
     @Published private(set) var controlNotice: String?
 
@@ -142,7 +142,7 @@ final class FleetStore: ObservableObject {
     /// `fleet/message_event` carries a committed message and nothing about its
     /// delivery legs, so a torn-down session is still invisible until something
     /// is addressed to it.
-    private var copilotSessionKeyByScope: [String: String] = [:]
+    private var palSessionKeyByScope: [String: String] = [:]
     /// Bumped by every invalidation, so a page that was already in flight when
     /// one happened cannot put the forgotten key back.
     ///
@@ -152,7 +152,7 @@ final class FleetStore: ObservableObject {
     /// invalidation and write its now-dead key back over the empty slot, so the
     /// operator's next message went to the same dead session. That is the exact
     /// failure the invalidation exists to prevent, arriving one poll later.
-    private var copilotCacheGeneration: UInt = 0
+    private var palCacheGeneration: UInt = 0
     /// Live chat events that landed while a page was in flight.
     ///
     /// A page is four round trips and it REPLACES the surface wholesale, which
@@ -195,7 +195,7 @@ final class FleetStore: ObservableObject {
     /// event re-evaluates the roster, the chips and the menu-bar summary. A
     /// scope filter alone does not stop that: once a pane has been opened once,
     /// `chat.scopeKey` stays set for the life of the connection, so a busy
-    /// copilot would invalidate the roster several times a second while the
+    /// Pal would invalidate the roster several times a second while the
     /// operator is looking at Sessions and no chat surface exists at all.
     ///
     /// A count rather than a flag, because SwiftUI can have the outgoing and
@@ -297,26 +297,26 @@ final class FleetStore: ObservableObject {
         connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.chat.read") == true
     }
 
-    /// Whether this daemon will let this client move the copilot's dial.
+    /// Whether this daemon will let this client move Pal's dial.
     ///
-    /// `fleet.copilot.configure` is the id `handle_fleet_copilot_configure`
+    /// `fleet.copilot.configure` is the id `handle_fleet_pal_configure`
     /// checks, and it is gated SEPARATELY from `canReadAdapters` because the
     /// daemon holds it behind a stronger capability on purpose: reading the
     /// registry and reconfiguring the agent that holds destructive tools are
     /// not the same permission. Assuming one id for both would either hide a
     /// readable engine list or offer a picker that errors on the click.
     ///
-    /// Held off by `copilotConfigureInFlight`, this surface's OWN busy flag,
+    /// Held off by `palConfigureInFlight`, this surface's OWN busy flag,
     /// not by `pendingIntentID`. That one is the notch's fleet-action gate, and
     /// borrowing it here would couple two unrelated surfaces through a single
     /// flag with nothing naming the coupling: an interview submit in the notch
     /// would grey out the chat pane's engine picker, and a reader of either
     /// would have no way to see why. The mutual exclusion each surface needs is
     /// within itself, so each keeps its own.
-    var canConfigureCopilot: Bool {
+    var canConfigurePal: Bool {
         canWrite
             && negotiation?.capabilityIDs.contains("fleet.copilot.configure") == true
-            && !copilotConfigureInFlight
+            && !palConfigureInFlight
     }
 
     #if DEBUG
@@ -735,12 +735,12 @@ final class FleetStore: ObservableObject {
 
     // MARK: - Fleet chat
 
-    /// Page the copilot conversation: timeline, confirm cards, activity.
+    /// Page the Pal conversation: timeline, confirm cards, activity.
     ///
     /// Mirrors the TUI's resolution (`ainb-core/src/fleet/control.rs`) step for
-    /// step so the two clients cannot disagree about which channel `#copilot`
+    /// step so the two clients cannot disagree about which channel `#pal`
     /// is. Anything else and an operator watching both surfaces sees two
-    /// conversations and has no way to tell which one the copilot is in.
+    /// conversations and has no way to tell which one Pal is in.
     func refreshChat() {
         Task { [weak self] in await self?.refreshChatOnce() }
     }
@@ -779,7 +779,7 @@ final class FleetStore: ObservableObject {
         }
     }
 
-    // MARK: - The copilot engine dial
+    // MARK: - The Pal engine dial
 
     /// Read the adapter registry, unless it has already answered.
     ///
@@ -790,7 +790,7 @@ final class FleetStore: ObservableObject {
     /// and the header's own retry covers the case where the operator does not
     /// want to close and reopen to get it.
     func refreshAdaptersIfNeeded() {
-        guard !copilotDial.adaptersListed else { return }
+        guard !palDial.adaptersListed else { return }
         refreshAdapters()
     }
 
@@ -815,30 +815,30 @@ final class FleetStore: ObservableObject {
     func refreshAdapters() {
         guard connectionState.isLive, let connection else { return }
         guard canReadAdapters else {
-            copilotDial.adapters = []
-            copilotDial.adaptersListed = false
-            copilotDial.detail = "This daemon does not serve the adapter registry."
+            palDial.adapters = []
+            palDial.adaptersListed = false
+            palDial.detail = "This daemon does not serve the adapter registry."
             return
         }
         Task { [weak self] in
             guard let self else { return }
             do {
                 let result = try await connection.adapterList()
-                self.copilotDial.adapters = result.adapters
-                self.copilotDial.adaptersListed = true
-                self.copilotDial.detail = nil
+                self.palDial.adapters = result.adapters
+                self.palDial.adaptersListed = true
+                self.palDial.detail = nil
             } catch {
                 // The list is NOT cleared on a refusal. A registry that answered
                 // once is still the best account this client has of what the
                 // daemon can spawn, and blanking it would take the engine picker
                 // away over a transient error while leaving the dial's own
                 // settings on screen.
-                self.copilotDial.detail = "Adapter list refused: \(String(describing: error))"
+                self.palDial.detail = "Adapter list refused: \(String(describing: error))"
             }
         }
     }
 
-    /// Move the copilot's engine, guardrail dial or model.
+    /// Move Pal's engine, guardrail dial or model.
     ///
     /// `provider` is required by the wire and this client cannot supply one it
     /// was never told, which is why the header disables the mode and model
@@ -849,14 +849,14 @@ final class FleetStore: ObservableObject {
     /// its own dial back for exactly this reason: a `yolo` that survived a
     /// failed configure would be armed underneath a header still reading
     /// `guarded`.
-    func configureCopilot(
+    func configurePal(
         provider: String,
-        mode: FleetCopilotMode? = nil,
+        mode: FleetPalMode? = nil,
         model: String? = nil
     ) {
         let adapter = provider.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canConfigureCopilot, !adapter.isEmpty, let connection else {
-            copilotDial.detail = "Configuring the copilot is unavailable for this daemon."
+        guard canConfigurePal, !adapter.isEmpty, let connection else {
+            palDial.detail = "Configuring Pal is unavailable for this daemon."
             return
         }
         // `.unknown` is the tolerant decode's fallback for a mode this build
@@ -864,19 +864,19 @@ final class FleetStore: ObservableObject {
         // to set the literal string "unknown", which the daemon refuses, so the
         // refusal is made here where it can be explained.
         guard mode != .unknown else {
-            copilotDial.detail = "That guardrail mode is not one this build can set."
+            palDial.detail = "That guardrail mode is not one this build can set."
             return
         }
-        copilotConfigureInFlight = true
-        copilotDial.detail = nil
+        palConfigureInFlight = true
+        palDial.detail = nil
         Task { [weak self] in
             guard let self else { return }
-            defer { self.copilotConfigureInFlight = false }
-            let result: FleetCopilotConfigureResult
+            defer { self.palConfigureInFlight = false }
+            let result: FleetPalConfigureResult
             do {
-                result = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+                result = try await connection.palConfigure(FleetPalConfigureParams(
                     provider: adapter,
-                    copilotMode: mode,
+                    palMode: mode,
                     model: model,
                     // Neither is settable from this surface. `reasoningEffort`
                     // has no declared value set anywhere on the wire, so a
@@ -888,7 +888,7 @@ final class FleetStore: ObservableObject {
                     persona: nil
                 ))
             } catch {
-                self.copilotDial.detail = "Copilot configure refused: \(String(describing: error))"
+                self.palDial.detail = "Pal configure refused: \(String(describing: error))"
                 return
             }
             self.adopt(result)
@@ -898,10 +898,10 @@ final class FleetStore: ObservableObject {
     /// Take on a landed configure, and deal with the session it may have
     /// replaced.
     ///
-    /// A swap RETIRES the copilot session and mints a new one on the same
+    /// A swap RETIRES the Pal session and mints a new one on the same
     /// channel scope, so this client's remembered session key is dead the
     /// moment `sessionReplaced` is true. Both things standing on that key have
-    /// to go, and `forgetCopilotSession` is the one door to both: it bumps the
+    /// to go, and `forgetPalSession` is the one door to both: it bumps the
     /// cache generation, which disowns any page already in flight, and drops
     /// the mint so the next page asks the daemon for the live session.
     ///
@@ -917,23 +917,23 @@ final class FleetStore: ObservableObject {
     /// target on screen until the safety net fires half a minute later, and the
     /// composer would aim every message in that window at a session nobody is
     /// listening on.
-    private func adopt(_ result: FleetCopilotConfigureResult) {
-        copilotDial.engine = result.provider
-        copilotDial.mode = result.copilotMode
-        copilotDial.model = result.model
-        copilotDial.reasoningEffort = result.reasoningEffort
-        copilotDial.detail = result.sessionReplaced
-            ? "Engine set to \(result.provider). The copilot session was replaced."
+    private func adopt(_ result: FleetPalConfigureResult) {
+        palDial.engine = result.provider
+        palDial.mode = result.palMode
+        palDial.model = result.model
+        palDial.reasoningEffort = result.reasoningEffort
+        palDial.detail = result.sessionReplaced
+            ? "Engine set to \(result.provider). The Pal session was replaced."
             : nil
         guard result.sessionReplaced, let scope = chat.scopeKey, let connection else { return }
-        forgetCopilotSession(inScope: scope)
+        forgetPalSession(inScope: scope)
         Task { [weak self] in
             guard let self else { return }
             self.publish(try? await self.pagedChat(using: connection))
         }
     }
 
-    /// Post one operator message into the copilot channel.
+    /// Post one operator message into the Pal channel.
     ///
     /// No `actor` rides this and none can: `FleetMessageSendParams` has no such
     /// field, so this surface cannot file a row under anybody but the operator
@@ -975,7 +975,7 @@ final class FleetStore: ObservableObject {
                 // of sending into the same dead key forever. Transient
                 // refusals deliberately keep the mint.
                 if Self.reportsSessionGone(target, in: result.deliveries) {
-                    self.forgetCopilotSession(inScope: scopeKey)
+                    self.forgetPalSession(inScope: scopeKey)
                 }
             } catch {
                 self.controlNotice = "Chat send refused: \(String(describing: error))"
@@ -1018,7 +1018,7 @@ final class FleetStore: ObservableObject {
         }
     }
 
-    /// Resolve the copilot channel and page everything filed under its scope.
+    /// Resolve the Pal channel and page everything filed under its scope.
     ///
     /// Only the timeline is fatal. The confirm and activity feeds degrade to an
     /// explained absence: a daemon built between phases answers -32601 for
@@ -1027,7 +1027,7 @@ final class FleetStore: ObservableObject {
     ///
     /// `mintedSessionKeyByScope` is what keeps the mint OFF the poll: a scope
     /// already minted against this connection skips `fleet/acp_session_create`
-    /// entirely. See `copilotSessionKeyByScope` for why that matters.
+    /// entirely. See `palSessionKeyByScope` for why that matters.
     ///
     /// `minted` says whether the target IS that session, so only a real mint is
     /// cached. The fallbacks are not: a channel's first recipient is a guess
@@ -1041,26 +1041,26 @@ final class FleetStore: ObservableObject {
         var surface = FleetChatSurface()
         var minted = false
         let channels = try await connection.channelList().channels
-        // Newest-wins, matching the TUI: a race that created two copilot
+        // Newest-wins, matching the TUI: a race that created two Pal
         // channels must not leave the two clients reading different ones.
-        let existing = channels.last { $0.kind == .copilot }
+        let existing = channels.last { $0.kind == .pal }
         let channel: FleetChannel
         if let existing {
             channel = existing
         } else if canWrite {
-            // Create-if-absent on a read path, deliberately: the copilot
+            // Create-if-absent on a read path, deliberately: the Pal
             // channel is a singleton an operator expects to simply exist and
             // there is no other door to it here.
             channel = try await connection.channelCreate(
-                FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+                FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
             ).channel
         } else {
-            surface.sessionDetail = "No copilot channel yet, and this connection may not create one."
+            surface.sessionDetail = "No Pal channel yet, and this connection may not create one."
             return (surface, minted)
         }
         surface.scopeKey = channel.scopeKey
 
-        // A COPILOT channel carries no recipient list: its membership is the
+        // A Pal channel carries no recipient list: its membership is the
         // ACP session that ANSWERS on the scope, so the recipient is resolved
         // the way it is minted, by creating that session against this scope.
         // The call is idempotent per live scope. The daemon's refusal is KEPT
@@ -1071,7 +1071,7 @@ final class FleetStore: ObservableObject {
             minted = true
         } else if canWrite {
             do {
-                surface.targetSessionKey = try await Self.mintCopilotSession(
+                surface.targetSessionKey = try await Self.mintPalSession(
                     scopeKey: channel.scopeKey,
                     home: FileManager.default.homeDirectoryForCurrentUser.path,
                     create: { try await connection.acpSessionCreate($0) }
@@ -1083,7 +1083,7 @@ final class FleetStore: ObservableObject {
             }
         } else {
             surface.targetSessionKey = channel.recipients.first
-            surface.sessionDetail = "This connection may not open a copilot session."
+            surface.sessionDetail = "This connection may not open a Pal session."
         }
 
         surface.messages = try await connection.messageList(FleetMessageListParams(
@@ -1128,7 +1128,7 @@ final class FleetStore: ObservableObject {
     /// that session no longer exists.
     ///
     /// REJECTED only, not every non-DELIVERED state: a PENDING leg is an ACP
-    /// turn that has not finished yet, which is the normal answer to a copilot
+    /// turn that has not finished yet, which is the normal answer to a Pal
     /// prompt.
     ///
     /// An absent or unrecognised detail is NOT a reason to forget. A daemon
@@ -1150,12 +1150,12 @@ final class FleetStore: ObservableObject {
     ///
     /// Both halves matter. Removing the key alone loses the race against a page
     /// that read the cache before this call and writes back after it.
-    func forgetCopilotSession(inScope scope: String) {
-        copilotCacheGeneration &+= 1
-        copilotSessionKeyByScope.removeValue(forKey: scope)
+    func forgetPalSession(inScope scope: String) {
+        palCacheGeneration &+= 1
+        palSessionKeyByScope.removeValue(forKey: scope)
     }
 
-    /// One page, with the copilot mint remembered for the next one.
+    /// One page, with the Pal mint remembered for the next one.
     ///
     /// Every caller of `pageChat` goes through here so the cache cannot be
     /// updated by one path and not another.
@@ -1180,27 +1180,27 @@ final class FleetStore: ObservableObject {
     /// So the generation is a TICKET, not just a guard on the cache: a page
     /// that cannot prove it read current state does not get to render.
     private func pagedChat(using connection: FleetConnection) async throws -> FleetChatSurface? {
-        let generation = copilotCacheGeneration
+        let generation = palCacheGeneration
         beginChatPage()
         defer { endChatPage() }
         let (paged, minted) = try await Self.pageChat(
             using: connection,
             canWrite: canWrite,
-            mintedSessionKeyByScope: copilotSessionKeyByScope
+            mintedSessionKeyByScope: palSessionKeyByScope
         )
         // An EARLY out on the same ticket, purely to stop a page the store has
         // already disowned spending two more round trips on a transcript
         // nobody will see. The check that actually gates the publish is the one
         // below, after every read has finished.
-        guard copilotCacheGeneration == generation else { return nil }
+        guard palCacheGeneration == generation else { return nil }
         var surface = paged
         carryTranscriptForward(into: &surface)
         await pageTranscript(using: connection, into: &surface)
-        guard copilotCacheGeneration == generation else { return nil }
+        guard palCacheGeneration == generation else { return nil }
         if minted,
            let scope = surface.scopeKey,
            let sessionKey = surface.targetSessionKey {
-            copilotSessionKeyByScope[scope] = sessionKey
+            palSessionKeyByScope[scope] = sessionKey
         }
         // Everything that arrived live while this page was reading, replayed
         // onto it. Without this the page silently rewinds the pane past any
@@ -1233,7 +1233,7 @@ final class FleetStore: ObservableObject {
     /// the exact degradation the replay guard exists to prevent, arriving
     /// through the page instead of through a replay.
     ///
-    /// Only when the SESSION is unchanged. A re-minted copilot session is a
+    /// Only when the SESSION is unchanged. A re-minted Pal session is a
     /// different transcript, and carrying rows across that boundary would paint
     /// one agent's execution under another's name.
     private func carryTranscriptForward(into surface: inout FleetChatSurface) {
@@ -1296,7 +1296,7 @@ final class FleetStore: ObservableObject {
         }
         guard let sessionKey = surface.targetSessionKey,
               !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            surface.transcriptDetail = "No copilot session is attached, so there is no transcript to follow."
+            surface.transcriptDetail = "No Pal session is attached, so there is no transcript to follow."
             return
         }
         // SUBSCRIBE ON EVERY PAGE, with no guard in front of it.
@@ -1432,7 +1432,7 @@ final class FleetStore: ObservableObject {
         chatPagesInFlight -= 1
     }
 
-    /// Get-or-create the copilot session for `scopeKey`, naming as little as
+    /// Get-or-create the Pal session for `scopeKey`, naming as little as
     /// the daemon in front of us will accept.
     ///
     /// Three rungs, cheapest first, each one adding back a field only because
@@ -1447,7 +1447,7 @@ final class FleetStore: ObservableObject {
     /// 2. `cwd` named as `home`. Either a daemon built before the field became
     ///    optional, or a current one saying the scope has no live session to
     ///    take a root from. Both are answered by naming one, and for a fresh
-    ///    copilot channel the operator's home is the honest root.
+    ///    Pal channel the operator's home is the honest root.
     /// 3. `provider` named too, the legacy adapter. A daemon older still, in
     ///    the ordinary upgrade-the-app-keep-the-daemon window. Exactly what
     ///    this call sent before either field became optional, so it is no worse
@@ -1456,7 +1456,7 @@ final class FleetStore: ObservableObject {
     /// Any other refusal propagates untouched, including a held scope: its
     /// wording names the directory that holds it, and retrying would replace
     /// the only actionable thing the operator gets with the same refusal twice.
-    static func mintCopilotSession(
+    static func mintPalSession(
         scopeKey: String,
         home: String,
         create: (FleetAcpSessionCreateParams) async throws -> FleetAcpSessionCreateResult
@@ -1480,7 +1480,7 @@ final class FleetStore: ObservableObject {
         }
         if daemonRefusalNames(refusal, field: "provider") {
             return try await create(FleetAcpSessionCreateParams(
-                provider: copilotDefaultProvider,
+                provider: palDefaultProvider,
                 cwd: home,
                 scopeKey: scopeKey
             ))
@@ -1524,11 +1524,11 @@ final class FleetStore: ObservableObject {
         // nothing. Re-minting costs one call per scope; sending to a dead key
         // costs the operator their message. The generation bump also disowns a
         // page still in flight against the connection being replaced.
-        copilotCacheGeneration &+= 1
-        copilotSessionKeyByScope.removeAll()
+        palCacheGeneration &+= 1
+        palSessionKeyByScope.removeAll()
         // The dial goes back to "not told" for the SAME reason, and it is the
         // reason this state is nil-until-told rather than defaulted. A daemon
-        // restart tears the copilot session down and resets `yolo` to
+        // restart tears the Pal session down and resets `yolo` to
         // `guarded`, so an engine and a mode remembered from the last
         // connection describe a process that no longer exists. Carrying them
         // across would put a header reading `yolo` over a channel that is now
@@ -1541,11 +1541,11 @@ final class FleetStore: ObservableObject {
         // still current is the same class of stale claim as the settings above;
         // showing the last known list while a fresh read is on its way is not,
         // because nothing is asserted about it.
-        copilotDial.adaptersListed = false
-        copilotDial.engine = nil
-        copilotDial.mode = nil
-        copilotDial.model = nil
-        copilotDial.reasoningEffort = nil
+        palDial.adaptersListed = false
+        palDial.engine = nil
+        palDial.mode = nil
+        palDial.model = nil
+        palDial.reasoningEffort = nil
         let generation = connectionGeneration
         let currentConnection = connection
         connection = nil
@@ -1723,7 +1723,7 @@ final class FleetStore: ObservableObject {
     ///
     /// The write is guarded on a real change for the same reason the poll's is:
     /// an assignment to a `@Published` value redraws the pane whether or not
-    /// anything moved, and a busy copilot emits activity rows faster than a
+    /// anything moved, and a busy Pal emits activity rows faster than a
     /// human reads.
     private func fold(_ event: FleetChatEvent) {
         // Nothing is folded with no pane on screen. The page that runs when one

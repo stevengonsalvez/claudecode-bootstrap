@@ -466,7 +466,7 @@ async fn serve_conn(
     let mut transcript_forwarder: Option<tokio::task::JoinHandle<()>> = None;
     // Part 2's confirm cards and activity rows ride the chat-bus subscription
     // rather than a subscribe verb of their own: a client watching the bus is
-    // by definition the client that wants to see what the copilot asked for and
+    // by definition the client that wants to see what Pal asked for and
     // what it did, and the frozen part-2 surface has no third subscribe method
     // to add one to.
     let mut notification_forwarder: Option<tokio::task::JoinHandle<()>> = None;
@@ -1189,7 +1189,7 @@ pub async fn dispatch(
 /// [`dispatch`], for a connection whose credential says WHO is calling.
 ///
 /// The socket resolves the caller once, at `auth/hello`, and every frame on
-/// that connection is dispatched as them. A copilot connection is refused every
+/// that connection is dispatched as them. A Pal connection is refused every
 /// method outside its own tool table before any handler runs.
 pub async fn dispatch_as(
     pool: &SqlitePool,
@@ -1445,14 +1445,14 @@ async fn handle(
         // same change that landed it (part 1's Phase 2/3 rule).
         methods::FLEET_CHANNEL_CREATE => handle_fleet_channel_create(pool, req).await,
         methods::FLEET_CHANNEL_LIST => handle_fleet_channel_list(pool, req).await,
-        methods::FLEET_COPILOT_CONFIGURE => handle_fleet_copilot_configure(pool, req, events).await,
+        methods::FLEET_PAL_CONFIGURE => handle_fleet_pal_configure(pool, req, events).await,
         methods::FLEET_ADAPTER_LIST => handle_fleet_adapter_list(req).await,
         methods::FLEET_CONFIRM_LIST => handle_fleet_confirm_list(pool, req).await,
         methods::FLEET_CONFIRM_ANSWER => handle_fleet_confirm_answer(pool, req, events).await,
         methods::FLEET_ACTIVITY_LIST => handle_fleet_activity_list(pool, req).await,
         // The live producer of the cards the two arms above read and answer.
         // Blocks for as long as its card is open, which is the point.
-        methods::FLEET_COPILOT_GATE => handle_fleet_copilot_gate(pool, req, events, caller).await,
+        methods::FLEET_PAL_GATE => handle_fleet_pal_gate(pool, req, events, caller).await,
         methods::FLEET_REPROJECT_CLAUDE_INTERVIEW => {
             handle_fleet_reproject_claude_interview(pool, req, events).await
         }
@@ -1930,19 +1930,19 @@ async fn handle_fleet_message_send(
         "{ scope_key?, targets, origin_message_id?, text, request_id }",
     )?;
     // `actor` is caller-supplied, and `sender` is what the recipient's re-prime
-    // header attributes the message to. A copilot connection that could write
+    // header attributes the message to. A Pal connection that could write
     // `actor: "operator"` would never need the destructive tools: it could ask
     // another agent to do the thing while wearing the human's name. So for that
     // credential the value is PINNED, not validated.
-    if caller.copilot_scope().is_some() {
+    if caller.pal_scope().is_some() {
         match params.actor.as_deref() {
-            None | Some(crate::copilot::COPILOT_ACTOR) => {
-                params.actor = Some(crate::copilot::COPILOT_ACTOR.to_string());
+            None | Some(crate::pal::PAL_ACTOR) => {
+                params.actor = Some(crate::pal::PAL_ACTOR.to_string());
             }
             Some(other) => {
                 return Err(invalid_params(&format!(
-                    "the copilot credential writes as {:?}, never {other:?}",
-                    crate::copilot::COPILOT_ACTOR
+                    "the Pal credential writes as {:?}, never {other:?}",
+                    crate::pal::PAL_ACTOR
                 )));
             }
         }
@@ -2059,12 +2059,12 @@ async fn message_send_inner(
                 .await
                 .map_err(|error| store_err(&error))?
                 .ok_or_else(|| invalid_params(&format!("scope_key {scope:?} names no channel")))?;
-            // A COPILOT channel's membership is not its recipient list: it has
+            // A Pal channel's membership is not its recipient list: it has
             // none, because `fleet/channel_create` refuses one on the grounds
             // that the member IS the ACP session created against the minted
             // scope. Resolve that session HERE, or the channel's only true
             // member is a stranger to its own membership check and every
-            // operator message into the copilot channel is refused.
+            // operator message into the Pal channel is refused.
             let mut members = channel.recipients.clone();
             if channel.kind == "copilot" {
                 if let Some(session) =
@@ -2810,7 +2810,7 @@ async fn handle_fleet_transcript_prune(
 }
 
 // ---------------------------------------------------- part 2: chat channels,
-// copilot config, guardrail confirms, activity feed (buzz-port part 2, A2).
+// Pal config, guardrail confirms, activity feed (buzz-port part 2, A2).
 
 /// Mint one channel and the `channel:<id>` scope it owns.
 async fn handle_fleet_channel_create(
@@ -2851,14 +2851,14 @@ async fn handle_fleet_channel_create(
         .filter(|key| !key.trim().is_empty())
         .filter(|key| seen.insert(key.clone()))
         .collect();
-    // A copilot channel's membership is the ACP session that ANSWERS on it, and
+    // A Pal channel's membership is the ACP session that ANSWERS on it, and
     // that session is minted by `fleet/acp_session_create` against this scope.
     // Accepting a recipient list here would create a second, contradictory
     // notion of who is on the channel. `message_send`'s channel check resolves
     // that session through the scope for exactly this reason.
-    if params.kind == FleetChannelKind::Copilot && !recipients.is_empty() {
+    if params.kind == FleetChannelKind::Pal && !recipients.is_empty() {
         return Err(invalid_params(
-            "a copilot channel has no recipient list; create its ACP session against the minted scope_key",
+            "a Pal channel has no recipient list; create its ACP session against the minted scope_key",
         ));
     }
     let id = SystemIdGen.new_ulid();
@@ -2866,13 +2866,13 @@ async fn handle_fleet_channel_create(
         scope_key: format!("channel:{id}"),
         id,
         kind: match params.kind {
-            FleetChannelKind::Copilot => "copilot",
+            FleetChannelKind::Pal => "copilot",
             FleetChannelKind::Broadcast => "broadcast",
         }
         .to_string(),
         name,
         recipients,
-        copilot_mode: ainb_hangar_proto::fleet::FleetCopilotMode::default().as_str().to_string(),
+        copilot_mode: ainb_hangar_proto::fleet::FleetPalMode::default().as_str().to_string(),
         created_at: SystemClock.now_ms(),
     };
     let row = FleetChannelRepo::insert(pool, &row).await.map_err(|error| store_err(&error))?;
@@ -2916,7 +2916,7 @@ fn wire_channel(
     Ok(FleetChannel {
         id: row.id.clone(),
         kind: match row.kind.as_str() {
-            "copilot" => FleetChannelKind::Copilot,
+            "copilot" => FleetChannelKind::Pal,
             "broadcast" => FleetChannelKind::Broadcast,
             other => {
                 return Err(internal(&format!(
@@ -2932,7 +2932,7 @@ fn wire_channel(
     })
 }
 
-/// Write the copilot session's per-session adapter config (migration 0082).
+/// Write Pal's per-session adapter config (migration 0082).
 ///
 /// The refusal this handler exists to make explicit: a `permission_mode` (under
 /// any spelling) is REJECTED, not ignored. serde drops unknown keys by default,
@@ -2940,19 +2940,19 @@ fn wire_channel(
 /// setting the daemon never applied — and the one setting they would most
 /// plausibly try to send here is the one that turns the whole permission
 /// surface off. Loud beats silent when the silent answer reads as "done".
-async fn handle_fleet_copilot_configure(
+async fn handle_fleet_pal_configure(
     pool: &SqlitePool,
     req: &RpcRequest,
     events: &EventSink,
 ) -> Result<serde_json::Value, RpcError> {
     use ainb_hangar_proto::fleet::{
-        FLEET_CAPABILITY_COPILOT_CONFIGURE, FLEET_COPILOT_PERSONA_MAX, FleetCopilotConfigureParams,
-        FleetCopilotConfigureResult, FleetCopilotMode,
+        FLEET_CAPABILITY_PAL_CONFIGURE, FLEET_PAL_PERSONA_MAX, FleetPalConfigureParams,
+        FleetPalConfigureResult, FleetPalMode,
     };
     use ainb_hangar_store::repo::fleet_acp_session::{FleetAcpSessionConfig, FleetAcpSessionRepo};
     use ainb_hangar_store::repo::fleet_chat::FleetChannelRepo;
 
-    require_fleet_capability(FLEET_CAPABILITY_COPILOT_CONFIGURE)?;
+    require_fleet_capability(FLEET_CAPABILITY_PAL_CONFIGURE)?;
     if let Some(object) = req.params.as_object() {
         for forbidden in ["permission_mode", "permissionMode", "mode"] {
             if object.contains_key(forbidden) {
@@ -2963,7 +2963,7 @@ async fn handle_fleet_copilot_configure(
             }
         }
     }
-    let params: FleetCopilotConfigureParams = parse_params(
+    let params: FleetPalConfigureParams = parse_params(
         req,
         "{ provider, copilot_mode?, model?, reasoning_effort?, persona? }",
     )?;
@@ -2981,24 +2981,24 @@ async fn handle_fleet_copilot_configure(
     }
     let persona = params.persona.clone();
     if let Some(persona) = &persona {
-        if persona.len() > FLEET_COPILOT_PERSONA_MAX {
+        if persona.len() > FLEET_PAL_PERSONA_MAX {
             return Err(invalid_params(&format!(
-                "persona must be at most {FLEET_COPILOT_PERSONA_MAX} bytes, got {}",
+                "persona must be at most {FLEET_PAL_PERSONA_MAX} bytes, got {}",
                 persona.len()
             )));
         }
     }
 
-    // The copilot session is the live ACP session on the newest copilot
+    // Pal's session is the live ACP session on the newest Pal
     // channel's scope. Resolved here rather than named in the params because
-    // the copilot is a SINGLETON per channel: a session key on the wire would
+    // Pal is a SINGLETON per channel: a session key on the wire would
     // let this method configure any ACP session in the fleet.
     let channel = FleetChannelRepo::newest_of_kind(pool, "copilot")
         .await
         .map_err(|error| store_err(&error))?
         .ok_or_else(|| {
             invalid_params(
-                "no copilot channel exists; create one with fleet/channel_create {kind: copilot}",
+                "no Pal channel exists; create one with fleet/channel_create {kind: copilot}",
             )
         })?;
     let session = FleetAcpSessionRepo::get_live_by_scope(pool, &channel.scope_key)
@@ -3006,7 +3006,7 @@ async fn handle_fleet_copilot_configure(
         .map_err(|error| store_err(&error))?
         .ok_or_else(|| {
             invalid_params(&format!(
-                "copilot channel {:?} has no live ACP session; create one with \
+                "Pal channel {:?} has no live ACP session; create one with \
                  fleet/acp_session_create {{ scope_key: {:?} }}",
                 channel.scope_key, channel.scope_key
             ))
@@ -3019,7 +3019,7 @@ async fn handle_fleet_copilot_configure(
     // outcome, so a mode that survived a failure armed `yolo` underneath a
     // header still reading `guarded`, and `spawn_session`, `interrupt` and
     // `archive` then fired with no confirm card.
-    let previous_mode = FleetCopilotMode::parse(&channel.copilot_mode).unwrap_or_default();
+    let previous_mode = FleetPalMode::parse(&channel.copilot_mode).unwrap_or_default();
     let mode = match params.copilot_mode {
         Some(mode) => {
             // The miss is not discarded: a dial turned against a channel that
@@ -3029,7 +3029,7 @@ async fn handle_fleet_copilot_configure(
                 .map_err(|error| store_err(&error))?;
             if !hit {
                 return Err(invalid_params(&format!(
-                    "copilot channel {:?} no longer exists",
+                    "Pal channel {:?} no longer exists",
                     channel.scope_key
                 )));
             }
@@ -3054,7 +3054,7 @@ async fn handle_fleet_copilot_configure(
         {
             tracing::error!(
                 scope_key = %channel.scope_key, %rollback,
-                "the copilot guardrail could not be rolled back after a failed configure; \
+                "the Pal guardrail could not be rolled back after a failed configure; \
                  it may be looser than the operator's screen reports"
             );
         }
@@ -3089,7 +3089,7 @@ async fn handle_fleet_copilot_configure(
         // scope for the replacement below.
         FleetAcpSessionRepo::set_state(pool, &retiring, "DEAD", SystemClock.now_ms())
             .await
-            .map_err(|error| internal(&format!("retiring the copilot session: {error}")))?;
+            .map_err(|error| internal(&format!("retiring the Pal session: {error}")))?;
         let minted = match crate::acp_session::ensure(
             pool,
             events,
@@ -3117,13 +3117,13 @@ async fn handle_fleet_copilot_configure(
                 {
                     tracing::error!(
                         %retiring, %restore,
-                        "the retired copilot session could not be restored; \
+                        "the retired Pal session could not be restored; \
                          the channel is left with no live session"
                     );
                 }
                 // The teardown above only SIGNALS, and does not even do that
                 // when the session had no live handle in the pool — which is
-                // the ordinary state for a copilot nobody has prompted lately.
+                // the ordinary state for a Pal nobody has prompted lately.
                 // Nothing has resolved the turn or the delivery legs behind it.
                 // Convergence is the shared routine that does, it is
                 // idempotent, and it runs AFTER the restore because its own
@@ -3139,13 +3139,13 @@ async fn handle_fleet_copilot_configure(
                 {
                     tracing::error!(
                         %retiring, %converge,
-                        "the restored copilot session could not be converged"
+                        "the restored Pal session could not be converged"
                     );
                 }
                 roll_back_mode(pool).await;
                 tracing::error!(
                     %retiring, %adapter, %error,
-                    "the copilot session was retired but its replacement could not be minted"
+                    "the Pal session was retired but its replacement could not be minted"
                 );
                 return Err(match error {
                     crate::acp_session::EnsureError::Store(_) => internal(&error.to_string()),
@@ -3158,7 +3158,7 @@ async fn handle_fleet_copilot_configure(
             session_key = %minted.session_key,
             scope_key = %channel.scope_key,
             %adapter,
-            "copilot engine swapped; the channel kept its scope"
+            "Pal engine swapped; the channel kept its scope"
         );
         (minted, true)
     };
@@ -3179,7 +3179,7 @@ async fn handle_fleet_copilot_configure(
         return Err(internal(&format!("store error: {error}")));
     }
     // The persona is a system prompt for an agent holding destructive tools, so
-    // every change is logged where an operator reviews copilot behaviour. The
+    // every change is logged where an operator reviews Pal's behaviour. The
     // TEXT is deliberately not in the row: this feed is readable by anyone with
     // `fleet.chat.read`, and the persona is gated behind a stronger capability.
     let detail = format!(
@@ -3194,9 +3194,9 @@ async fn handle_fleet_copilot_configure(
             ""
         }
     );
-    crate::copilot::record_configure(pool, events, &channel.scope_key, &detail).await;
+    crate::pal::record_configure(pool, events, &channel.scope_key, &detail).await;
 
-    to_value(&FleetCopilotConfigureResult {
+    to_value(&FleetPalConfigureResult {
         session_key: session.session_key,
         provider: adapter.to_string(),
         copilot_mode: mode,
@@ -3254,7 +3254,7 @@ async fn handle_fleet_confirm_list(
         .await
         .map_err(|error| store_err(&error))?;
     to_value(&FleetConfirmListResult {
-        confirms: rows.iter().map(crate::copilot::wire_confirm).collect(),
+        confirms: rows.iter().map(crate::pal::wire_confirm).collect(),
     })
 }
 
@@ -3286,7 +3286,7 @@ async fn handle_fleet_confirm_answer(
             (true, Some(object))
         }
     };
-    let card = crate::copilot::answer(pool, events, &params.confirm_id, approve, edited)
+    let card = crate::pal::answer(pool, events, &params.confirm_id, approve, edited)
         .await
         .map_err(confirm_err)?;
     tracing::info!(
@@ -3301,15 +3301,15 @@ async fn handle_fleet_confirm_answer(
     })
 }
 
-/// Run one copilot tool call through the guardrail: the LIVE producer of
+/// Run one Pal tool call through the guardrail: the LIVE producer of
 /// confirm cards.
 ///
-/// The copilot's MCP tool server is a separate process (its stdio is owned by
+/// Pal's MCP tool server is a separate process (its stdio is owned by
 /// the ACP adapter), so this method is how a tool call reaches the gate that
 /// classifies and parks it. Everything the classifier reads is resolved HERE,
 /// on the daemon side of the socket:
 ///
-/// * the SCOPE comes from the CREDENTIAL the daemon minted for this copilot
+/// * the SCOPE comes from the CREDENTIAL the daemon minted for this Pal
 ///   session, never the wire. A caller-supplied scope would let the process
 ///   furthest downstream of every untrusted transcript choose which channel its
 ///   confirm cards appear on.
@@ -3320,36 +3320,34 @@ async fn handle_fleet_confirm_answer(
 /// The call BLOCKS while a confirm card is open. That is the contract: the tool
 /// result the model is waiting on is the thing being held, and holding it is
 /// what stops the action. The hold is bounded by
-/// [`crate::copilot::confirm_ttl`].
-async fn handle_fleet_copilot_gate(
+/// [`crate::pal::confirm_ttl`].
+async fn handle_fleet_pal_gate(
     pool: &SqlitePool,
     req: &RpcRequest,
     events: &EventSink,
     caller: &auth::Caller,
 ) -> Result<serde_json::Value, RpcError> {
-    use ainb_fleet_tools::guardrail::{CopilotMode, Guardrail};
+    use ainb_fleet_tools::guardrail::{Guardrail, PalMode};
     use ainb_hangar_proto::fleet::{
-        FLEET_CAPABILITY_COPILOT_GATE, FleetCopilotGateParams, FleetCopilotGateResult,
-        FleetGateVerdict,
+        FLEET_CAPABILITY_PAL_GATE, FleetGateVerdict, FleetPalGateParams, FleetPalGateResult,
     };
     use ainb_hangar_store::repo::fleet_chat::FleetChannelRepo;
 
-    require_fleet_capability(FLEET_CAPABILITY_COPILOT_GATE)?;
-    let params: FleetCopilotGateParams = parse_params(req, "{ tool, arguments? }")?;
+    require_fleet_capability(FLEET_CAPABILITY_PAL_GATE)?;
+    let params: FleetPalGateParams = parse_params(req, "{ tool, arguments? }")?;
     if params.tool.trim().is_empty() {
         return Err(invalid_params("tool must not be empty"));
     }
     // The scope is the CALLER's, resolved from the credential the daemon minted
-    // for this copilot session, and re-validated as a copilot channel here.
-    // `newest_of_kind` was wrong the moment two copilot channels could exist:
+    // for this Pal session, and re-validated as a Pal channel here.
+    // `newest_of_kind` was wrong the moment two Pal channels could exist:
     // a session bound to the older one would mint its cards and its activity
     // rows under the newer one's scope, so the card would name a conversation
     // the call did not come from and the older channel's feed would sit empty
-    // while its copilot acted.
-    let scope_key = caller.copilot_scope().ok_or_else(|| RpcError {
+    // while its Pal acted.
+    let scope_key = caller.pal_scope().ok_or_else(|| RpcError {
         code: ainb_hangar_proto::auth::UNAUTHORIZED,
-        message: "fleet/copilot_gate needs the copilot credential, not the daemon token"
-            .to_string(),
+        message: "fleet/copilot_gate needs the Pal credential, not the daemon token".to_string(),
         data: None,
     })?;
     let channel = FleetChannelRepo::by_scope(pool, scope_key)
@@ -3358,7 +3356,7 @@ async fn handle_fleet_copilot_gate(
         .filter(|channel| channel.kind == "copilot")
         .ok_or_else(|| {
             invalid_params(&format!(
-                "the credential's scope {scope_key:?} names no copilot channel"
+                "the credential's scope {scope_key:?} names no Pal channel"
             ))
         })?;
 
@@ -3367,37 +3365,35 @@ async fn handle_fleet_copilot_gate(
     // not a stub: it makes every `answer_need` take a confirm card.
     //
     // The DIAL is read from the channel row on every call, not cached for the
-    // session: an operator who turns the copilot down to `help` mid-turn means
+    // session: an operator who turns Pal down to `help` mid-turn means
     // the write in flight behind it, and a mode pinned at session start would
     // let that write through.
-    let guardrail = Guardrail::default()
-        .with_mode(CopilotMode::parse(&channel.copilot_mode).unwrap_or_default());
-    let outcome = crate::copilot::gate(
+    let guardrail =
+        Guardrail::default().with_mode(PalMode::parse(&channel.copilot_mode).unwrap_or_default());
+    let outcome = crate::pal::gate(
         pool,
         events,
         &channel.scope_key,
         &params.tool,
         &params.arguments,
         &guardrail,
-        crate::copilot::confirm_ttl(),
+        crate::pal::confirm_ttl(),
     )
     .await;
 
     let (verdict, arguments, detail) = match outcome {
-        crate::copilot::GateOutcome::Run(arguments) => (FleetGateVerdict::Run, arguments, None),
-        crate::copilot::GateOutcome::Denied => {
-            (FleetGateVerdict::Denied, serde_json::Map::new(), None)
-        }
-        crate::copilot::GateOutcome::Expired => {
+        crate::pal::GateOutcome::Run(arguments) => (FleetGateVerdict::Run, arguments, None),
+        crate::pal::GateOutcome::Denied => (FleetGateVerdict::Denied, serde_json::Map::new(), None),
+        crate::pal::GateOutcome::Expired => {
             (FleetGateVerdict::Expired, serde_json::Map::new(), None)
         }
-        crate::copilot::GateOutcome::Refused(detail) => (
+        crate::pal::GateOutcome::Refused(detail) => (
             FleetGateVerdict::Refused,
             serde_json::Map::new(),
             Some(detail),
         ),
     };
-    to_value(&FleetCopilotGateResult {
+    to_value(&FleetPalGateResult {
         verdict,
         arguments,
         detail,
@@ -3406,14 +3402,14 @@ async fn handle_fleet_copilot_gate(
 
 /// Map a confirm-answer failure onto its wire error. A card that is already
 /// answered or already expired is `invalid_params`, never a second execution.
-fn confirm_err(error: crate::copilot::ConfirmError) -> RpcError {
+fn confirm_err(error: crate::pal::ConfirmError) -> RpcError {
     match error {
-        crate::copilot::ConfirmError::Sql(error) => store_err(&error),
+        crate::pal::ConfirmError::Sql(error) => store_err(&error),
         other => invalid_params(&other.to_string()),
     }
 }
 
-/// Page the copilot activity feed by its commit-ordered cursor.
+/// Page the Pal activity feed by its commit-ordered cursor.
 async fn handle_fleet_activity_list(
     pool: &SqlitePool,
     req: &RpcRequest,
@@ -3445,7 +3441,7 @@ async fn handle_fleet_activity_list(
     // where this one stopped; `None` on an empty page, never a fabricated 0.
     let next_after_seq = rows.last().map(|row| row.seq);
     to_value(&FleetActivityListResult {
-        activities: rows.iter().map(crate::copilot::wire_activity).collect(),
+        activities: rows.iter().map(crate::pal::wire_activity).collect(),
         next_after_seq,
     })
 }
@@ -13110,7 +13106,7 @@ async fn daemon_health_snapshot(
         // Live drift probe: a stale daemon serving a newer database (or a dead
         // database file) must surface as a loud banner, not silent zero stats.
         db_error: ainb_hangar_store::schema_drift(pool).await,
-        // "Why is the copilot stuck?" must be answerable from ONE pane, so the
+        // "Why is Pal stuck?" must be answerable from ONE pane, so the
         // pool's queue depths, in-flight ages and breaker state ride the same
         // health snapshot the runtime rows do. `None` when no pool is running.
         acp_pool: match crate::acp_pool::active_handle().await {
@@ -13564,7 +13560,7 @@ mod tests {
         );
         assert_eq!(
             wire_channel(&row("copilot")).expect("copilot is known").kind,
-            FleetChannelKind::Copilot
+            FleetChannelKind::Pal
         );
         let refused = wire_channel(&row("skunkworks")).expect_err("an unknown kind was accepted");
         assert!(

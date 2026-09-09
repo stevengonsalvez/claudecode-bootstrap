@@ -1,7 +1,7 @@
 //! Read-tool results, fenced as observed data.
 //!
 //! Every read tool returns text authored by OTHER agents (transcripts, need
-//! payloads, session labels) to a copilot that holds write tools. That is the
+//! payloads, session labels) to a Pal that holds write tools. That is the
 //! confused-deputy door part 1 already fenced on the re-prime path, arriving
 //! through a different one, so it gets the SAME renderer:
 //! [`ainb_hangar_proto::reprime`]. One escaping implementation, one set of
@@ -19,7 +19,7 @@ use ainb_hangar_proto::reprime::{CorpusRow, render_prelude, rows_that_fit};
 /// The count is the renderer's own answer ([`rows_that_fit`]), never `rows.len()`
 /// and never row-cap arithmetic: the fence drops on a BYTE budget too, so a
 /// count computed here independently would be a number the fence never
-/// honoured. A copilot that thinks it read the whole page when it read half of
+/// honoured. A Pal that thinks it read the whole page when it read half of
 /// one acts on a false premise, and its caller would page past the rest.
 ///
 /// Returns the framed text and the admitted row count, which the caller must
@@ -57,7 +57,7 @@ mod tests {
     use super::*;
 
     /// Records between the fixed header and the fixed footer, which is the only
-    /// honest measure of "how much did the copilot actually read".
+    /// honest measure of "how much did Pal actually read".
     fn record_count(rendered: &str) -> usize {
         rendered
             .lines()

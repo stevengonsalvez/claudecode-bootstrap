@@ -90,9 +90,9 @@ pub enum AppEvent {
     SessionTabPrev,
     /// `Enter` on the `ask` tab: send the selected answer.
     SessionAskSend,
-    /// `Enter` on a composer tab (`thread` / `copilot`): send the message.
+    /// `Enter` on a composer tab (`thread` / `pal`): send the message.
     SessionTabComposerSend,
-    /// `Enter` on the `copilot` tab while it is offering to start the hangar
+    /// `Enter` on the `pal` tab while it is offering to start the hangar
     /// daemon it needs.
     SessionStartHangarDaemon,
     /// Toggle the sessions sidebar between full width and the thin rail —
@@ -1334,8 +1334,8 @@ impl EventHandler {
     /// the sessions screen — `Tab` still moves the strip and the attach digits
     /// still attach, which is the contract the footer advertises on every tab.
     fn route_session_composer_key(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
-        /// Which copilot header dial a key turned.
-        enum CopilotDialTurn {
+        /// Which Pal header dial a key turned.
+        enum PalDialTurn {
             Engine,
             Model,
             Mode,
@@ -1360,43 +1360,43 @@ impl EventHandler {
         if key_event.code == KeyCode::Tab {
             return Some(AppEvent::SessionTabNext);
         }
-        // The copilot header's dials, on ALT. Bare letters were the first shape
-        // and the tripwire killed it: the copilot composer holds focus as soon
+        // The Pal header's dials, on ALT. Bare letters were the first shape
+        // and the tripwire killed it: the Pal composer holds focus as soon
         // as the conversation opens, so `e` is an `e` in a half-typed message
         // and the dials were unreachable in the steady state. Alt never types,
         // so one binding works in both halves of the pane rather than a bare
         // key that silently does nothing most of the time.
-        if state.session_tab == SessionTab::Copilot
+        if state.session_tab == SessionTab::Pal
             && key_event.modifiers.contains(crossterm::event::KeyModifiers::ALT)
         {
             let turned = match key_event.code {
-                KeyCode::Char('e') => Some(CopilotDialTurn::Engine),
-                KeyCode::Char('o') => Some(CopilotDialTurn::Model),
-                KeyCode::Char('g') => Some(CopilotDialTurn::Mode),
+                KeyCode::Char('e') => Some(PalDialTurn::Engine),
+                KeyCode::Char('o') => Some(PalDialTurn::Model),
+                KeyCode::Char('g') => Some(PalDialTurn::Mode),
                 // Retry is offered only where something failed, so it does not
                 // shadow anything while the header is healthy.
                 KeyCode::Char('r')
                     if matches!(
-                        state.copilot_dial.status(),
-                        crate::fleet::copilot_dial::DialStatus::Failed { .. }
+                        state.pal_dial.status(),
+                        crate::fleet::pal_dial::DialStatus::Failed { .. }
                     ) =>
                 {
-                    Some(CopilotDialTurn::Retry)
+                    Some(PalDialTurn::Retry)
                 }
                 _ => None,
             };
             if let Some(turn) = turned {
                 match turn {
-                    CopilotDialTurn::Engine => state.copilot_dial.cycle_engine(),
-                    CopilotDialTurn::Model => state.copilot_dial.cycle_model(),
-                    CopilotDialTurn::Mode => state.copilot_dial.cycle_mode(),
-                    CopilotDialTurn::Retry => state.copilot_dial.retry(),
+                    PalDialTurn::Engine => state.pal_dial.cycle_engine(),
+                    PalDialTurn::Model => state.pal_dial.cycle_model(),
+                    PalDialTurn::Mode => state.pal_dial.cycle_mode(),
+                    PalDialTurn::Retry => state.pal_dial.retry(),
                 }
                 state.ui_needs_refresh = true;
                 return Some(AppEvent::Consumed);
             }
         }
-        // The copilot pane's offer to start the daemon owns Enter while it is
+        // The Pal pane's offer to start the daemon owns Enter while it is
         // up, and takes it BEFORE the chat reducer. The composer under it has
         // nothing to send to — that is precisely the condition the offer
         // appears in — so Enter reaching the reducer there is a key the footer
@@ -1407,7 +1407,7 @@ impl EventHandler {
         // operator aimed somewhere else is not a thing to do quietly. The
         // footer reads the same predicate, so it promises this only when it
         // will happen.
-        if key_event.code == KeyCode::Enter && state.copilot_daemon_cta_armed() {
+        if key_event.code == KeyCode::Enter && state.pal_daemon_cta_armed() {
             return Some(AppEvent::SessionStartHangarDaemon);
         }
         // The broadcast composer, which replaces the thread's while rows are
@@ -1456,12 +1456,12 @@ impl EventHandler {
         // and the binding would be advertised on the pane and do nothing in the
         // state an operator is usually in.
         //
-        // Bound HERE rather than in the copilot-only block above so they work
+        // Bound HERE rather than in the Pal-only block above so they work
         // on the `thread` tab too: the chat surface is one state machine over
         // two tabs, and a retry that only existed on one of them would be the
         // drift `fleet_chat`'s header warns about. `p` and `c`, because the
-        // copilot header already owns Alt-r for the engine dial's own retry
-        // (`copilot_dial::DialStatus::Failed`) and the two mean different
+        // Pal header already owns Alt-r for the engine dial's own retry
+        // (`pal_dial::DialStatus::Failed`) and the two mean different
         // things three rows apart. The LABELS live beside the reducer
         // (`CHAT_RETRY_HINT`, `CHAT_CANCEL_HINT`), so the key a pane advertises
         // and the key bound here cannot drift.
@@ -1512,7 +1512,7 @@ impl EventHandler {
         use ainb_plugin_hangar::screen::fleet_chat::{ChatKeyOutcome, reduce_chat_key};
 
         let host = match state.session_tab {
-            SessionTab::Copilot => state.copilot_chat.as_mut(),
+            SessionTab::Pal => state.pal_chat.as_mut(),
             SessionTab::Thread => state.session_chat.as_mut().map(|(_, host)| host),
             SessionTab::Preview | SessionTab::Ask | SessionTab::Err | SessionTab::Log => None,
         }?;
@@ -1628,7 +1628,7 @@ impl EventHandler {
 
         // The Fleet panel is a HOST screen with a plugin-shaped reducer, and
         // that reducer has text-entry modes of its own: the prompt composer
-        // (`p`), the broadcast composer (`b`), and the copilot chat composer
+        // (`p`), the broadcast composer (`b`), and the Pal chat composer
         // (`m`). It answers `is_capturing_text()` exactly as a plugin screen
         // answers `captures_text`, and nothing consulted it, so the global
         // `?` / `H` / `W` shortcuts ate keys typed into all three. A live
@@ -2450,7 +2450,7 @@ impl EventHandler {
                 match crate::components::session_tabs::resolve(state, state.session_tab) {
                     SessionTab::Preview => {}
                     SessionTab::Ask => return Some(AppEvent::SessionAskSend),
-                    SessionTab::Thread | SessionTab::Copilot => {
+                    SessionTab::Thread | SessionTab::Pal => {
                         return Some(AppEvent::SessionTabComposerSend);
                     }
                     // Deliberately nothing: a history pane has no verb, and
@@ -4520,9 +4520,7 @@ impl EventHandler {
                 // `SwitchPaneFocus` used to provide, now derived rather than
                 // toggled by a second key.
                 state.focused_pane = match state.session_tab {
-                    SessionTab::Ask | SessionTab::Thread | SessionTab::Copilot => {
-                        FocusedPane::LiveLogs
-                    }
+                    SessionTab::Ask | SessionTab::Thread | SessionTab::Pal => FocusedPane::LiveLogs,
                     SessionTab::Preview | SessionTab::Err | SessionTab::Log => {
                         FocusedPane::Sessions
                     }
@@ -4564,7 +4562,7 @@ impl EventHandler {
                 state.add_info_notification("open a conversation first".to_string());
             }
             // Answered in the pane, not by sending the operator to another
-            // screen: the offer exists because the way out of a copilot that
+            // screen: the offer exists because the way out of a Pal that
             // cannot open was to already know it was the hangar daemon, and to
             // go and find the row that starts it.
             AppEvent::SessionStartHangarDaemon => {
@@ -10129,12 +10127,12 @@ mod session_composer_key_tests {
         EventHandler::handle_key_event(KeyEvent::new(code, KeyModifiers::NONE), state)
     }
 
-    /// The sessions screen with a LIVE copilot composer.
+    /// The sessions screen with a LIVE Pal composer.
     fn composing() -> AppState {
         let mut state = AppState::default();
         state.current_screen = ids::SESSION_LIST.to_string();
-        state.session_tab = SessionTab::Copilot;
-        state.copilot_chat = Some(ChatHost::copilot());
+        state.session_tab = SessionTab::Pal;
+        state.pal_chat = Some(ChatHost::pal());
         assert!(
             state.session_composer_captures_text(),
             "the fixture must actually be capturing, or every assertion below is vacuous"

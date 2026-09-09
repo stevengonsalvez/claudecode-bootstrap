@@ -1,4 +1,4 @@
-//! Tripwire: the copilot chat surface, driven the way an operator drives it.
+//! Tripwire: Pal chat surface, driven the way an operator drives it.
 //!
 //! Part 1 shipped a daemon and a CLI and called itself end-to-end proven. It was
 //! not: nothing ever opened the TUI, and the Fleet panel was one unmapped token
@@ -10,8 +10,8 @@
 //! What is proven against the real daemon here:
 //!
 //! * the chat surface opens on ONE `m`, resolves its channel through
-//!   `fleet/channel_list`, and creates the copilot channel when there is none;
-//! * a copilot-authored row and an operator-authored row are DISTINGUISHABLE on
+//!   `fleet/channel_list`, and creates the Pal channel when there is none;
+//! * a Pal-authored row and an operator-authored row are DISTINGUISHABLE on
 //!   screen, asserted on the row rather than a substring anywhere in the pane;
 //! * an open confirm card renders as answerable and `y` resolves it through
 //!   `fleet/confirm_answer`, with the store's own row as the receipt.
@@ -22,7 +22,7 @@
 //!   returns `state = 'open'` rows, so an undecodable card cannot be produced
 //!   through the daemon at all. That rule is unit-tested where it lives
 //!   (`ainb_plugin_hangar::screen::fleet_chat`, `a_card_in_an_unknown_state_*`).
-//! * a copilot REPLY. The chat surface addresses a real ACP session, but no
+//! * a Pal REPLY. The chat surface addresses a real ACP session, but no
 //!   adapter process runs in this test, so
 //!   [`the_composer_puts_the_operators_message_in_the_conversation`] proves the
 //!   operator's half of that journey: composed, delivered to the channel's own
@@ -137,11 +137,11 @@ where
     }
 }
 
-/// Open the sessions screen and walk the tab strip to `copilot`.
+/// Open the sessions screen and walk the tab strip to `Pal`.
 ///
 /// The Fleet panel this used to open is deleted; the conversation it hosted is
 /// now a tab on the sessions screen. `s` opens the screen, then `Tab` walks the
-/// strip — re-checking between presses, because the copilot pane dials the
+/// strip — re-checking between presses, because the Pal pane dials the
 /// daemon when it opens and pressing again inside that window walks past it.
 fn open_chat_surface(session: &str) -> bool {
     if !wait_for(session, "Enter select | Tab content", 60) {
@@ -163,12 +163,12 @@ fn open_chat_surface(session: &str) -> bool {
     while Instant::now() < deadline_m {
         send_key(session, "Tab");
         for _ in 0..4 {
-            if wait_for(session, "Fleet chat · #copilot", 1) {
+            if wait_for(session, "Fleet chat · #pal", 1) {
                 return true;
             }
         }
     }
-    wait_for(session, "Fleet chat · #copilot", 5)
+    wait_for(session, "Fleet chat · #pal", 5)
 }
 
 /// Everything a chat journey needs: an isolated home, a real daemon, a real
@@ -204,7 +204,7 @@ fn chat_journey(prefix: &str) -> (tempfile::TempDir, FleetHangar, ExactTmuxSessi
         .expect("launch the TUI");
     assert!(
         open_chat_surface(tmux.name()),
-        "the copilot chat did not open on one `f` and one `m`:\n{}",
+        "Pal chat did not open on one `f` and one `m`:\n{}",
         capture_pane(tmux.name())
     );
 
@@ -218,14 +218,14 @@ fn chat_journey(prefix: &str) -> (tempfile::TempDir, FleetHangar, ExactTmuxSessi
         let channel = hangar.block_on(async {
             FleetChannelRepo::newest_of_kind(hangar.pool(), "copilot")
                 .await
-                .expect("read the copilot channel")
+                .expect("read the Pal channel")
         });
         if let Some(channel) = channel {
             break channel.scope_key;
         }
         assert!(
             Instant::now() < deadline,
-            "the chat surface never created its copilot channel:\n{}",
+            "the chat surface never created its Pal channel:\n{}",
             capture_pane(tmux.name())
         );
         thread::sleep(Duration::from_millis(300));
@@ -238,7 +238,7 @@ fn chat_journey(prefix: &str) -> (tempfile::TempDir, FleetHangar, ExactTmuxSessi
 }
 
 #[test]
-fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
+fn the_pal_chat_opens_attributes_and_answers_a_confirm_card() {
     if !tmux_available() {
         eprintln!("SKIP: tmux not available");
         return;
@@ -253,18 +253,18 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
     );
 
     // Two rows, one from each author. Seeded through the daemon's own writer
-    // for the copilot line (`copilot::post_channel_message`, the exact function
-    // the copilot service posts with, so `sender` is set the way the daemon
+    // for the Pal line (`pal::post_channel_message`, the exact function
+    // the Pal service posts with, so `sender` is set the way the daemon
     // sets it) and through the store for the operator line.
     hangar.block_on(async {
-        ainb_hangar_daemon::copilot::post_channel_message(
+        ainb_hangar_daemon::pal::post_channel_message(
             hangar.pool(),
             hangar.events(),
             &scope,
             "session one is waiting on an approval",
         )
         .await
-        .expect("seed the copilot line");
+        .expect("seed Pal line");
         FleetMessageRepo::insert_message(
             hangar.pool(),
             &NewFleetMessage {
@@ -283,7 +283,7 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
         .expect("seed the operator line");
     });
 
-    // ATTRIBUTION. The wire carries the actor precisely so a copilot write
+    // ATTRIBUTION. The wire carries the actor precisely so a Pal write
     // cannot masquerade as a human's, and that guarantee dies at the last inch
     // if the panel paints both rows the same. Anchored on the attribution
     // COLUMN, which is fixed width and followed by `│`.
@@ -292,9 +292,9 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
         |row| row.contains("YOU") && row.contains("│ what is blocked right now"),
         25,
     );
-    let copilot_row = wait_for_row(
+    let pal_row = wait_for_row(
         session,
-        |row| row.contains("COPILOT") && row.contains("│ session one is waiting on an approval"),
+        |row| row.contains("PAL") && row.contains("│ session one is waiting on an approval"),
         25,
     );
     let pane = capture_pane(session);
@@ -303,11 +303,11 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
         "the operator's message is not attributed to the operator:\n{pane}"
     );
     assert!(
-        copilot_row.is_some(),
-        "the copilot's message is not attributed to the copilot:\n{pane}"
+        pal_row.is_some(),
+        "Pal's message is not attributed to Pal:\n{pane}"
     );
     assert_ne!(
-        operator_row, copilot_row,
+        operator_row, pal_row,
         "the two authors rendered as the same row"
     );
 
@@ -409,19 +409,19 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
         capture_pane(session)
     );
     assert!(
-        !capture_pane(session).contains("Fleet chat \u{b7} #copilot"),
+        !capture_pane(session).contains("Fleet chat \u{b7} #pal"),
         "and the conversation must actually be closed:\n{}",
         capture_pane(session)
     );
 }
 
 /// The journey the operator is actually here for: type a message to the
-/// copilot, and see it in the conversation.
+/// Pal, and see it in the conversation.
 ///
 /// This was `#[ignore]`d against a named daemon bug, and the ignore is gone
 /// with the bug. Two landed rules contradicted each other:
 ///
-///   * `fleet/channel_create` REFUSES a recipient list for a copilot channel
+///   * `fleet/channel_create` REFUSES a recipient list for a Pal channel
 ///     ("create its ACP session against the minted scope_key"), so the channel
 ///     row is stored with NO members;
 ///   * `fleet/message_send` required every target of a `channel:` scope to be
@@ -431,7 +431,7 @@ fn the_copilot_chat_opens_attributes_and_answers_a_confirm_card() {
 /// to the membership check, and every operator message was refused. Each rule
 /// is defensible alone, which is why the daemon's own tests were green and only
 /// a test that drives the screen could see it. `message_send` now resolves a
-/// copilot channel's membership through `FleetAcpSessionRepo::get_live_by_scope`.
+/// Pal channel's membership through `FleetAcpSessionRepo::get_live_by_scope`.
 #[test]
 fn the_composer_puts_the_operators_message_in_the_conversation() {
     if !tmux_available() {

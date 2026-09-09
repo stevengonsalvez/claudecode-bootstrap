@@ -2916,7 +2916,7 @@ impl HangarPlugin {
                 session_key,
                 tmux_target,
             } => self.apply_fleet_attach(session_key, tmux_target, true),
-            // The copilot chat surface is served by the HOST Fleet panel (`f`
+            // The Pal chat surface is served by the HOST Fleet panel (`f`
             // from Home), which owns a blocking daemon client and can run the
             // three-RPC page in one worker. This plugin screen reaches the
             // daemon through the host's socket dial with one response id per
@@ -2928,8 +2928,7 @@ impl HangarPlugin {
                 let out = reduce_fleet(
                     &self.screens.fleet,
                     FleetEvent::ChatFailed {
-                        detail: "copilot chat is served by the Fleet panel (press f from Home)"
-                            .into(),
+                        detail: "Pal chat is served by the Fleet panel (press f from Home)".into(),
                     },
                 );
                 self.screens.fleet = out.state;

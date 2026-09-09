@@ -495,26 +495,31 @@ pub const FLEET_CHANNEL_CREATE: &str = "fleet/channel_create";
 /// Params: [`crate::fleet::FleetChannelListParams`]; result:
 /// [`crate::fleet::FleetChannelListResult`]. Gated by `fleet.chat.read`.
 pub const FLEET_CHANNEL_LIST: &str = "fleet/channel_list";
-/// Set the copilot session's per-session adapter config.
+/// Set the Pal session's per-session adapter config.
 ///
-/// Params: [`crate::fleet::FleetCopilotConfigureParams`]; result:
-/// [`crate::fleet::FleetCopilotConfigureResult`]. Gated by
+/// Params: [`crate::fleet::FleetPalConfigureParams`]; result:
+/// [`crate::fleet::FleetPalConfigureResult`]. Gated by
 /// `fleet.copilot.configure`. Carries model / reasoning effort / persona ONLY:
 /// the permission mode is daemon config and is deliberately not overridable,
 /// because a remotely settable mode is a remote off-switch for the whole
 /// permission surface.
-pub const FLEET_COPILOT_CONFIGURE: &str = "fleet/copilot_configure";
+///
+/// The wire spelling stays `fleet/copilot_configure`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const FLEET_PAL_CONFIGURE: &str = "fleet/copilot_configure";
 /// List the ACP adapters the daemon's registry can spawn.
 ///
 /// Params: [`crate::fleet::FleetAdapterListParams`]; result:
 /// [`crate::fleet::FleetAdapterListResult`]. Gated by `fleet.chat.read`.
 ///
-/// This is what makes `provider` on [`FLEET_COPILOT_CONFIGURE`] a validated
+/// This is what makes `provider` on [`FLEET_PAL_CONFIGURE`] a validated
 /// string rather than a closed enum: the engine picker reads the live registry
 /// instead of a list compiled into the client, so an adapter an operator added
 /// to `[acp.adapters.*]` is selectable without a new build on either side.
 pub const FLEET_ADAPTER_LIST: &str = "fleet/adapter_list";
-/// List the copilot guardrail confirm cards awaiting an operator.
+/// List the Pal guardrail confirm cards awaiting an operator.
 ///
 /// Params: [`crate::fleet::FleetConfirmListParams`]; result:
 /// [`crate::fleet::FleetConfirmListResult`]. Gated by `fleet.chat.read`.
@@ -529,24 +534,29 @@ pub const FLEET_CONFIRM_LIST: &str = "fleet/confirm_list";
 /// `fleet.confirm.answer`. Single-use: an already-answered or already-expired
 /// `confirm_id` is a typed error, never a second execution.
 pub const FLEET_CONFIRM_ANSWER: &str = "fleet/confirm_answer";
-/// Page the copilot activity log by commit order.
+/// Page the Pal activity log by commit order.
 ///
 /// Params: [`crate::fleet::FleetActivityListParams`]; result:
 /// [`crate::fleet::FleetActivityListResult`]. Gated by `fleet.chat.read`. The
 /// cursor is the commit-ordered `seq`, never a client-minted or wall-clock
 /// value (part 1's cursor rule).
 pub const FLEET_ACTIVITY_LIST: &str = "fleet/activity_list";
-/// Run one copilot tool call through the guardrail, parking it on a confirm
+/// Run one Pal tool call through the guardrail, parking it on a confirm
 /// card if a human is required.
 ///
-/// Params: [`crate::fleet::FleetCopilotGateParams`]; result:
-/// [`crate::fleet::FleetCopilotGateResult`]. Gated by `fleet.copilot.gate`.
+/// Params: [`crate::fleet::FleetPalGateParams`]; result:
+/// [`crate::fleet::FleetPalGateResult`]. Gated by `fleet.copilot.gate`.
 ///
 /// The ONE method that can legitimately take minutes to answer: a confirm-class
 /// call is held here until an operator answers the card or it expires. Clients
 /// must give it a timeout longer than the card lifetime
-/// (`ainb_hangar_daemon::copilot::confirm_ttl`), not the ordinary RPC bound.
-pub const FLEET_COPILOT_GATE: &str = "fleet/copilot_gate";
+/// (`ainb_hangar_daemon::pal::confirm_ttl`), not the ordinary RPC bound.
+///
+/// The wire spelling stays `fleet/copilot_gate`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const FLEET_PAL_GATE: &str = "fleet/copilot_gate";
 
 /// Notification carrying one guardrail confirm card at its new state.
 ///
@@ -554,7 +564,7 @@ pub const FLEET_COPILOT_GATE: &str = "fleet/copilot_gate";
 /// opened, answered or expired; the card is re-readable from
 /// `fleet/confirm_list`, so a missed frame self-heals.
 pub const FLEET_CONFIRM_EVENT: &str = "fleet/confirm_event";
-/// Notification carrying one committed copilot activity row.
+/// Notification carrying one committed Pal activity row.
 ///
 /// Params: [`crate::fleet::FleetActivityEventParams`]. Re-readable from
 /// `fleet/activity_list` by the same commit-ordered `seq`.
@@ -1857,16 +1867,16 @@ pub const ALL_METHODS: &[&str] = &[
     FLEET_TRANSCRIPT_LIST,
     FLEET_TRANSCRIPT_SUBSCRIBE,
     FLEET_TRANSCRIPT_PRUNE,
-    // Fleet chat channels, copilot config, guardrail confirms and the activity
+    // Fleet chat channels, Pal config, guardrail confirms and the activity
     // feed (buzz-port part 2) are APPENDED at the catalogue tail. Part 1's v2
     // bump was the one bump; these are append-only additions on top of it.
     FLEET_CHANNEL_CREATE,
     FLEET_CHANNEL_LIST,
-    FLEET_COPILOT_CONFIGURE,
+    FLEET_PAL_CONFIGURE,
     FLEET_CONFIRM_LIST,
     FLEET_CONFIRM_ANSWER,
     FLEET_ACTIVITY_LIST,
-    FLEET_COPILOT_GATE,
+    FLEET_PAL_GATE,
     // Failed Interactive Codex launch cleanup is appended to preserve the
     // existing wire catalogue order.
     CODEX_SESSION_DISCARD,
@@ -2183,11 +2193,11 @@ mod tests {
             FLEET_TRANSCRIPT_PRUNE,
             FLEET_CHANNEL_CREATE,
             FLEET_CHANNEL_LIST,
-            FLEET_COPILOT_CONFIGURE,
+            FLEET_PAL_CONFIGURE,
             FLEET_CONFIRM_LIST,
             FLEET_CONFIRM_ANSWER,
             FLEET_ACTIVITY_LIST,
-            FLEET_COPILOT_GATE,
+            FLEET_PAL_GATE,
             CODEX_SESSION_DISCARD,
             FLEET_ADAPTER_LIST,
             ATC_RETRY_LIST,

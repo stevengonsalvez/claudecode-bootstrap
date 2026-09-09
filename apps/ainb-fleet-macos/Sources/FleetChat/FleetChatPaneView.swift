@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// The Fleet copilot conversation: timeline, composer, confirm cards, activity.
+/// The Pal conversation: timeline, composer, confirm cards, activity.
 ///
-/// Attribution is the load-bearing part of this view. A copilot row and an
+/// Attribution is the load-bearing part of this view. A Pal row and an
 /// operator row are separated FOUR ways -- a named label, a colour, a side, and
 /// an accessibility label -- because the wire carries `sender` precisely so a
-/// copilot write cannot masquerade as a human's, and that guarantee dies at the
+/// Pal write cannot masquerade as a human's, and that guarantee dies at the
 /// last inch if the pane renders both the same. Colour alone would not survive
 /// VoiceOver; side alone would not survive a screenshot; the LABEL is the one
 /// that always reads, and the rest make it glanceable.
@@ -81,7 +81,7 @@ struct FleetChatPaneView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Text("Copilot chat")
+                Text("Pal chat")
                     .font(.title3.weight(.bold))
                 if let scope = store.chat.scopeKey {
                     Text(scope)
@@ -104,7 +104,7 @@ struct FleetChatPaneView: View {
         .padding(.vertical, 12)
     }
 
-    /// The engine, guardrail and model the copilot is running under.
+    /// The engine, guardrail and model Pal is running under.
     ///
     /// Its own row under the title rather than more controls beside Refresh and
     /// Close: these three describe the AGENT, while those two act on the pane,
@@ -116,45 +116,45 @@ struct FleetChatPaneView: View {
     /// else on this row before an operator has set one would be a guess.
     @ViewBuilder private var engineDial: some View {
         HStack(spacing: 8) {
-            Menu("Engine: \(FleetChatLabels.copilotEngine(store.copilotDial))") {
-                if store.copilotDial.adapters.isEmpty {
-                    Text(store.copilotDial.adaptersListed
+            Menu("Engine: \(FleetChatLabels.palEngine(store.palDial))") {
+                if store.palDial.adapters.isEmpty {
+                    Text(store.palDial.adaptersListed
                          ? "No adapters in this daemon's registry"
                          : "Reading the adapter registry")
                 }
-                ForEach(store.copilotDial.adapters) { adapter in
+                ForEach(store.palDial.adapters) { adapter in
                     Button(adapterLabel(adapter)) {
-                        store.configureCopilot(provider: adapter.name)
+                        store.configurePal(provider: adapter.name)
                     }
                 }
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .disabled(!store.canConfigureCopilot || store.copilotDial.adapters.isEmpty)
+            .disabled(!store.canConfigurePal || store.palDial.adapters.isEmpty)
             .accessibilityIdentifier("fleet.chat.dial.engine")
 
             // Both of these need an engine, and that is not a UI convenience.
             // `provider` is required on every configure, so moving the mode
             // with no engine known would mean naming one, and naming the wrong
             // one does not fail, it SWAPS to it and retires the session.
-            Menu("Mode: \(FleetChatLabels.copilotMode(store.copilotDial))") {
-                ForEach([FleetCopilotMode.help, .guarded, .yolo], id: \.self) { mode in
+            Menu("Mode: \(FleetChatLabels.palMode(store.palDial))") {
+                ForEach([FleetPalMode.help, .guarded, .yolo], id: \.self) { mode in
                     Button(mode.rawValue) {
-                        guard let engine = store.copilotDial.engine else { return }
-                        store.configureCopilot(provider: engine, mode: mode)
+                        guard let engine = store.palDial.engine else { return }
+                        store.configurePal(provider: engine, mode: mode)
                     }
                 }
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .disabled(!store.canConfigureCopilot || store.copilotDial.engine == nil)
-            .help(store.copilotDial.engine == nil
+            .disabled(!store.canConfigurePal || store.palDial.engine == nil)
+            .help(store.palDial.engine == nil
                   ? "Pick an engine first: this daemon does not report the one in force"
-                  : "Move the copilot's guardrail dial")
+                  : "Move Pal's guardrail dial")
             .accessibilityIdentifier("fleet.chat.dial.mode")
 
-            Menu("Model: \(FleetChatLabels.copilotModel(store.copilotDial))") {
-                if store.copilotDial.models.isEmpty {
+            Menu("Model: \(FleetChatLabels.palModel(store.palDial))") {
+                if store.palDial.models.isEmpty {
                     Text("This adapter declares no models, so it runs its own default")
                 }
                 // Identified by POSITION, not by the string. These are operator
@@ -164,21 +164,21 @@ struct FleetChatPaneView: View {
                 // repeat. The engine picker above can key on the adapter name
                 // because that name is a registry KEY daemon-side and unique by
                 // construction; this list is a plain sequence and is not.
-                ForEach(Array(store.copilotDial.models.enumerated()), id: \.offset) { _, model in
+                ForEach(Array(store.palDial.models.enumerated()), id: \.offset) { _, model in
                     Button(model) {
-                        guard let engine = store.copilotDial.engine else { return }
-                        store.configureCopilot(provider: engine, model: model)
+                        guard let engine = store.palDial.engine else { return }
+                        store.configurePal(provider: engine, model: model)
                     }
                 }
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .disabled(!store.canConfigureCopilot
-                      || store.copilotDial.engine == nil
-                      || store.copilotDial.models.isEmpty)
+            .disabled(!store.canConfigurePal
+                      || store.palDial.engine == nil
+                      || store.palDial.models.isEmpty)
             .accessibilityIdentifier("fleet.chat.dial.model")
 
-            if let effort = store.copilotDial.reasoningEffort, !effort.isEmpty {
+            if let effort = store.palDial.reasoningEffort, !effort.isEmpty {
                 Text("Effort: \(effort)")
                     .font(.caption)
                     .foregroundStyle(FleetChatPalette.muted)
@@ -196,7 +196,7 @@ struct FleetChatPaneView: View {
         // The last thing this row did, said out loud. A swap that replaced the
         // session is the one an operator most needs to see, because the
         // conversation below is now answered by a different process.
-        if let detail = store.copilotDial.detail {
+        if let detail = store.palDial.detail {
             Text(detail)
                 .font(.caption2)
                 .foregroundStyle(FleetChatPalette.muted)
@@ -217,7 +217,7 @@ struct FleetChatPaneView: View {
         VStack(spacing: 8) {
             Text("This daemon does not serve Fleet chat.")
                 .font(.headline)
-            Text("The copilot conversation needs fleet.chat.read and fleet.message.read.")
+            Text("The Pal conversation needs fleet.chat.read and fleet.message.read.")
                 .font(.callout)
                 .foregroundStyle(FleetChatPalette.muted)
         }
@@ -231,7 +231,7 @@ struct FleetChatPaneView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         if store.chat.messages.isEmpty {
-                            Text("No messages yet. Ask the copilot below.")
+                            Text("No messages yet. Ask Pal below.")
                                 .font(.callout)
                                 .foregroundStyle(FleetChatPalette.muted)
                                 .padding(.top, 24)
@@ -271,7 +271,7 @@ struct FleetChatPaneView: View {
                     .accessibilityIdentifier("fleet.chat.notice")
             }
             HStack(spacing: 8) {
-                TextField("Message the copilot", text: $composer, axis: .vertical)
+                TextField("Message Pal", text: $composer, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
                     .accessibilityIdentifier("fleet.chat.composer")
@@ -376,7 +376,7 @@ struct FleetChatPaneView: View {
     @ViewBuilder private var activitySection: some View {
         if !store.chat.activity.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Copilot activity")
+                Text("Pal activity")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(FleetChatPalette.muted)
                 ForEach(store.chat.activity, id: \.seq) { row in
@@ -574,7 +574,7 @@ private struct FleetChatMessageView: View {
     private var attributionColor: Color {
         switch row.actor {
         case .operatorHuman: FleetChatPalette.amber
-        case .copilot: FleetChatPalette.violet
+        case .pal: FleetChatPalette.violet
         case .session: FleetChatPalette.mint
         case .unattributed: FleetChatPalette.coral
         }
@@ -588,7 +588,7 @@ private struct FleetChatMessageView: View {
 /// The chat module's own palette. Owned here, borrowed from nowhere.
 ///
 /// These are the Fleet surface colours, declared rather than imported, plus the
-/// chat-only accent (`violet`, the copilot's colour in the terminal client
+/// chat-only accent (`violet`, Pal's colour in the terminal client
 /// too). Copies of a palette are usually a smell, and this one is deliberate:
 /// the values also appear in the roster's file-private palette, and a shared
 /// one would have to live somewhere both can see, which is a module this app

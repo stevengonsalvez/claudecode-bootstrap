@@ -2054,10 +2054,10 @@ Commands:
   acp            ACP sessions: daemon-owned headless agents that answer on the chat bus
   transcript     Page or follow one session's full execution transcript
   channel        Chat channels: a named scope with a recipient set
-  copilot        The fleet copilot session's per-session adapter config
+  pal            Pal's per-session adapter config
   adapter        The ACP adapters this daemon's registry can spawn
-  confirm        Guardrail confirm cards: copilot tool calls held for a human
-  activity       The append-only copilot activity feed
+  confirm        Guardrail confirm cards: Pal tool calls held for a human
+  activity       The append-only Pal activity feed
   sequence       Ordered prompts with ack between steps
   needs          Center control panel — sessions blocked on input / errors / idle / waiting
   archived       Sessions the daemon retired out of the live roster (still browsable)
@@ -2455,9 +2455,9 @@ Usage: ainb fleet channel create [OPTIONS] --name <name>
 
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
-      --kind <kind>            copilot (an ACP session answers on it) or broadcast [default: broadcast] [possible values: copilot, broadcast]
+      --kind <kind>            pal (Pal answers on it) or broadcast [default: broadcast] [possible values: pal, broadcast]
       --name <name>            Human-readable channel name
-      --recipient <recipient>  Member session_key (repeat); none for a copilot channel
+      --recipient <recipient>  Member session_key (repeat); none for a Pal channel
   -h, --help                   Print help
 ```
 
@@ -2496,18 +2496,18 @@ Options:
 The recipient list is the CHANNEL's membership, resolved from the daemon. Exit 0 means the message was persisted and every leg reached a terminal state, NOT that any member received it: read deliveries[].state and deliveries[].detail for the per-member outcome.
 ```
 
-### `ainb fleet copilot`
+### `ainb fleet pal`
 
-The fleet copilot session's per-session adapter config
+Pal's per-session adapter config
 
 ```console
-$ ainb fleet copilot --help
-The fleet copilot session's per-session adapter config
+$ ainb fleet pal --help
+Pal's per-session adapter config
 
-Usage: ainb fleet copilot [OPTIONS] <COMMAND>
+Usage: ainb fleet pal [OPTIONS] <COMMAND>
 
 Commands:
-  configure  Set the copilot's provider, model, reasoning effort and persona
+  configure  Set Pal's provider, model, reasoning effort and persona
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2515,29 +2515,29 @@ Options:
   -h, --help             Print help
 ```
 
-#### `ainb fleet copilot configure`
+#### `ainb fleet pal configure`
 
-Set the copilot's provider, model, reasoning effort and persona
+Set Pal's provider, model, reasoning effort and persona
 
 ```console
-$ ainb fleet copilot configure --help
-Set the copilot's provider, model, reasoning effort and persona
+$ ainb fleet pal configure --help
+Set Pal's provider, model, reasoning effort and persona
 
-Usage: ainb fleet copilot configure [OPTIONS] --provider <provider>
+Usage: ainb fleet pal configure [OPTIONS] --provider <provider>
 
 Options:
       --format <format>
           Output format [default: text] [possible values: text, json, csv, markdown]
       --provider <provider>
           Adapter name from `ainb fleet adapter list`
-      --copilot-mode <copilot-mode>
-          The channel's guardrail dial: which of the copilot's OWN fleet tools fire, take a confirm card, or are not offered [possible values: help, guarded, yolo]
+      --pal-mode <pal-mode>
+          The channel's guardrail dial: which of Pal's OWN fleet tools fire, take a confirm card, or are not offered [possible values: help, guarded, yolo]
       --model <model>
           Adapter model id
       --reasoning-effort <reasoning-effort>
           Adapter reasoning-effort token
       --persona-file <persona-file>
-          File holding the copilot system prompt
+          File holding Pal's system prompt
   -h, --help
           Print help
 
@@ -2580,11 +2580,11 @@ Options:
 
 ### `ainb fleet confirm`
 
-Guardrail confirm cards: copilot tool calls held for a human
+Guardrail confirm cards: Pal tool calls held for a human
 
 ```console
 $ ainb fleet confirm --help
-Guardrail confirm cards: copilot tool calls held for a human
+Guardrail confirm cards: Pal tool calls held for a human
 
 Usage: ainb fleet confirm [OPTIONS] <COMMAND>
 
@@ -2638,11 +2638,11 @@ A card is single-use: answering an already-answered or already-expired card exit
 
 ### `ainb fleet activity`
 
-The append-only copilot activity feed
+The append-only Pal activity feed
 
 ```console
 $ ainb fleet activity --help
-The append-only copilot activity feed
+The append-only Pal activity feed
 
 Usage: ainb fleet activity [OPTIONS] <COMMAND>
 

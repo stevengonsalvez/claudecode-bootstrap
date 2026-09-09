@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The ONE client onto the hangar daemon's unix socket: auth/hello, Content-Length JSON-RPC, and the retained fleet / message / transcript subscriptions. Extracted from ainb-core so the TUI, the CLI and the copilot's MCP tool server all dial the daemon through the same code (ainb-core depends on ainb-hangar-daemon, so nothing below it can depend back on ainb-core)."
+description = "The ONE client onto the hangar daemon's unix socket: auth/hello, Content-Length JSON-RPC, and the retained fleet / message / transcript subscriptions. Extracted from ainb-core so the TUI, the CLI and Pal's MCP tool server all dial the daemon through the same code (ainb-core depends on ainb-hangar-daemon, so nothing below it can depend back on ainb-core)."
 categories = ["command-line-utilities"]
 keywords = ["ainb", "hangar", "json-rpc", "client", "fleet"]
 

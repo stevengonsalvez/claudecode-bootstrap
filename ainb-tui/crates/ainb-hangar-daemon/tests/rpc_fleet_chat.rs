@@ -1,27 +1,27 @@
 //! Part 2's chat surface over a real Unix socket and a real store: channels,
-//! copilot config, guardrail confirm cards and the activity feed (phase A2).
+//! Pal config, guardrail confirm cards and the activity feed (phase A2).
 //!
 //! Every daemon here is the real `rpc::serve` against a real `Store`; no
 //! fixture daemon, no mocked repo. What is NOT real is the ACP adapter: no
 //! adapter process is spawned in this binary, so the confirm cards are minted
-//! by driving `copilot::gate` directly. That seam is the honest one for the
+//! by driving `pal::gate` directly. That seam is the honest one for the
 //! GATE's own behaviour, because the guardrail decision and the park are what
 //! is under test, not the transport that carries a tool call to them.
 //!
 //! It is deliberately NOT the seam that proves anything calls the gate: these
 //! tests would stay green against a gate with no production caller, which is
-//! exactly the state this file shipped in. `copilot_gate_live.rs` covers that,
-//! starting at the copilot's real MCP `tools/call` instead.
+//! exactly the state this file shipped in. `pal_gate_live.rs` covers that,
+//! starting at Pal's real MCP `tools/call` instead.
 //!
 //! Proves:
 //!
 //! * the six dispatch arms answer against a real store, and their capabilities
 //!   are advertised (a `-32601` here would mean an arm landed unadvertised);
-//! * a channel scope accepts a member and refuses a stranger, and a COPILOT
+//! * a channel scope accepts a member and refuses a stranger, and a Pal
 //!   channel's member is the live ACP session bound to its scope;
 //! * a confirm card's TTL is enforced by the STORE, so it survives the process
 //!   whose timer was the only other bound;
-//! * `copilot_configure` REFUSES a permission mode instead of dropping it;
+//! * `pal_configure` REFUSES a permission mode instead of dropping it;
 //! * a confirm-class call parks, emits `fleet/confirm_event`, and resumes with
 //!   the operator's answer;
 //! * an unanswered card has a BOUNDED end: it expires and the tool resolves
@@ -32,8 +32,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ainb_hangar_daemon::copilot::{self, GateOutcome};
 use ainb_hangar_daemon::events::{EventBroker, EventSink};
+use ainb_hangar_daemon::pal::{self, GateOutcome};
 use ainb_hangar_daemon::rpc::{self, DaemonHealth};
 use ainb_hangar_proto::{RpcId, RpcRequest, methods};
 use ainb_hangar_store::Store;
@@ -225,19 +225,19 @@ async fn the_six_part_two_arms_answer_against_a_real_store() {
         "{answered}"
     );
 
-    // And `copilot_configure` reaches its own arm rather than -32601, even with
-    // no copilot channel to configure. The adapter must be a REAL registry name:
+    // And `pal_configure` reaches its own arm rather than -32601, even with
+    // no Pal channel to configure. The adapter must be a REAL registry name:
     // an unknown one is refused before the channel lookup, which would prove the
     // wrong refusal.
     let configured = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "claude-agent-acp" }),
         )
         .await;
     assert_eq!(configured["error"]["code"], -32602, "{configured}");
     assert!(
-        configured["error"]["message"].as_str().unwrap().contains("no copilot channel"),
+        configured["error"]["message"].as_str().unwrap().contains("no Pal channel"),
         "{configured}"
     );
 }
@@ -428,17 +428,17 @@ async fn a_channel_fan_out_answers_one_leg_per_member_with_its_reason() {
     );
 }
 
-/// The copilot channel's own ACP session is a MEMBER of it.
+/// The Pal channel's own ACP session is a MEMBER of it.
 ///
 /// The two landed rules contradicted each other: `channel_create` refuses a
-/// recipient list for a copilot channel (its members are the session created
+/// recipient list for a Pal channel (its members are the session created
 /// against the minted scope), and `message_send` required every target of a
 /// `channel:` scope to be in `recipients`. The channel's only true member was
 /// therefore a stranger to its own membership check, and EVERY operator message
-/// into the copilot channel was refused. Each rule is defensible alone, which
+/// into the Pal channel was refused. Each rule is defensible alone, which
 /// is why every daemon test stayed green over it.
 #[tokio::test]
-async fn a_copilot_channel_accepts_the_acp_session_that_answers_on_it() {
+async fn a_pal_channel_accepts_the_acp_session_that_answers_on_it() {
     let dir = tempfile::tempdir().unwrap();
     let (socket, store, _sink) = start_server(dir.path()).await;
     seed_session(&store, "stranger").await;
@@ -454,7 +454,7 @@ async fn a_copilot_channel_accepts_the_acp_session_that_answers_on_it() {
     assert_eq!(
         created["result"]["channel"]["recipients"],
         json!([]),
-        "a copilot channel still records no recipient list"
+        "a Pal channel still records no recipient list"
     );
 
     // The session that IS the channel, minted the way the contract says it is.
@@ -473,13 +473,13 @@ async fn a_copilot_channel_accepts_the_acp_session_that_answers_on_it() {
                 "scope_key": scope,
                 "targets": [session_key],
                 "text": "what is blocked?",
-                "request_id": "req-copilot",
+                "request_id": "req-pal",
             }),
         )
         .await;
     assert!(
         sent["error"].is_null(),
-        "the copilot channel refused its own session: {sent}"
+        "the Pal channel refused its own session: {sent}"
     );
     let stored: String = sqlx::query_scalar(
         "SELECT sender FROM fleet_message WHERE body = 'what is blocked?' AND scope_key = ?",
@@ -499,7 +499,7 @@ async fn a_copilot_channel_accepts_the_acp_session_that_answers_on_it() {
                 "scope_key": scope,
                 "targets": ["stranger"],
                 "text": "hello?",
-                "request_id": "req-copilot-stranger",
+                "request_id": "req-pal-stranger",
             }),
         )
         .await;
@@ -512,7 +512,7 @@ async fn a_copilot_channel_accepts_the_acp_session_that_answers_on_it() {
 
 /// The confirm-card TTL survives the process that minted it.
 ///
-/// The park's bound is a `tokio` timer inside a copilot turn. A restart drops
+/// The park's bound is a `tokio` timer inside a Pal turn. A restart drops
 /// the waiters map and its timers, so without an expiry term in the QUERIES a
 /// card left behind stays `open` forever: it keeps listing as answerable, and
 /// approving it answers "approved" for a destructive call with no waiter left
@@ -570,13 +570,13 @@ async fn a_card_whose_ttl_lapsed_while_the_daemon_was_down_is_not_answerable() {
     assert_eq!(state, "expired", "the lapse was not recorded");
 }
 
-/// `copilot_configure` writes the 0080 columns and REFUSES a permission mode.
+/// `pal_configure` writes the 0080 columns and REFUSES a permission mode.
 ///
 /// Refuses, not ignores: serde drops unknown keys, so a silent drop would
 /// answer "done" for the one setting that would disable the entire permission
 /// surface.
 #[tokio::test]
-async fn copilot_configure_writes_the_columns_and_refuses_a_permission_mode() {
+async fn pal_configure_writes_the_columns_and_refuses_a_permission_mode() {
     let dir = tempfile::tempdir().unwrap();
     let (socket, store, _sink) = start_server(dir.path()).await;
     let mut client = Client::authed(dir.path(), &socket).await;
@@ -598,12 +598,12 @@ async fn copilot_configure_writes_the_columns_and_refuses_a_permission_mode() {
 
     let configured = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({
                 "provider": "claude-agent-acp",
                 "model": "claude-sonnet-4-5",
                 "reasoning_effort": "high",
-                "persona": "you are the fleet copilot",
+                "persona": "you are the fleet Pal",
             }),
         )
         .await;
@@ -628,7 +628,7 @@ async fn copilot_configure_writes_the_columns_and_refuses_a_permission_mode() {
         .unwrap();
     assert_eq!(model.as_deref(), Some("claude-sonnet-4-5"));
     assert_eq!(effort.as_deref(), Some("high"));
-    assert_eq!(persona.as_deref(), Some("you are the fleet copilot"));
+    assert_eq!(persona.as_deref(), Some("you are the fleet Pal"));
 
     // The change is on the activity feed, and it says WHETHER a persona is set,
     // never what it says.
@@ -639,14 +639,14 @@ async fn copilot_configure_writes_the_columns_and_refuses_a_permission_mode() {
     let detail = rows[0]["detail"].as_str().unwrap();
     assert!(detail.contains("persona=set"), "{detail}");
     assert!(
-        !detail.contains("fleet copilot"),
+        !detail.contains("fleet Pal"),
         "the persona text must not be logged: {detail}"
     );
 
     for spelling in ["permission_mode", "permissionMode", "mode"] {
         let refused = client
             .call(
-                methods::FLEET_COPILOT_CONFIGURE,
+                methods::FLEET_PAL_CONFIGURE,
                 json!({ "provider": "claude-agent-acp", spelling: "bypassPermissions" }),
             )
             .await;
@@ -718,7 +718,7 @@ async fn an_adapter_the_registry_does_not_know_is_refused() {
 
     let refused = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "definitely-not-an-adapter" }),
         )
         .await;
@@ -760,7 +760,7 @@ async fn swapping_the_engine_retires_the_old_session_on_the_same_channel() {
 
     let swapped = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "codex-acp", "model": "gpt-5" }),
         )
         .await;
@@ -796,7 +796,7 @@ async fn swapping_the_engine_retires_the_old_session_on_the_same_channel() {
     // Configuring the SAME provider again is not a swap.
     let same = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "codex-acp", "model": "gpt-5-codex" }),
         )
         .await;
@@ -838,7 +838,7 @@ async fn the_guardrail_dial_persists_and_is_not_the_permission_mode() {
 
     let armed = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "claude-agent-acp", "copilot_mode": "yolo" }),
         )
         .await;
@@ -866,7 +866,7 @@ async fn the_guardrail_dial_persists_and_is_not_the_permission_mode() {
     // An omitted dial leaves it alone rather than resetting it.
     let untouched = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "claude-agent-acp", "model": "sonnet-5" }),
         )
         .await;
@@ -889,14 +889,14 @@ async fn a_confirm_card_parks_emits_its_event_and_resumes_on_answer() {
     // `kill` is confirm-class and NEVER overridable, so this is the hardest
     // case: no override can turn it automatic.
     let parked = tokio::spawn(async move {
-        copilot::gate(
+        pal::gate(
             &pool,
             &park_sink,
             "channel:copilot",
             "kill",
             &arguments(&[("session", json!("s3"))]),
             &Default::default(),
-            copilot::confirm_ttl(),
+            pal::confirm_ttl(),
         )
         .await
     });
@@ -955,7 +955,7 @@ async fn a_confirm_card_parks_emits_its_event_and_resumes_on_answer() {
         again["error"]["message"].as_str().unwrap().contains("already approved"),
         "{again}"
     );
-    // And the feed carries the approval, so no copilot action is unlogged.
+    // And the feed carries the approval, so no Pal action is unlogged.
     let activity = client.call(methods::FLEET_ACTIVITY_LIST, json!({ "limit": 50 })).await;
     let rows = activity["result"]["activities"].as_array().unwrap();
     assert_eq!(rows.len(), 1, "{activity}");
@@ -967,7 +967,7 @@ async fn a_confirm_card_parks_emits_its_event_and_resumes_on_answer() {
 /// A card nobody answers has a BOUNDED end: it expires, the tool resolves as
 /// denied, and the expiry is on the feed.
 ///
-/// The bound matters because a suspended tool result holds the copilot's ACP
+/// The bound matters because a suspended tool result holds Pal's ACP
 /// turn open, and that turn holds its scope's FIFO queue: an unbounded park
 /// would wedge the channel behind one dialog nobody looked at.
 #[tokio::test]
@@ -976,7 +976,7 @@ async fn an_unanswered_confirm_card_expires_and_the_tool_resolves_denied() {
     let (socket, store, sink) = start_server(dir.path()).await;
     let mut client = Client::authed(dir.path(), &socket).await;
 
-    let outcome = copilot::gate(
+    let outcome = pal::gate(
         store.pool(),
         &sink,
         "channel:copilot",
@@ -1041,7 +1041,7 @@ async fn an_undeclared_argument_key_never_reaches_the_operators_card() {
     let pool = store.pool().clone();
     let park_sink = sink.clone();
     let parked = tokio::spawn(async move {
-        copilot::gate(
+        pal::gate(
             &pool,
             &park_sink,
             "channel:copilot",
@@ -1088,21 +1088,21 @@ async fn an_undeclared_argument_key_never_reaches_the_operators_card() {
     let _ = parked.await;
 }
 
-/// The copilot's own writes are authored by the copilot.
+/// Pal's own writes are authored by Pal.
 ///
 /// Never `"operator"`: the receiving agent's re-prime header tells it the
-/// operator's message is the one to act on, so a copilot that could wear that
+/// operator's message is the one to act on, so a Pal that could wear that
 /// name would never need the destructive tools — it could ask another agent to
 /// do the thing instead.
 #[tokio::test]
-async fn a_copilot_write_persists_the_copilot_as_its_author() {
+async fn a_pal_write_persists_pal_as_its_author() {
     let dir = tempfile::tempdir().unwrap();
     let (socket, store, sink) = start_server(dir.path()).await;
     let mut client = Client::authed(dir.path(), &socket).await;
     seed_session(&store, "s1").await;
 
     // The daemon-side write (a card resolution posted back to the channel).
-    let id = copilot::post_channel_message(
+    let id = pal::post_channel_message(
         store.pool(),
         &sink,
         "channel:copilot",
@@ -1126,7 +1126,7 @@ async fn a_copilot_write_persists_the_copilot_as_its_author() {
                 "actor": "copilot",
                 "targets": ["s1"],
                 "text": "status?",
-                "request_id": "req-copilot",
+                "request_id": "req-pal",
             }),
         )
         .await;
@@ -1139,14 +1139,14 @@ async fn a_copilot_write_persists_the_copilot_as_its_author() {
         .unwrap();
     assert_eq!(
         sender, "copilot",
-        "a copilot write must not wear the operator's name"
+        "a Pal write must not wear the operator's name"
     );
 }
 
 /// A create that names no provider means "THE session on this scope", and must
 /// answer with the adapter the scope already runs.
 ///
-/// The chat page opens the copilot with a get-or-create. Naming a guessed
+/// The chat page opens Pal with a get-or-create. Naming a guessed
 /// adapter there did not merely revert an engine the operator had swapped: a
 /// live scope held by a different adapter makes `ensure` refuse with
 /// `ScopeHeld`, so opening the chat page after a swap failed outright.
@@ -1213,9 +1213,9 @@ async fn a_create_with_no_provider_keeps_the_scopes_own_adapter() {
 /// keeping its adapter AND its root.
 ///
 /// The cwd half is the one that made the macOS notch unusable: it named
-/// `$HOME` on every one-second poll while the live copilot scope was held by a
+/// `$HOME` on every one-second poll while the live Pal scope was held by a
 /// session opened from a worktree, so every poll was refused `ScopeHeld`, the
-/// pane fell back to a copilot channel's (always empty) recipient list, and the
+/// pane fell back to a Pal channel's (always empty) recipient list, and the
 /// composer had nobody to send to. A client attaching to a conversation cannot
 /// know where that conversation was opened, so the daemon answers it.
 #[tokio::test]
@@ -1478,7 +1478,7 @@ async fn a_swap_that_cannot_mint_its_replacement_leaves_the_session_live() {
     // survive a failure.
     let swapped = client
         .call(
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             json!({ "provider": "codex-acp", "copilot_mode": "yolo" }),
         )
         .await;

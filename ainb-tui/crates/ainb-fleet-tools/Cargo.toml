@@ -5,9 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The fleet copilot's MCP tool server: stdio MCP over rmcp, whose tools call BACK into the hangar daemon over hangar.sock so every copilot action rides the same receipts, ordering and guardrails a human client does."
+description = "Pal's MCP tool server: stdio MCP over rmcp, whose tools call BACK into the hangar daemon over hangar.sock so every Pal action rides the same receipts, ordering and guardrails a human client does."
 categories = ["command-line-utilities"]
-keywords = ["ainb", "fleet", "mcp", "copilot", "guardrail"]
+keywords = ["ainb", "fleet", "mcp", "pal", "guardrail"]
 
 [lib]
 name = "ainb_fleet_tools"
@@ -29,7 +29,7 @@ rmcp = { version = "=3.1.2", default-features = false, features = [
     "transport-io",
 ] }
 # The ONE daemon client (auth/hello + Content-Length JSON-RPC). Every write tool
-# goes through it, so a copilot action is indistinguishable from an operator's.
+# goes through it, so a Pal action is indistinguishable from an operator's.
 ainb-hangar-client = { path = "../ainb-hangar-client" }
 # Wire shapes + the `reprime` untrusted-text envelope every read tool wraps its
 # result in.
