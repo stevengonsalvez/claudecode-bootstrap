@@ -1013,6 +1013,24 @@ impl ChatState {
         self.receipts_at_ms = None;
     }
 
+    /// Record something a write that WORKED has to say.
+    ///
+    /// The twin of [`Self::apply_send_failure`] for the other verdict, and it
+    /// exists because that one is not just a sentence: it prefixes the row with
+    /// "send failed" and drops the last send's legs. A cancel reported through
+    /// it painted a cancel that landed as a send that broke, and cleared the
+    /// receipts of the send whose turn was being cancelled: the legs the pane
+    /// is showing are still that send's, and the page this write ends with is
+    /// what refreshes them.
+    pub fn apply_notice(&mut self, detail: String) {
+        // The write's request has come back, which is the end of it, exactly as
+        // for the two outcomes either side of this one. `cancel_open_turns`
+        // latches this before emitting, so leaving it set would refuse the next
+        // cancel with "a cancel is already in flight" until a poll cleared it.
+        self.in_flight = false;
+        self.feedback = Some(detail);
+    }
+
     /// Fold one send's per-recipient legs in.
     ///
     /// The summary says how many legs did NOT deliver, because that is the

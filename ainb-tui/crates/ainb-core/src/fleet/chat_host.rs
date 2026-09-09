@@ -37,6 +37,13 @@ pub enum ChatOutcome {
     /// surface has to put the operator's text BACK in the composer rather than
     /// leave them retyping it.
     SendFailed(String),
+    /// A write LANDED and has something to say about it.
+    ///
+    /// Separate from [`Self::SendFailed`] because the failure outcome carries
+    /// failure semantics as well as a sentence: it clears the last send's legs
+    /// and prefixes the pane's feedback row with "send failed". A cancel that
+    /// worked reported itself through that channel and read as broken.
+    Notice(String),
     /// The per-recipient delivery legs of a send.
     Receipts(Vec<ainb_hangar_proto::fleet::FleetMessageDelivery>),
 }
@@ -115,6 +122,7 @@ impl ChatHost {
                     self.state.apply_failure(Some(step), detail);
                 }
                 ChatOutcome::SendFailed(detail) => self.state.apply_send_failure(detail),
+                ChatOutcome::Notice(detail) => self.state.apply_notice(detail),
                 ChatOutcome::Receipts(receipts) => self.state.apply_receipts(receipts),
             }
         }
@@ -153,7 +161,7 @@ impl ChatHost {
             // A WRITE always ends by paging, so the operator sees the durable
             // row the daemon actually stored rather than an optimistic local
             // echo that a failed write would leave behind as a lie.
-            let (write_failure, scope_key, receipts) = match intent {
+            let (write_report, scope_key, receipts) = match intent {
                 ChatIntent::Refresh { scope_key, .. } => (None, scope_key, None),
                 ChatIntent::Send {
                     scope_key,
@@ -175,13 +183,15 @@ impl ChatHost {
                     };
                     match crate::fleet::control::chat_send_blocking(params) {
                         Ok(result) => (None, Some(scope_key), Some(result.deliveries)),
-                        Err(detail) => (Some(detail), Some(scope_key), None),
+                        Err(detail) => {
+                            (Some(ChatOutcome::SendFailed(detail)), Some(scope_key), None)
+                        }
                     }
                 }
                 ChatIntent::ConfirmAnswer(params) => {
                     match crate::fleet::control::chat_confirm_answer_blocking(params) {
                         Ok(_) => (None, surface_scope, None),
-                        Err(detail) => (Some(detail), surface_scope, None),
+                        Err(detail) => (Some(ChatOutcome::SendFailed(detail)), surface_scope, None),
                     }
                 }
                 // Cancelling is a WRITE like a send, so it ends by paging for
@@ -190,12 +200,16 @@ impl ChatHost {
                 // the turn stopped.
                 ChatIntent::CancelTurn { session_keys } => {
                     match crate::fleet::control::chat_cancel_turns_blocking(session_keys) {
-                        // Reported through the send-failure channel because
-                        // that is what puts a sentence on the pane's feedback
-                        // row; a cancel that lands silently is as unreadable as
-                        // a send that does.
-                        Ok(summary) => (Some(summary), surface_scope, None),
-                        Err(detail) => (Some(detail), surface_scope, None),
+                        // A cancel that lands silently is as unreadable as a
+                        // send that does, so a WORKING cancel still has to put
+                        // a sentence on the pane's feedback row. It gets its
+                        // own outcome to do that with: routing it through the
+                        // send-failure channel printed "send failed: cancelled
+                        // 1 of 1 turn(s)" over a cancel that worked, and put
+                        // the failure reducer's composer and receipt handling
+                        // on a send that never failed.
+                        Ok(summary) => (Some(ChatOutcome::Notice(summary)), surface_scope, None),
+                        Err(detail) => (Some(ChatOutcome::SendFailed(detail)), surface_scope, None),
                     }
                 }
                 // Neither belongs to a conversation: a create mints the scope a
@@ -209,8 +223,8 @@ impl ChatHost {
                     return;
                 }
             };
-            if let Some(detail) = write_failure {
-                publish(ChatOutcome::SendFailed(detail));
+            if let Some(report) = write_report {
+                publish(report);
             }
             if let Some(receipts) = receipts {
                 publish(ChatOutcome::Receipts(receipts));
@@ -363,6 +377,52 @@ mod tests {
         assert!(
             detail.contains("already held by a session"),
             "the daemon's own words were swallowed: {detail}"
+        );
+    }
+
+    /// A write that WORKED says so without wearing a failure's clothes.
+    ///
+    /// The cancel this outcome exists for used to be published as a
+    /// `SendFailed`, so a cancel that landed printed "send failed: cancelled 1
+    /// of 1 turn(s)" and ran the failure reducer over a send that never failed.
+    /// That reducer drops the legs of the send whose turn was being cancelled,
+    /// which is the one thing the pane is showing while it waits. Both halves
+    /// are pinned here: the sentence is the daemon's summary verbatim, and the
+    /// legs survive.
+    #[test]
+    fn a_notice_puts_the_summary_on_the_feedback_row_without_failing_the_send() {
+        use ainb_hangar_proto::fleet::{ActionReceiptStatus, FleetMessageDelivery};
+
+        let mut host = ChatHost::copilot();
+        host.inbox
+            .lock()
+            .unwrap()
+            .push(ChatOutcome::Receipts(vec![FleetMessageDelivery {
+                session_key: "claude:one".to_string(),
+                state: ActionReceiptStatus::Pending,
+                detail: None,
+            }]));
+        host.tick(0);
+        assert_eq!(
+            host.state().receipts().len(),
+            1,
+            "the send's leg never landed"
+        );
+
+        host.inbox
+            .lock()
+            .unwrap()
+            .push(ChatOutcome::Notice("cancelled 1 of 1 turn(s)".to_string()));
+        assert!(host.tick(0), "a landed notice makes the frame dirty");
+        assert_eq!(
+            host.state().feedback(),
+            Some("cancelled 1 of 1 turn(s)"),
+            "a cancel that worked reads as a send that broke"
+        );
+        assert_eq!(
+            host.state().receipts().len(),
+            1,
+            "the notice dropped the legs of the send whose turn was cancelled"
         );
     }
 

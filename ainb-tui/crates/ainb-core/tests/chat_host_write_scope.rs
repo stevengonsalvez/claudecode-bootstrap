@@ -16,8 +16,10 @@
 //!
 //! Not proven here: a SUCCESSFUL `fleet/action` interrupt. `Delivered` needs a
 //! live ACP session in the pool, which needs a real adapter process; without
-//! one the daemon answers `Unknown` and the cancel reports a refusal. The scope
-//! a cancel pages on is the same either way, which is what this file is about.
+//! one the daemon answers `Unknown` and the cancel reports a refusal. So the
+//! cancel case below pins the SCOPE the cancel pages on, which is what this
+//! file is about, and the success wording is covered where the outcome reaches
+//! the surface (`ainb::fleet::chat_host` unit tests).
 
 use std::time::{Duration, Instant};
 
@@ -261,4 +263,47 @@ fn cancelling_a_turn_pages_the_conversation_it_was_cancelled_in() {
             session_keys: vec!["claude:one".to_string()],
         }
     });
+}
+
+/// A cancel that the daemon REFUSED still reads as a failure.
+///
+/// The other half of splitting the cancel's success off the send-failure
+/// channel: the refusal must keep the wording and the semantics it had, so
+/// giving a working cancel its own outcome cannot quietly turn a cancel that
+/// did nothing into one that reads as though it worked.
+#[test]
+fn a_refused_cancel_still_reads_as_a_failure() {
+    let fixture = fixture("chat-host-cancel-refused-");
+    let hangar = &fixture.hangar;
+
+    let scope = seed_copilot_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
+    seed_message(
+        hangar,
+        &scope,
+        "01J0MSGREADINGONE",
+        "the line the operator is reading",
+        1_700_000_000_000,
+    );
+    let mut host = open_on(hangar, &scope);
+
+    // A session key the daemon has never heard of: `chat_cancel_turns_blocking`
+    // resolves every leg against `fleet/snapshot` and refuses the ones it cannot
+    // find, which is a real refusal from the real daemon rather than a stubbed
+    // error string.
+    host.dispatch(ChatIntent::CancelTurn {
+        session_keys: vec!["claude:nobody".to_string()],
+    });
+    tick_until(&mut host, "the refused cancel", |host| {
+        host.state().feedback().is_some()
+    });
+
+    let feedback = host.state().feedback().expect("the refusal said nothing at all");
+    assert!(
+        feedback.starts_with("send failed: "),
+        "a refused cancel stopped reading as a failure: {feedback:?}"
+    );
+    assert!(
+        feedback.contains("not in the daemon's snapshot"),
+        "the daemon's own words were swallowed: {feedback:?}"
+    );
 }
