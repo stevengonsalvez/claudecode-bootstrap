@@ -229,6 +229,7 @@ impl TaskRepo {
     /// pending task already exists for the same `(issue_id, agent_id)`, or an
     /// FK violation on `workspace_id` / `runtime_id` / `agent_id` / `issue_id`.
     pub async fn insert(pool: &SqlitePool, task: &NewTask) -> Result<String, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let id = Self::insert_in_tx(&mut tx, task).await?;
         tx.commit().await?;

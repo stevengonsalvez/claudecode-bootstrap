@@ -153,6 +153,7 @@ impl DispatchAttemptRepo {
         id: &str,
         new: &NewDispatchAttempt<'_>,
     ) -> Result<String, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO dispatch_attempt \

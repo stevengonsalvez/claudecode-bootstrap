@@ -660,6 +660,7 @@ impl AgentRepo {
         id: &str,
         mode: &str,
     ) -> Result<bool, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let res = sqlx::query("UPDATE agent SET permission_mode = ? WHERE id = ?")
             .bind(mode)
@@ -728,6 +729,7 @@ impl AgentRepo {
         let Some(mode) = mode else {
             return Ok(());
         };
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let visibility = derive_visibility_in_tx(&mut tx, id, &mode).await?;
         sqlx::query("UPDATE agent SET visibility = ? WHERE id = ?")

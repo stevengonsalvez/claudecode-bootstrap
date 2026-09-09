@@ -285,6 +285,7 @@ pub async fn fire_autopilot_tick_with_attribution(
     let run_id = SystemIdGen.new_ulid();
     let task_id = SystemIdGen.new_ulid();
 
+    let _write_tx_timer = crate::write_tx_timer!();
     let mut tx = pool.begin().await?;
 
     // 0. Who is accountable for THIS run, resolved in the same transaction.
@@ -472,6 +473,7 @@ pub async fn supersede_in_flight(
     autopilot_id: &str,
 ) -> Result<u64, FireError> {
     let now = clock.now_ms();
+    let _write_tx_timer = crate::write_tx_timer!();
     let mut tx = pool.begin().await?;
 
     // 1. Cancel the tasks of the open runs (abandon the in-flight work). Scoped
@@ -587,6 +589,7 @@ pub async fn record_skipped_run_with_attribution(
 ) -> Result<AutopilotRunId, FireError> {
     let now = clock.now_ms();
     let run_id = SystemIdGen.new_ulid();
+    let _write_tx_timer = crate::write_tx_timer!();
     let mut tx = pool.begin().await?;
     let (accountable_actor, attribution_token) =
         attribution.resolve_in_tx(&mut tx, &autopilot.id).await?;

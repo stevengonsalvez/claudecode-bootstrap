@@ -27,6 +27,7 @@ pub struct FleetWorkRepo;
 impl FleetWorkRepo {
     /// Apply one transition and return parent active-work count.
     pub async fn apply(pool: &SqlitePool, update: &FleetWorkUpdate) -> Result<i64, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         if update.active {
             sqlx::query(

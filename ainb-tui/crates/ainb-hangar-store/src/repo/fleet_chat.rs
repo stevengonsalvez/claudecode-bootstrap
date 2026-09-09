@@ -56,6 +56,7 @@ impl FleetChannelRepo {
         pool: &SqlitePool,
         channel: &FleetChannelRow,
     ) -> Result<FleetChannelRow, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO fleet_channel (id, kind, name, scope_key, copilot_mode, created_at) \

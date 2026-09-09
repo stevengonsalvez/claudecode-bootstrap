@@ -136,6 +136,7 @@ impl InvitationRepo {
         }
         let now = clock.now_ms();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         // (1) The inviter must be a member of this workspace.
@@ -247,6 +248,7 @@ impl InvitationRepo {
         let actor_email = normalize_email(actor_email);
         let now = clock.now_ms();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let invitation = fetch_in_tx(&mut tx, invitation_id)
             .await?
@@ -316,6 +318,7 @@ impl InvitationRepo {
         let actor_email = normalize_email(actor_email);
         let now = clock.now_ms();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let invitation = fetch_in_tx(&mut tx, invitation_id)
             .await?

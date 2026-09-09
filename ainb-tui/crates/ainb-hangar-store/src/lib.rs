@@ -87,6 +87,11 @@ pub mod repo;
 /// complete, fail, cancel) over the [`service::finalize`] idempotent primitive.
 pub mod service;
 
+/// Names the code path that holds the single `SQLite` writer too long.
+///
+/// Diagnostic only. See the module header for what an operator greps for.
+pub mod write_tx_timer;
+
 /// The shared idempotent-finalize primitive, re-exported at the crate root.
 ///
 /// Promoted out of [`service::finalize`] so the P1.4 retry sweeper (and any
@@ -348,6 +353,7 @@ mod migration_tests {
     /// schema and bookkeeping together has no reason to be spread across
     /// connections at all.
     async fn seed_unmerged_0093(pool: &SqlitePool) {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await.unwrap();
         sqlx::query("DROP INDEX IF EXISTS idx_board_card_issue")
             .execute(&mut *tx)

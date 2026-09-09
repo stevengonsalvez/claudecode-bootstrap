@@ -750,6 +750,7 @@ impl FleetRepo {
         session_key: &str,
         observed_at: i64,
     ) -> Result<Option<i64>, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let version: Option<i64> = sqlx::query_scalar(
             "SELECT version FROM fleet_session WHERE session_key = ? \
@@ -830,6 +831,7 @@ impl FleetRepo {
         if named.is_empty() {
             return Ok(0);
         }
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         for (session_key, display_name) in &named {
             sqlx::query("UPDATE fleet_session SET display_name = ? WHERE session_key = ?")
@@ -1003,6 +1005,7 @@ impl FleetRepo {
 
     /// Read a consistent canonical snapshot plus its event-log head.
     pub async fn snapshot(pool: &SqlitePool) -> Result<FleetSnapshot, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let head_revision: i64 =
             sqlx::query_scalar("SELECT COALESCE(MAX(revision), 0) FROM fleet_event")
@@ -1028,6 +1031,7 @@ impl FleetRepo {
         after_revision: i64,
         replay_limit: i64,
     ) -> Result<FleetSubscriptionProjection, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let head_revision: i64 =
             sqlx::query_scalar("SELECT COALESCE(MAX(revision), 0) FROM fleet_event")
