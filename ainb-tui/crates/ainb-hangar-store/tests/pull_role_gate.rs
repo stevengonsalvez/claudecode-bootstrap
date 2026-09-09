@@ -1186,3 +1186,42 @@ async fn a_runtime_with_no_cards_skips_even_when_another_runtime_has_one() {
         ),
     }
 }
+
+/// A card the pull WOULD take passes the gate.
+///
+/// The other direction, and the dangerous one. The gate's safety property is
+/// `PULL_SQL` ⊆ gate: every row the pull could insert must also satisfy the
+/// gate. Break that — by adding a filter to the gate, or removing one from
+/// `PULL_SQL` — and the gate starts rejecting pullable cards. That failure is
+/// SILENT: `Ok(None)` forever, no error, no log line, a card that simply never
+/// gets pulled while every other test stays green.
+///
+/// So this asserts the positive case end to end: a fully eligible card, and the
+/// pull returning it THROUGH the gate. `a_runtime_with_no_cards_skips_even_when
+/// _another_runtime_has_one` covers the reverse.
+#[tokio::test]
+async fn a_card_that_matches_the_pull_passes_the_gate() {
+    let (_dir, store) = store().await;
+    let pool = store.pool();
+
+    seed_world(pool).await;
+    add_agent(pool, "ag-1", "impl", 4).await;
+    add_column(pool, "col-1", 1, Some("impl"), None, false).await;
+    add_card(pool, "iss-1", "col-1", 0).await;
+
+    let pulled = PullService::pull_for_runtime(
+        pool,
+        "rt-1",
+        &SeqIdGen::new(&["task-1"]),
+        &FixedClock(NOW_MS),
+    )
+    .await
+    .expect("pull must not error");
+
+    let pulled = pulled.expect(
+        "an eligible card must survive the gate; if this is None the gate is now STRICTER \
+         than PULL_SQL and pullable cards are being starved silently",
+    );
+    assert_eq!(pulled.issue_id, "iss-1");
+    assert_eq!(pulled.agent_id, "ag-1");
+}

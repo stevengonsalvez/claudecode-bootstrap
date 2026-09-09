@@ -214,9 +214,21 @@ impl PullService {
         // check only helps a database with no cards at all; one card belonging
         // to ANY other runtime would put every runtime back on the 10s wait. So
         // this carries the pull's own runtime, archived and issue predicates.
-        // Every clause here is a strict SUBSET of `PULL_SQL`'s `WHERE`, which is
-        // what makes skipping safe: if this finds nothing, the superset cannot
-        // match either.
+        //
+        // THE SAFETY PROPERTY IS `PULL_SQL` ⊆ GATE, AND IT IS DIRECTIONAL.
+        // This gate must stay LOOSER than `PULL_SQL`: every row the pull could
+        // insert must also satisfy this query. It is looser today because it
+        // omits `board_column`, `issue`, `col.services_role IS NOT NULL` and a
+        // dozen further filters that `PULL_SQL` carries.
+        //
+        // Two edits break it, both SILENTLY:
+        //   * ADDING a filter or a join here that `PULL_SQL` does not have, and
+        //   * REMOVING a filter from `PULL_SQL` that this still has.
+        // Either makes the gate reject a card the pull would have taken, and
+        // the failure is `Ok(None)` forever — a card that never gets pulled,
+        // with no error, no log line and nothing red. Widening `PULL_SQL` is
+        // always safe; widening the gate is not.
+        // `a_card_that_matches_the_pull_passes_the_gate` is the guard on this.
         //
         // The gate is a READ, and in WAL mode readers never wait for the write
         // lock, so it costs microseconds and cannot itself block. Checking is
