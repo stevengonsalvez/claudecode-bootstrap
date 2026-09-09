@@ -1155,8 +1155,10 @@ async fn run_tui_loop(
                                     "[ACTION] Failed to attach to other tmux session '{}': {}",
                                     session_name, e
                                 );
-                                app.state
-                                    .add_error_notification(format!("Failed to attach: {}", e));
+                                app.state.add_error_notification(attach_failure_notice(
+                                    &session_name,
+                                    &e,
+                                ));
                             }
                         }
 
@@ -1861,8 +1863,10 @@ async fn run_tui_loop(
                                         "[ACTION] Failed to attach to tmux session '{}': {}",
                                         tmux_session_name, e
                                     );
-                                    app.state
-                                        .add_error_notification(format!("Failed to attach: {}", e));
+                                    app.state.add_error_notification(attach_failure_notice(
+                                        &tmux_session_name,
+                                        &e,
+                                    ));
                                 }
                             }
 
@@ -1919,6 +1923,26 @@ async fn run_tui_loop(
     }
 
     Ok(())
+}
+
+/// A tmux attach failure, naming the target and the two causes that produce it.
+///
+/// `Failed to attach: tmux attach-session failed with exit code: Some(1)` named
+/// neither the session nor anything the operator could act on. It is not
+/// laziness on the error's part: tmux prints its real reason to the terminal
+/// the TUI is about to repaint over, so an exit code is genuinely all that
+/// survives the round trip. What the caller knows and never said is the target
+/// and the two things that actually produce a bare exit 1 here.
+///
+/// Room for this is what `[ui] notice_error_secs` and `Ctrl+X` bought: at five
+/// seconds and one clipped line, a sentence like this would have been worse
+/// than the stub.
+fn attach_failure_notice(session_name: &str, error: &impl std::fmt::Display) -> String {
+    format!(
+        "Failed to attach to '{session_name}': {error}. Either the session ended after \
+         the list was drawn — press f to refresh — or it is the tmux session ainb is \
+         itself running in, which tmux refuses to nest."
+    )
 }
 
 fn setup_logging() {
@@ -2112,6 +2136,27 @@ where
         // Bare `ainb` (`None`) boots the TUI; any other subcommand (`run`,
         // `attach`, `auth`, …) is long-running — both take the JSONL file sink.
         _ => LogSink::JsonlFile,
+    }
+}
+
+#[cfg(test)]
+mod attach_failure_notice_tests {
+    use super::attach_failure_notice;
+
+    /// The three things the old one-liner never said.
+    #[test]
+    fn the_notice_names_the_target_the_error_and_what_to_do() {
+        let notice = attach_failure_notice(
+            "tmux_myrepo_main",
+            &"tmux attach-session failed with exit code: Some(1)",
+        );
+        assert!(notice.contains("tmux_myrepo_main"), "the target: {notice}");
+        assert!(notice.contains("exit code: Some(1)"), "the error: {notice}");
+        assert!(
+            notice.contains("press f to refresh"),
+            "the remedy: {notice}"
+        );
+        assert!(notice.contains("nest"), "the other cause: {notice}");
     }
 }
 

@@ -3897,3 +3897,187 @@ mod mcp_pool_config_screen_tests {
         assert_eq!(ctx.value.display(), "✗ Disabled");
     }
 }
+
+/// The notice surface: how long a message lives, how it is retired, and where
+/// it survives afterwards.
+#[cfg(test)]
+mod notice_surface_tests {
+    use crate::app::state::AppState;
+
+    /// Install a config whose notice lifetimes are known, so these assert
+    /// against the shipped behaviour and not the developer's own config.toml.
+    fn with_notice_config(error_secs: u64, info_secs: u64) -> crate::config::AppConfig {
+        let mut config = crate::config::AppConfig::default();
+        config.ui.notice_error_secs = error_secs;
+        config.ui.notice_info_secs = info_secs;
+        config
+    }
+
+    /// The number the user asked for. Pinned separately from every test that
+    /// exercises expiry, because none of those can afford to wait a minute —
+    /// they inject a short lifetime instead, and this is what stops the
+    /// shipped value drifting behind them.
+    #[test]
+    fn an_error_notice_lives_for_one_minute_out_of_the_box() {
+        let ui = crate::config::AppConfig::default().ui;
+        assert_eq!(ui.notice_error_secs, 60, "an error notice lasts a minute");
+        assert_eq!(
+            ui.notice_warning_secs, 20,
+            "a warning outlives an info and is outlived by an error"
+        );
+        assert_eq!(
+            ui.notice_info_secs, 10,
+            "an info notice lasts long enough to read"
+        );
+    }
+
+    #[test]
+    fn each_level_takes_its_lifetime_from_config() {
+        let _lock = crate::config::tunables::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        crate::config::tunables::install_snapshot(with_notice_config(45, 7));
+
+        use crate::app::state::Notification;
+        assert_eq!(
+            Notification::error("boom".into()).duration,
+            std::time::Duration::from_secs(45)
+        );
+        assert_eq!(
+            Notification::info("fyi".into()).duration,
+            std::time::Duration::from_secs(7)
+        );
+        // A success is a receipt for something the operator just did and has
+        // no configurable lifetime at all.
+        assert_eq!(
+            Notification::success("done".into()).duration,
+            std::time::Duration::from_secs(3)
+        );
+
+        crate::config::tunables::install_snapshot(crate::config::AppConfig::default());
+    }
+
+    /// A lifetime of zero would make a notice expire before its first repaint.
+    #[test]
+    fn a_zero_lifetime_still_leaves_the_notice_readable() {
+        let _lock = crate::config::tunables::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        crate::config::tunables::install_snapshot(with_notice_config(0, 0));
+
+        let notice = crate::app::state::Notification::error("boom".into());
+        assert!(
+            notice.duration >= std::time::Duration::from_secs(1),
+            "a zero lifetime must not make an error invisible"
+        );
+
+        crate::config::tunables::install_snapshot(crate::config::AppConfig::default());
+    }
+
+    #[test]
+    fn dismiss_clears_what_is_showing_and_reports_it() {
+        let mut state = AppState::new();
+        assert!(
+            !state.dismiss_notifications(),
+            "with an empty corner the chord must fall through, not be swallowed"
+        );
+
+        state.add_error_notification("a failure".to_string());
+        assert!(state.has_visible_notifications());
+        assert!(
+            state.dismiss_notifications(),
+            "a showing notice is dismissable"
+        );
+        assert!(state.get_current_notifications().is_empty());
+        assert!(!state.has_visible_notifications());
+    }
+
+    /// The flood guard. At five seconds a repeating producer's notices expired
+    /// about as fast as they arrived; at a minute each they would paper over
+    /// the screen instead — hiding the OTHER failures, which is the thing this
+    /// whole surface exists to prevent.
+    #[test]
+    fn an_identical_failure_refreshes_rather_than_stacks() {
+        let mut state = AppState::new();
+        for _ in 0..40 {
+            state.add_error_notification("the daemon is not answering".to_string());
+        }
+        assert_eq!(
+            state.get_current_notifications().len(),
+            1,
+            "the same failure repeated is still one failure"
+        );
+    }
+
+    /// An announcement is NOT folded together, because its repetition can be
+    /// the signal: `notify_codex_degraded` raises one identical sentence per
+    /// degraded session on purpose, and its own dedup exists specifically so
+    /// the second session is not answered with silence.
+    #[test]
+    fn an_announcement_is_not_folded_into_the_one_before_it() {
+        let mut state = AppState::new();
+        state.add_info_notification("started without shared remote control".to_string());
+        state.add_info_notification("started without shared remote control".to_string());
+        assert_eq!(
+            state.get_current_notifications().len(),
+            2,
+            "two announcements are two facts"
+        );
+    }
+
+    /// Coalescing only catches a repeated message. A producer that stamps an
+    /// id or a timestamp into the text defeats it, so the queue is capped too.
+    #[test]
+    fn a_stream_of_distinct_notices_is_capped() {
+        use crate::app::state::MAX_STORED_NOTIFICATIONS;
+        let mut state = AppState::new();
+        for i in 0..(MAX_STORED_NOTIFICATIONS * 3) {
+            state.add_error_notification(format!("failure {i}"));
+        }
+        let showing = state.get_current_notifications();
+        assert_eq!(showing.len(), MAX_STORED_NOTIFICATIONS);
+        // Oldest go first: they are nearest to expiring anyway, and the app
+        // log kept every one of them.
+        assert!(
+            showing
+                .last()
+                .unwrap()
+                .message
+                .ends_with(&format!("failure {}", MAX_STORED_NOTIFICATIONS * 3 - 1)),
+            "the newest failure must survive the cap"
+        );
+        assert!(
+            !showing.iter().any(|n| n.message == "failure 0"),
+            "the oldest failure is the one dropped"
+        );
+    }
+
+    /// Refreshing a duplicate must restart its clock, or a failure that keeps
+    /// happening would vanish on the FIRST one's schedule.
+    #[test]
+    fn a_refreshed_notice_restarts_its_clock() {
+        let _lock = crate::config::tunables::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        crate::config::tunables::install_snapshot(with_notice_config(1, 1));
+
+        let mut state = AppState::new();
+        state.add_error_notification("still failing".to_string());
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        assert!(
+            state.get_current_notifications().is_empty(),
+            "the injected one-second lifetime must actually expire"
+        );
+
+        state.add_error_notification("still failing".to_string());
+        state.cleanup_expired_notifications();
+        state.add_error_notification("still failing".to_string());
+        assert_eq!(
+            state.get_current_notifications().len(),
+            1,
+            "a re-raised failure is showing again on a fresh clock"
+        );
+
+        crate::config::tunables::install_snapshot(crate::config::AppConfig::default());
+    }
+}

@@ -508,6 +508,14 @@ jobs:
           cargo test -p ainb --test tripwire_sessions_answer_outcome_per_question
           --no-fail-fast
         working-directory: ${{ env.WORKING_DIR }}
+      - name: Tripwire — a notice is readable, dismissable, and kept in the log
+        if: >-
+          !cancelled() && (github.event_name != 'pull_request' ||
+          needs.changes.outputs.relevant != 'false')
+        run: >-
+          cargo test -p ainb --test tripwire_notice_dismiss_and_expiry
+          --no-fail-fast
+        working-directory: ${{ env.WORKING_DIR }}
       - name: Sandbox script safety guards (rm -rf belts)
         if: >-
           !cancelled() && (github.event_name != 'pull_request' ||

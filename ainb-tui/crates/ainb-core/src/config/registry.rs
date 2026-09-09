@@ -677,6 +677,27 @@ pub static CONFIG_REGISTRY: &[Entry] = &[
         help: "Milliseconds in which two clicks count as one double-click",
         kind: RowKind::Number { min: 50, max: 2000 },
     }),
+    Entry::Row(ConfigRow {
+        key: "ui.notice_error_secs",
+        category: C::Appearance,
+        label: "Error Notice Lifetime",
+        help: "Seconds an error notice stays up; Ctrl+X retires it sooner, the log keeps it after",
+        kind: RowKind::Number { min: 1, max: 3600 },
+    }),
+    Entry::Row(ConfigRow {
+        key: "ui.notice_warning_secs",
+        category: C::Appearance,
+        label: "Warning Notice Lifetime",
+        help: "Seconds a warning notice stays up before it retires itself",
+        kind: RowKind::Number { min: 1, max: 3600 },
+    }),
+    Entry::Row(ConfigRow {
+        key: "ui.notice_info_secs",
+        category: C::Appearance,
+        label: "Info Notice Lifetime",
+        help: "Seconds an info notice stays up before it retires itself",
+        kind: RowKind::Number { min: 1, max: 3600 },
+    }),
     // ── Docker ─────────────────────────────────────────────────────────────
     Entry::Row(ConfigRow {
         key: "docker.host",
@@ -1953,6 +1974,9 @@ mod tests {
                 attention_err_window_hours: 4,
                 inbox_list_limit: 100,
                 double_click_ms: 400,
+                notice_error_secs: 90,
+                notice_warning_secs: 30,
+                notice_info_secs: 15,
             },
             daemons: DaemonsConfig {
                 stale_after_ms: 120_000,
