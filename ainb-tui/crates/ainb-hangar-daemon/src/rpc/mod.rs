@@ -356,10 +356,24 @@ async fn serve_conn(
     broker: EventBroker,
 ) -> std::io::Result<()> {
     // Gate 1 — kernel peer credentials: only this user's processes may talk to
-    // the control plane. Reject + close on mismatch (or on a cred-read fault).
-    if !auth::same_uid_peer(&stream).unwrap_or(false) {
-        tracing::warn!("hangar rpc: rejected connection from foreign-uid peer");
-        return Ok(());
+    // the control plane. All three outcomes close the connection; they differ
+    // only in what the daemon claims happened. A cred-read fault used to be
+    // logged as a foreign-uid peer, which on macOS meant every connect-and-drop
+    // liveness probe was filed as an intrusion attempt — 25 a minute of them,
+    // drowning the one line that would mean something.
+    match auth::classify_peer(&stream) {
+        auth::PeerGate::SameUid => {}
+        auth::PeerGate::ForeignUid => {
+            tracing::warn!("hangar rpc: rejected connection from foreign-uid peer");
+            return Ok(());
+        }
+        auth::PeerGate::Unreadable(e) => {
+            tracing::debug!(
+                error = %e,
+                "hangar rpc: closed a connection whose peer credentials could not be read"
+            );
+            return Ok(());
+        }
     }
 
     let (read_half, mut write_half) = stream.into_split();
