@@ -53,6 +53,15 @@ const DISMISS_HINT: &str = "Ctrl+X dismiss";
 /// The session list's tab strip, flattened. Unique to that screen.
 const SESSION_LIST_MARKER: &str = "preview ask err";
 
+/// The tail of the session name the attach failure quotes.
+///
+/// The name is deliberately longer than a notice row, so the box has to BREAK
+/// it rather than break before it. Doubled because a break lands every ~60
+/// cells and cannot fall inside both copies, so one always survives whole —
+/// and if the row were clipped at the border instead of broken, neither would
+/// reach the screen at all. That is the difference this asserts.
+const NAME_TAIL: &str = "tailmark";
+
 /// The warning `$` raises with no workspace selected. Deliberately unrelated
 /// wording, so the expiry half cannot pass on the dismiss half's leftovers.
 const WARNING_TEXT: &str = "No workspace selected";
@@ -259,7 +268,11 @@ fn an_error_notice_carries_its_remedy_is_dismissable_and_outlives_itself_in_the_
     seed_isolated_home(home_tmp.path());
     let tmux = Tmux {
         socket: format!("ainb-notice-{}", std::process::id()),
-        session: format!("tripwire-notice-{}", std::process::id()),
+        // Longer than a notice row on purpose: see NAME_TAIL.
+        session: format!(
+            "tripwire-notice-{}-a-name-long-enough-to-need-breaking-{NAME_TAIL}-{NAME_TAIL}",
+            std::process::id()
+        ),
     };
     launch_to_session_list(&tmux, home_tmp.path());
 
@@ -287,6 +300,16 @@ fn an_error_notice_carries_its_remedy_is_dismissable_and_outlives_itself_in_the_
         if !shown.contains(token) {
             tmux.bail(&format!("the notice is missing {token:?}"));
         }
+    }
+
+    // And the session name — one token wider than the box — was BROKEN across
+    // rows, not run past the border and clipped. Clipping would take the tail
+    // and everything after it, which is most of the message.
+    if !shown.contains(NAME_TAIL) {
+        tmux.bail(&format!(
+            "the quoted session name was clipped at the border: {NAME_TAIL:?} never \
+             reached the screen"
+        ));
     }
 
     // ── 2. The box advertises the key that retires it ───────────────────────
