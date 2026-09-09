@@ -18,6 +18,64 @@ const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
+/// Notice boxes drawn at once. The rest are counted in a "+N more" line.
+const MAX_VISIBLE_NOTIFICATIONS: usize = 4;
+/// Wrapped rows of message a single notice box may grow to.
+const NOTIFICATION_MAX_TEXT_ROWS: usize = 6;
+/// Widest a notice box gets, before the terminal's own width is applied.
+const NOTIFICATION_MAX_WIDTH: u16 = 64;
+/// Narrowest box still worth drawing a border around.
+const NOTIFICATION_MIN_WIDTH: u16 = 28;
+/// Printed on the notice stack itself, per the keybinding-hints-near-the-
+/// control rule. Matches the chord wired in `events::handle_key_event`.
+pub const NOTIFICATION_DISMISS_HINT: &str = "Ctrl+X dismiss";
+/// Where a dismissed or expired notice can still be read.
+pub const NOTIFICATION_LOG_HINT: &str = "l from home";
+
+/// Greedy word-wrap for a notice, with the level icon on the first row and the
+/// continuation rows indented under the text.
+///
+/// Terminal cell width, not `char` count: an emoji in a message (this codebase
+/// puts them in plenty) is two cells wide and a `char`-counted wrap overflows
+/// the border by exactly as many emoji as the line holds.
+fn wrap_notification(message: &str, icon: &str, width: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
+
+    let indent = " ".repeat(UnicodeWidthStr::width(icon));
+    let body = width.saturating_sub(UnicodeWidthStr::width(icon)).max(1);
+
+    let mut rows: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in message.split_whitespace() {
+        let candidate_width = if current.is_empty() {
+            UnicodeWidthStr::width(word)
+        } else {
+            UnicodeWidthStr::width(current.as_str()) + 1 + UnicodeWidthStr::width(word)
+        };
+        if !current.is_empty() && candidate_width > body {
+            rows.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() || rows.is_empty() {
+        rows.push(current);
+    }
+
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, row)| {
+            if i == 0 {
+                format!("{icon}{row}")
+            } else {
+                format!("{indent}{row}")
+            }
+        })
+        .collect()
+}
+
 use super::{
     ClaudeChatComponent, ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent,
     LogsViewerComponent, NewSessionComponent, SessionListComponent, TmuxPreviewPane,
@@ -868,74 +926,123 @@ impl LayoutComponent {
         frame.render_widget(status, area);
     }
 
+    /// Draw the notice stack in the top-right corner.
+    ///
+    /// Sized from the message rather than pinned at one line, because a notice
+    /// that lives for a minute can afford to say what happened and what to do
+    /// about it. The old fixed 50x3 box silently clipped anything past ~48
+    /// columns, which is why the messages feeding it were written terse.
+    ///
+    /// Bounded three ways so a long-lived notice cannot take the screen: at
+    /// most [`MAX_VISIBLE_NOTIFICATIONS`] boxes, at most
+    /// [`NOTIFICATION_MAX_TEXT_ROWS`] wrapped rows each, and never past the
+    /// bottom of `area`. Anything suppressed is counted in a trailing "+N
+    /// more" so the surface never quietly shows less than it has.
     fn render_notifications(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let notifications = state.get_current_notifications();
         if notifications.is_empty() {
             return;
         }
 
-        // Position notifications in the top-right corner
-        let notification_width = 50;
-        let notification_height = notifications.len() as u16 * 3; // 3 lines per notification
+        // Newest matter most, so an old notice is the one that gets dropped —
+        // but keep the surviving ones in arrival order, which is how they have
+        // always read top to bottom.
+        let shown = notifications.len().min(MAX_VISIBLE_NOTIFICATIONS);
+        let suppressed = notifications.len() - shown;
+        let visible = &notifications[notifications.len() - shown..];
 
-        let notification_area = Rect {
-            x: area.width.saturating_sub(notification_width + 2),
-            y: 1,
-            width: notification_width,
-            height: notification_height.min(area.height.saturating_sub(2)),
-        };
+        let width = NOTIFICATION_MAX_WIDTH
+            .min(area.width.saturating_sub(4))
+            .max(NOTIFICATION_MIN_WIDTH);
+        if area.width < NOTIFICATION_MIN_WIDTH + 2 || area.height < 4 {
+            return; // Terminal too small to draw a box that says anything.
+        }
+        let text_width = width.saturating_sub(2) as usize;
+        let x = area.width.saturating_sub(width + 2);
+        let bottom = area.height.saturating_sub(1);
 
-        // Render each notification
-        for (i, notification) in notifications.iter().enumerate() {
-            let y_offset = i as u16 * 3;
-            if y_offset >= notification_area.height {
-                break; // Don't render notifications that won't fit
+        let mut y = 1;
+        let mut drawn = 0usize;
+        for (index, notification) in visible.iter().enumerate() {
+            let (icon, text_color) = match notification.notification_type {
+                crate::app::state::NotificationType::Success => ("✓ ", SELECTION_GREEN),
+                crate::app::state::NotificationType::Error => ("✗ ", Color::Rgb(230, 100, 100)),
+                crate::app::state::NotificationType::Warning => ("⚠ ", WARNING_ORANGE),
+                crate::app::state::NotificationType::Info => ("ℹ ", CORNFLOWER_BLUE),
+            };
+
+            let rows = wrap_notification(&notification.message, icon, text_width);
+            let height = (rows.len() as u16 + 2).min(NOTIFICATION_MAX_TEXT_ROWS as u16 + 2);
+            if y + height > bottom {
+                break; // Out of screen; the rest are counted as suppressed.
             }
 
-            let single_notification_area = Rect {
-                x: notification_area.x,
-                y: notification_area.y + y_offset,
-                width: notification_area.width,
-                height: 3.min(notification_area.height - y_offset),
-            };
+            let mut block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(text_color))
+                .style(Style::default().bg(PANEL_BG));
+            // The hint belongs on the control it operates, and the control is
+            // the stack, not any one box — so it goes on the last one drawn,
+            // unless a "+N more" line follows and carries it instead.
+            if index + 1 == visible.len() && suppressed == 0 {
+                block = block.title_bottom(
+                    Line::from(Span::styled(
+                        format!(" {NOTIFICATION_DISMISS_HINT} "),
+                        Style::default().fg(MUTED_GRAY),
+                    ))
+                    .right_aligned(),
+                );
+            }
 
-            let (icon, text_color, border_color) = match notification.notification_type {
-                crate::app::state::NotificationType::Success => {
-                    ("✓ ", SELECTION_GREEN, SELECTION_GREEN)
-                }
-                crate::app::state::NotificationType::Error => {
-                    ("✗ ", Color::Rgb(230, 100, 100), Color::Rgb(230, 100, 100))
-                }
-                crate::app::state::NotificationType::Warning => {
-                    ("⚠ ", WARNING_ORANGE, WARNING_ORANGE)
-                }
-                crate::app::state::NotificationType::Info => {
-                    ("ℹ ", CORNFLOWER_BLUE, CORNFLOWER_BLUE)
-                }
-            };
+            let lines: Vec<Line> = rows
+                .iter()
+                .take(NOTIFICATION_MAX_TEXT_ROWS)
+                .map(|row| Line::from(Span::styled(row.clone(), Style::default().fg(text_color))))
+                .collect();
 
-            let notification_line = Line::from(vec![
-                Span::styled(
-                    icon,
-                    Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    notification.message.as_str(),
-                    Style::default().fg(text_color),
-                ),
-            ]);
+            frame.render_widget(
+                Paragraph::new(lines).block(block),
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+            );
+            y += height;
+            drawn += 1;
+        }
 
-            let notification_widget = Paragraph::new(notification_line)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(border_color))
-                        .style(Style::default().bg(PANEL_BG)),
-                )
-                .wrap(ratatui::widgets::Wrap { trim: true });
-
-            frame.render_widget(notification_widget, single_notification_area);
+        let hidden = notifications.len() - drawn;
+        if hidden > 0 && y + 3 <= bottom {
+            let more = Paragraph::new(Line::from(Span::styled(
+                format!("+{hidden} more — see the log ({NOTIFICATION_LOG_HINT})"),
+                Style::default().fg(MUTED_GRAY),
+            )))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(SUBDUED_BORDER))
+                    .style(Style::default().bg(PANEL_BG))
+                    .title_bottom(
+                        Line::from(Span::styled(
+                            format!(" {NOTIFICATION_DISMISS_HINT} "),
+                            Style::default().fg(MUTED_GRAY),
+                        ))
+                        .right_aligned(),
+                    ),
+            );
+            frame.render_widget(
+                more,
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height: 3,
+                },
+            );
         }
     }
 
@@ -1653,5 +1760,87 @@ mod interactive_embed_size_tests {
     fn never_returns_zero_cells() {
         assert_eq!(interactive_embed_size(0, 0, 5, true), (1, 1));
         assert_eq!(interactive_embed_size(7, 14, 40, true), (1, 1));
+    }
+}
+
+#[cfg(test)]
+mod notification_layout_tests {
+    use super::*;
+    use unicode_width::UnicodeWidthStr;
+
+    /// Every row a notice draws must fit inside the box, or the border is
+    /// overwritten and the message reads as corrupted rather than long.
+    #[test]
+    fn no_wrapped_row_is_wider_than_the_box() {
+        let width = 40;
+        let message = "No session selected to attach. Pick a session row with the arrow keys \
+                       and press a again; press n to start one.";
+        for row in wrap_notification(message, "✗ ", width) {
+            assert!(
+                UnicodeWidthStr::width(row.as_str()) <= width,
+                "row overflows the {width}-cell box: {row:?}"
+            );
+        }
+    }
+
+    /// Cell width, not `char` count. This codebase puts emoji in plenty of
+    /// notices and each one is two cells wide; counting `char`s overflows the
+    /// border by exactly as many emoji as the row holds.
+    #[test]
+    fn an_emoji_counts_as_the_two_cells_it_paints() {
+        let width = 20;
+        let message = "⚠️ 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥 🔥";
+        for row in wrap_notification(message, "⚠ ", width) {
+            assert!(
+                UnicodeWidthStr::width(row.as_str()) <= width,
+                "emoji row overflows the {width}-cell box: {row:?}"
+            );
+        }
+    }
+
+    /// A detailed message is what the longer lifetime buys, so it must survive
+    /// the trip to the screen instead of being clipped to one line.
+    #[test]
+    fn a_detailed_message_wraps_instead_of_being_clipped() {
+        let message = "Codex bridge conflict. Restart Ainb, then retry. \
+                       Cause: Codex app-server WebSocket handshake failed: invalid token";
+        let rows = wrap_notification(message, "✗ ", 60);
+        assert!(rows.len() > 1, "a long message must occupy several rows");
+        let rejoined = rows.join(" ");
+        for word in ["Restart", "Cause:", "handshake", "token"] {
+            assert!(
+                rejoined.contains(word),
+                "wrapping dropped {word:?} from the notice: {rejoined:?}"
+            );
+        }
+    }
+
+    /// The first row carries the level icon and the rest line up under the
+    /// text, so a three-row failure reads as one message.
+    #[test]
+    fn continuation_rows_align_under_the_first() {
+        let rows = wrap_notification("one two three four five six seven eight", "✗ ", 14);
+        assert!(rows[0].starts_with("✗ "));
+        for row in &rows[1..] {
+            assert!(
+                row.starts_with("  "),
+                "continuation row not indented: {row:?}"
+            );
+        }
+    }
+
+    /// An empty message must still produce a row, or the box collapses to its
+    /// two borders and paints as a stray rectangle.
+    #[test]
+    fn an_empty_message_still_draws_one_row() {
+        assert_eq!(wrap_notification("", "ℹ ", 20).len(), 1);
+    }
+
+    /// A word longer than the box (a path, a token) cannot be broken on
+    /// whitespace. It must not take the wrap loop with it.
+    #[test]
+    fn a_word_wider_than_the_box_does_not_hang_the_wrap() {
+        let rows = wrap_notification(&"x".repeat(200), "✗ ", 20);
+        assert_eq!(rows.len(), 1, "an unbreakable word occupies its own row");
     }
 }
