@@ -66,6 +66,12 @@ pub struct InteractiveSession {
     pub headroom_enabled: bool,       // Route this session's CLI through the local Headroom proxy
     pub rtk_enabled: bool,            // RTK PreToolUse hook wired in session's worktree
     pub codex_thread_id: Option<String>, // Exact shared app-server thread for Codex sessions
+    /// Why this launch has no shared thread, when it has none.
+    ///
+    /// Transient, not persisted: it describes THIS launch, and a later one on a
+    /// recovered daemon would be lying if it inherited the value. `None` means
+    /// either a shared thread exists or the session is not Codex.
+    pub codex_degrade: Option<SharedThreadDegrade>,
 }
 
 /// How the persisted model value should be interpreted.
@@ -170,12 +176,18 @@ fn resolved_hangar_home() -> String {
 /// Whether a daemon error means there is no daemon to talk to at all, as
 /// opposed to a daemon that answered and the exchange then went wrong.
 ///
-/// Only the first class may degrade. `NoHome` and `Token` are what
+/// `NoHome` and `Token` are what
 /// [`crate::fleet::bridge::daemon::DaemonClient::from_env`] reports when the
 /// home is unresolvable or the token file is absent, which is what a home no
 /// daemon has ever booted on looks like; `Connect` is the dial itself finding
-/// nothing listening. Everything else (`Rpc`, `Decode`, `Io`, `Timeout`) means
-/// the daemon IS there, so it stays a hard failure the user is told to act on.
+/// nothing listening.
+///
+/// This predicate is about REACHABILITY only. A daemon that answered is not
+/// unreachable, so `Rpc`, `Decode`, `Io` and `Timeout` all stay hard failures
+/// here. Exactly one of them degrades, and it is classified separately by
+/// [`daemon_store_unavailable`] rather than widened into this one, so that
+/// "nothing is listening" and "the store is busy" keep telling the user
+/// different things.
 fn daemon_unreachable(error: &crate::fleet::bridge::daemon::DaemonError) -> bool {
     use crate::fleet::bridge::daemon::DaemonError;
     matches!(
@@ -194,13 +206,122 @@ fn unreachable_daemon_warning(error: &crate::fleet::bridge::daemon::DaemonError)
     )
 }
 
+/// Whether the daemon answered that its store was too contended to serve.
+///
+/// One code, matched exactly. `STORE_UNAVAILABLE` is the daemon's word for "the
+/// request was fine, `SQLite` was busy, nothing was read or written" — a fault
+/// in a component that is load-bearing for the SHARED thread and nothing else,
+/// so it costs this session exactly what an absent daemon costs it.
+///
+/// Deliberately NOT `-32603`: that is the daemon's catch-all and also carries
+/// "Ainb Codex remote control unavailable: still starting", which must stay a
+/// hard failure the user acts on. Widening this to the catch-all would swallow
+/// it — `still_starting_stays_a_hard_failure` is the pin.
+///
+/// Matched on the code and never on the message: a busy store surfaces as
+/// `database is locked` under result code 5 on one platform and 517 on another,
+/// and 517 is a different bug class that this must not degrade over.
+fn daemon_store_unavailable(error: &crate::fleet::bridge::daemon::DaemonError) -> bool {
+    use crate::fleet::bridge::daemon::DaemonError;
+    matches!(error, DaemonError::Rpc { code, .. } if *code == ainb_hangar_proto::STORE_UNAVAILABLE)
+}
+
+/// What the user is told when the daemon's store is too busy to serve.
+///
+/// Names the cause and the consequence, and offers NO retry: the launch it is
+/// attached to SUCCEEDED without shared remote control, so there is nothing to
+/// try again. Retrying is what used to run the failed-session cleanup over a
+/// worktree that had just been cloned.
+fn busy_store_warning(error: &crate::fleet::bridge::daemon::DaemonError) -> String {
+    format!(
+        "the Hangar store is too busy to answer ({error}); this Codex session started WITHOUT \
+         shared remote control - the phone and any other app-server client cannot join its \
+         conversation. Nothing to retry: the session is running. Restart the Hangar daemon to \
+         restore shared remote control for later sessions"
+    )
+}
+
+/// Why a Codex session runs WITHOUT shared remote control.
+///
+/// The launch succeeded in every one of these cases. The variant names what it
+/// cost and why, so the on-screen notice can say the cause out loud instead of
+/// sending the user to the daemon log for a fact Ainb already had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharedThreadDegrade {
+    /// The hangar home is ephemeral, so no daemon will ever serve it.
+    EphemeralHome,
+    /// Nothing answered on the socket: no home, no token, or no listener.
+    NoDaemon,
+    /// The daemon answered that its store was too contended to serve.
+    StoreBusy,
+}
+
+impl SharedThreadDegrade {
+    /// The cause, in the few words a notification line has room for.
+    #[must_use]
+    pub const fn cause(self) -> &'static str {
+        match self {
+            Self::EphemeralHome => "ephemeral hangar home",
+            Self::NoDaemon => "no Hangar daemon",
+            Self::StoreBusy => "Hangar store busy",
+        }
+    }
+
+    /// The on-screen sentence: what happened, and what it cost.
+    ///
+    /// The log keeps the long form (the resolved home, the transport error, the
+    /// SQLite code); this is the short form, and it still names the cause,
+    /// because "no shared remote control" alone is the message that sent the
+    /// user back to a 30 MB log.
+    #[must_use]
+    pub fn notice(self) -> String {
+        format!(
+            "Codex started without shared remote control ({}) - the phone and other \
+             app-server clients cannot join this conversation",
+            self.cause()
+        )
+    }
+}
+
+/// What establishing the shared Codex thread produced for one launch.
+///
+/// Replaces a bare `Option`: `None` said the session had no shared thread but
+/// not WHY, so every caller that wanted to tell the user had to go and ask the
+/// log. The degrade reason rides back with the outcome instead.
+#[derive(Debug)]
+pub(crate) enum CodexRemote {
+    /// The daemon owns a shared thread for this session.
+    Shared(ainb_hangar_proto::fleet::CodexSessionEnsureResult),
+    /// The session runs without one, for this reason.
+    Degraded(SharedThreadDegrade),
+}
+
+impl CodexRemote {
+    /// The reason this launch has no shared thread, if it has none.
+    pub(crate) const fn degrade(&self) -> Option<SharedThreadDegrade> {
+        match self {
+            Self::Shared(_) => None,
+            Self::Degraded(reason) => Some(*reason),
+        }
+    }
+
+    /// The shared thread, if there is one.
+    pub(crate) fn thread(self) -> Option<ainb_hangar_proto::fleet::CodexSessionEnsureResult> {
+        match self {
+            Self::Shared(remote) => Some(remote),
+            Self::Degraded(_) => None,
+        }
+    }
+}
+
 /// Create or resume one exact shared Codex app-server thread for Interactive.
 ///
-/// `Ok(None)` is a successful launch WITHOUT shared remote control: the reason
-/// has already been warned about, and the session runs the provider CLI
-/// directly, which is the same path a non-Codex session and a Codex session
-/// with the feature disabled take. Callers must not treat it as a failure, and
-/// in particular must not roll back a worktree over it.
+/// [`CodexRemote::Degraded`] is a successful launch WITHOUT shared remote
+/// control: the reason has already been warned about, it rides back on the
+/// outcome so the caller can say it on screen, and the session runs the
+/// provider CLI directly, which is the same path a non-Codex session and a
+/// Codex session with the feature disabled take. Callers must not treat it as
+/// a failure, and in particular must not roll back a worktree over it.
 pub(crate) async fn ensure_codex_remote_thread(
     session_id: Uuid,
     cwd: &std::path::Path,
@@ -208,7 +329,7 @@ pub(crate) async fn ensure_codex_remote_thread(
     skip_permissions: bool,
     headroom_enabled: bool,
     existing_thread_id: Option<String>,
-) -> anyhow::Result<Option<ainb_hangar_proto::fleet::CodexSessionEnsureResult>> {
+) -> anyhow::Result<CodexRemote> {
     if headroom_enabled {
         anyhow::bail!(
             "Codex Headroom is unavailable with shared remote control; disable Headroom for this session"
@@ -253,7 +374,7 @@ async fn ensure_codex_remote_thread_with<Ensure, Exchange>(
     autostart: impl FnOnce() -> crate::cli::hangar::DaemonAutostart,
     home: impl FnOnce() -> String,
     ensure: Ensure,
-) -> anyhow::Result<Option<ainb_hangar_proto::fleet::CodexSessionEnsureResult>>
+) -> anyhow::Result<CodexRemote>
 where
     Ensure: FnOnce() -> Exchange,
     Exchange: std::future::Future<
@@ -264,10 +385,10 @@ where
         >,
 {
     if !shared_remote_control_available(autostart(), home) {
-        return Ok(None);
+        return Ok(CodexRemote::Degraded(SharedThreadDegrade::EphemeralHome));
     }
     match ensure().await {
-        Ok(remote) => Ok(Some(remote)),
+        Ok(remote) => Ok(CodexRemote::Shared(remote)),
         // No daemon answered: an unresolvable home, no token file, or nothing
         // listening on the socket. The daemon is load-bearing for the SHARED
         // thread and nothing else, so this costs the session exactly the same
@@ -277,7 +398,15 @@ where
         // had just created.
         Err(error) if daemon_unreachable(&error) => {
             warn!("{}", unreachable_daemon_warning(&error));
-            Ok(None)
+            Ok(CodexRemote::Degraded(SharedThreadDegrade::NoDaemon))
+        }
+        // The daemon answered, and answered that it could not reach its store.
+        // Same cost as no daemon at all (the shared thread, nothing else), so
+        // the same degrade: a wedged store must not turn a launch into a
+        // failure whose cleanup deletes the worktree the launch just cloned.
+        Err(error) if daemon_store_unavailable(&error) => {
+            warn!("{}", busy_store_warning(&error));
+            Ok(CodexRemote::Degraded(SharedThreadDegrade::StoreBusy))
         }
         Err(error) => {
             let message = format_codex_remote_control_failure(&error.to_string());
@@ -309,8 +438,9 @@ fn format_codex_remote_control_failure(cause: &str) -> &'static str {
 /// Wait briefly for the freshly started remote terminal to publish its exact
 /// thread identity through the daemon's app-server event stream.
 ///
-/// `Ok(None)` carries the same meaning as in [`ensure_codex_remote_thread`]:
-/// shared remote control is unavailable and the session runs without it.
+/// [`CodexRemote::Degraded`] carries the same meaning as in
+/// [`ensure_codex_remote_thread`]: shared remote control is unavailable and the
+/// session runs without it.
 pub(crate) async fn claim_codex_remote_thread(
     session_id: Uuid,
     cwd: &std::path::Path,
@@ -318,11 +448,11 @@ pub(crate) async fn claim_codex_remote_thread(
     skip_permissions: bool,
     headroom_enabled: bool,
     tmux_session: &str,
-) -> anyhow::Result<Option<ainb_hangar_proto::fleet::CodexSessionEnsureResult>> {
+) -> anyhow::Result<CodexRemote> {
     let exact_target = format!("={tmux_session}");
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        let Some(remote) = ensure_codex_remote_thread(
+        let outcome = ensure_codex_remote_thread(
             session_id,
             cwd,
             model,
@@ -330,15 +460,17 @@ pub(crate) async fn claim_codex_remote_thread(
             headroom_enabled,
             None,
         )
-        .await?
-        else {
+        .await?;
+        let remote = match outcome {
             // Shared remote control is unavailable, so there is no thread to
-            // wait for. Report that once rather than spending the 10s deadline
-            // re-asking a question whose answer cannot change.
-            return Ok(None);
+            // wait for. Report that once, carrying the reason, rather than
+            // spending the 10s deadline re-asking a question whose answer
+            // cannot change.
+            CodexRemote::Degraded(reason) => return Ok(CodexRemote::Degraded(reason)),
+            CodexRemote::Shared(remote) => remote,
         };
         if remote.thread_id.is_some() {
-            return Ok(Some(remote));
+            return Ok(CodexRemote::Shared(remote));
         }
         // Checked BEFORE the deadline, because the common failure is not slow,
         // it is instant: Codex prints one line and exits inside a second. It
@@ -1151,6 +1283,10 @@ impl InteractiveSessionManager {
             }
         }
 
+        // Why this session has no shared thread, when it has none: carried onto
+        // the session so the TUI can say the cause on screen instead of leaving
+        // it in the daemon log.
+        let mut codex_degrade = None;
         let codex_remote = if agent_type == SessionAgentType::Codex {
             match ensure_codex_remote_thread(
                 session_id,
@@ -1162,7 +1298,10 @@ impl InteractiveSessionManager {
             )
             .await
             {
-                Ok(remote) => remote,
+                Ok(outcome) => {
+                    codex_degrade = outcome.degrade();
+                    outcome.thread()
+                }
                 Err(error) => {
                     rollback_failed_interactive_launch(
                         session_id,
@@ -1245,7 +1384,12 @@ impl InteractiveSessionManager {
             )
             .await
             {
-                Ok(remote) => remote,
+                Ok(outcome) => {
+                    // A claim that degrades is still a degrade: keep the reason
+                    // the claim reports, so the notice names it.
+                    codex_degrade = outcome.degrade().or(codex_degrade);
+                    outcome.thread()
+                }
                 Err(error) => {
                     rollback_failed_interactive_launch(
                         session_id,
@@ -1277,6 +1421,7 @@ impl InteractiveSessionManager {
             headroom_enabled,
             rtk_enabled,
             codex_thread_id: codex_remote.as_ref().and_then(|remote| remote.thread_id.clone()),
+            codex_degrade,
         };
 
         self.active_sessions.insert(session_id, session.clone());
@@ -1412,6 +1557,10 @@ impl InteractiveSessionManager {
             }
         }
 
+        // Why this session has no shared thread, when it has none: carried onto
+        // the session so the TUI can say the cause on screen instead of leaving
+        // it in the daemon log.
+        let mut codex_degrade = None;
         let codex_remote = if agent_type == SessionAgentType::Codex {
             match ensure_codex_remote_thread(
                 session_id,
@@ -1423,7 +1572,10 @@ impl InteractiveSessionManager {
             )
             .await
             {
-                Ok(remote) => remote,
+                Ok(outcome) => {
+                    codex_degrade = outcome.degrade();
+                    outcome.thread()
+                }
                 Err(error) => {
                     rollback_failed_interactive_launch(session_id, None, rollback_worktree).await;
                     return Err(error
@@ -1503,7 +1655,12 @@ impl InteractiveSessionManager {
             )
             .await
             {
-                Ok(remote) => remote,
+                Ok(outcome) => {
+                    // A claim that degrades is still a degrade: keep the reason
+                    // the claim reports, so the notice names it.
+                    codex_degrade = outcome.degrade().or(codex_degrade);
+                    outcome.thread()
+                }
                 Err(error) => {
                     rollback_failed_interactive_launch(
                         session_id,
@@ -1536,6 +1693,7 @@ impl InteractiveSessionManager {
             headroom_enabled,
             rtk_enabled,
             codex_thread_id: codex_remote.as_ref().and_then(|remote| remote.thread_id.clone()),
+            codex_degrade,
         };
 
         self.active_sessions.insert(session_id, session.clone());
@@ -1683,6 +1841,9 @@ impl InteractiveSessionManager {
                     headroom_enabled: metadata.headroom_enabled,
                     rtk_enabled: metadata.rtk_enabled,
                     codex_thread_id: metadata.codex_thread_id.clone(),
+                    // Rediscovery, not a launch: nothing was attempted, so
+                    // there is no degrade to announce.
+                    codex_degrade: None,
                 });
             } else {
                 debug!(
@@ -1735,6 +1896,8 @@ impl InteractiveSessionManager {
                     headroom_enabled: false,
                     rtk_enabled: false,
                     codex_thread_id: None,
+                    // Rediscovery, not a launch: see above.
+                    codex_degrade: None,
                 });
             }
         }
@@ -4945,10 +5108,11 @@ trust_level = "trusted"
         .await
         .expect("an ephemeral home must not fail the launch");
 
-        assert!(
-            remote.is_none(),
+        assert_eq!(
+            remote.degrade(),
+            Some(super::SharedThreadDegrade::EphemeralHome),
             "the session must launch with no shared remote thread, exactly as one with the \
-             feature disabled does"
+             feature disabled does, and name the ephemeral home as the reason"
         );
     }
 
@@ -4995,8 +5159,9 @@ trust_level = "trusted"
             .await
             .unwrap_or_else(|failure| panic!("{warning} must not fail the launch: {failure:#}"));
 
-            assert!(
-                remote.is_none(),
+            assert_eq!(
+                remote.degrade(),
+                Some(super::SharedThreadDegrade::NoDaemon),
                 "the session must launch with no shared remote thread: {warning}"
             );
             assert!(
@@ -5032,6 +5197,104 @@ trust_level = "trusted"
         assert!(
             failure.to_string().contains("Codex unavailable"),
             "the user must get the short next action: {failure:#}"
+        );
+    }
+
+    /// A daemon whose STORE is wedged costs the session its shared thread and
+    /// nothing else, so the launch continues.
+    ///
+    /// This is the failure that hit a real machine after the connect degrade
+    /// shipped: the daemon was running and its socket was bound, so nothing
+    /// looked unreachable, but every write timed out on a held `SQLite` write
+    /// lock. The RPC error became "Codex remote control unavailable ... then
+    /// retry", and that retry is what runs the failed-session cleanup over a
+    /// worktree the launch had just cloned.
+    ///
+    /// Asserting the LAUNCH, not just the classification: a degrade that is
+    /// computed and then ignored still passes a classifier-only test.
+    #[tokio::test]
+    async fn a_wedged_store_launches_codex_without_a_remote_thread() {
+        use crate::cli::hangar::DaemonAutostart;
+        use crate::fleet::bridge::daemon::DaemonError;
+
+        let error = DaemonError::Rpc {
+            code: ainb_hangar_proto::STORE_UNAVAILABLE,
+            message: "read Interactive Codex thread: error returned from database: \
+                      (code: 5) database is locked"
+                .to_string(),
+        };
+        let warning = super::busy_store_warning(&error);
+
+        let remote = super::ensure_codex_remote_thread_with(
+            // A durable home and a daemon that started, so neither the
+            // ephemeral degrade nor the unreachable degrade can be what
+            // rescues this launch.
+            || DaemonAutostart::Started,
+            || panic!("a durable home must not be reported as ephemeral"),
+            || async { Err(error) },
+        )
+        .await
+        .unwrap_or_else(|failure| panic!("a wedged store must not fail the launch: {failure:#}"));
+
+        assert_eq!(
+            remote.degrade(),
+            Some(super::SharedThreadDegrade::StoreBusy),
+            "the session must launch with no shared remote thread, and name the busy \
+             store as the reason: {warning}"
+        );
+        assert!(
+            warning.contains("too busy"),
+            "the warning must name the cause: {warning}"
+        );
+        assert!(
+            warning.contains("shared remote control"),
+            "the warning must name what the session loses: {warning}"
+        );
+        assert!(
+            warning.contains("Nothing to retry"),
+            "the launch SUCCEEDED, so the warning must say so outright: {warning}"
+        );
+        // The advice forms the other branches use, none of which may appear
+        // here: retrying is what runs the cleanup over the cloned worktree.
+        for advice in ["then retry", "Retry session", "retry in"] {
+            assert!(
+                !warning.contains(advice),
+                "the warning must not advise a retry ({advice:?}): {warning}"
+            );
+        }
+    }
+
+    /// A daemon whose Codex transport is still warming up stays a HARD failure.
+    ///
+    /// The pin on the degrade. `still starting` is answered with the daemon's
+    /// catch-all `-32603`, one code away from the store-unavailable degrade,
+    /// and it is genuinely worth retrying in a few seconds. A future widening
+    /// of `daemon_store_unavailable` to the catch-all would swallow it and
+    /// hand the user a session whose shared thread never appears.
+    #[tokio::test]
+    async fn still_starting_stays_a_hard_failure() {
+        use crate::cli::hangar::DaemonAutostart;
+        use crate::fleet::bridge::daemon::DaemonError;
+
+        let failure = super::ensure_codex_remote_thread_with(
+            || DaemonAutostart::Started,
+            || panic!("a durable home must not be reported as ephemeral"),
+            || async {
+                Err(DaemonError::Rpc {
+                    // -32603, the daemon's INTERNAL_ERROR: deliberately NOT the
+                    // code the degrade admits.
+                    code: -32603,
+                    message: "Ainb Codex remote control unavailable: still starting".to_string(),
+                })
+            },
+        )
+        .await
+        .expect_err("a warming-up Codex transport must still fail the launch");
+
+        assert!(
+            failure.to_string().contains("Retry session in 5 seconds"),
+            "the user must be told to retry, which is only safe because this is NOT \
+             the wedged-store path: {failure:#}"
         );
     }
 }

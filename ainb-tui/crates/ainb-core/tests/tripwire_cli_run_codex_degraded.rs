@@ -185,6 +185,25 @@ fn a_codex_run_without_a_shared_thread_launches_and_keeps_its_worktree() {
         String::from_utf8_lossy(&out.stderr)
     );
 
+    // The user is TOLD, on the surface they are looking at, that this launch
+    // has no shared thread and why. `ainb run` has no notification strip, so
+    // stderr is its equivalent of the TUI banner. Without this the degrade is
+    // silent: the session works, the phone never joins, and nothing on screen
+    // ever connects those two facts.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("without shared remote control"),
+        "a degraded run must say so on screen: {stderr}"
+    );
+    assert!(
+        stderr.contains("ephemeral hangar home"),
+        "the notice must name the CAUSE, not just the loss: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot join this conversation"),
+        "the notice must name what it cost: {stderr}"
+    );
+
     // The worktree the run created is still there. This is the assertion the
     // incident is about: the old failure path ran failed-session cleanup, which
     // resolves `by-session/<uuid>` and deletes what it points at.
