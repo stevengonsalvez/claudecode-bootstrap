@@ -149,15 +149,10 @@ fn session_list_legend_advertises_every_panel() {
 
     // The panel line renders the six shortcuts together; wait for the
     // whole group so we don't race a half-painted legend.
-    //
-    // Same 90s budget as its sibling and as `launch_to_home`: this one has not
-    // failed in CI yet, but it waits on a key landing after startup in exactly
-    // the same way, so leaving it at 40s just means a loaded runner finds it
-    // later instead of now.
     let cap = poll_capture_resending(
         &session,
         "s",
-        Instant::now() + Duration::from_secs(90),
+        Instant::now() + Duration::from_secs(40),
         |c| c.contains("i stats") && c.contains("t abtop"),
     );
     let final_cap = cap.unwrap_or_else(|| capture_pane(&session));
@@ -200,16 +195,10 @@ fn help_overlay_documents_panels_section() {
 
     // `?` opens the global help overlay. Re-send during the bounded startup
     // window because the terminal can paint before its first key is accepted.
-    //
-    // The budget matches `launch_to_home`'s 90s rather than a dev machine's
-    // 30s: this tripwire is named in CI now, and on a loaded runner the home
-    // screen paints well before the app takes its first key. At 30s it failed
-    // in CI with the splash still up and the overlay never opened, while
-    // passing locally in under three seconds.
     let cap = poll_capture_resending(
         &session,
         "?",
-        Instant::now() + Duration::from_secs(90),
+        Instant::now() + Duration::from_secs(30),
         |c| c.contains("Panels (closing returns here)"),
     );
     let final_cap = cap.unwrap_or_else(|| capture_pane(&session));
