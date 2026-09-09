@@ -10604,6 +10604,7 @@ async fn run_card_inner(
     }
 
     let task_id = SystemIdGen.new_ulid();
+    let _write_tx_timer = ainb_hangar_store::write_tx_timer!();
     let mut tx = pool.begin().await.map_err(CardRunError::Db)?;
     TaskRepo::insert_in_tx(
         &mut tx,

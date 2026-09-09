@@ -110,6 +110,7 @@ impl PipelineService {
 
         let board_id = idgen.new_ulid();
         let now = clock.now_ms();
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO board (id, workspace_id, name, auto_move, created_at) \

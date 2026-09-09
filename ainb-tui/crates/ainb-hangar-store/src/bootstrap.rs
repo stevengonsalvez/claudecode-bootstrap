@@ -201,6 +201,7 @@ pub async fn ensure_default_workspace(pool: &SqlitePool) -> Result<String, sqlx:
     // caller — the workspace exists — so on a unique violation we roll back and
     // return the winner's id (which is committed + visible on a fresh connection
     // under WAL).
+    let _write_tx_timer = crate::write_tx_timer!();
     let mut tx = pool.begin().await?;
     // `issue_prefix` is left NULL (the HGR display id lives at the render layer).
     let insert_ws =

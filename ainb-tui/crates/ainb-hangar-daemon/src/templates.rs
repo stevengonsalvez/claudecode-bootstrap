@@ -146,6 +146,7 @@ pub async fn templates_use(
 
     // The agent row and every junction insert share one transaction: any failure
     // rolls back all of them, so a partially-built agent can never be observed.
+    let _write_tx_timer = ainb_hangar_store::write_tx_timer!();
     let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT INTO agent \

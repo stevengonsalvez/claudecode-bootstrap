@@ -180,6 +180,7 @@ impl SquadRepo {
         squad_id: &str,
         member: &ActorRef,
     ) -> Result<(), SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         sqlx::query(
@@ -215,6 +216,7 @@ impl SquadRepo {
         member: &ActorRef,
         role: &str,
     ) -> Result<(), SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         sqlx::query(
@@ -255,6 +257,7 @@ impl SquadRepo {
         member: &ActorRef,
         role: &str,
     ) -> Result<bool, SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         let res = sqlx::query(
@@ -294,6 +297,7 @@ impl SquadRepo {
         squad_id: &str,
         instructions: &str,
     ) -> Result<(), SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         sqlx::query("UPDATE squad SET instructions = ? WHERE id = ? AND workspace_id = ?")
@@ -322,6 +326,7 @@ impl SquadRepo {
         squad_id: &str,
         member: &ActorRef,
     ) -> Result<(), SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         sqlx::query(
@@ -579,6 +584,7 @@ impl SquadRepo {
         by: Option<&ActorRef>,
         now_ms: i64,
     ) -> Result<(), SquadRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_squad_in_ws(&mut tx, workspace, squad_id).await?;
         sqlx::query(

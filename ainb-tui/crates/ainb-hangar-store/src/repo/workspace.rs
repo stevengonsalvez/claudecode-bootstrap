@@ -134,6 +134,7 @@ impl WorkspaceRepo {
         let now = SystemClock.now_ms();
         let stored_prefix = issue_prefix.map(str::to_ascii_uppercase);
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let insert_ws = sqlx::query(
             "INSERT INTO workspace (id, slug, name, created_at, issue_prefix) \
@@ -268,6 +269,7 @@ impl WorkspaceRepo {
             return Err(WorkspaceRepoError::NotFound);
         }
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         // Defer FK checks to COMMIT so intra-transaction statement order is
         // irrelevant; the committed state is consistent because every referencing

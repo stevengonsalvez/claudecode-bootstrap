@@ -205,6 +205,7 @@ impl BoardRepo {
         name: Option<&str>,
         auto_move: Option<bool>,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         if let Some(n) = name {
@@ -245,6 +246,7 @@ impl BoardRepo {
         workspace: &WorkspaceId,
         board_id: &str,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         sqlx::query("DELETE FROM board_card WHERE board_id = ?")
@@ -281,6 +283,7 @@ impl BoardRepo {
         fsm_state: Option<&str>,
         auto_move: bool,
     ) -> Result<String, BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         // An auto-move column must be the sole target for its state on the board
@@ -335,6 +338,7 @@ impl BoardRepo {
         auto_move: Option<bool>,
         stage_prompt: Option<Option<&str>>,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_column_in_ws(&mut tx, workspace, board_id, column_id).await?;
         // Compute the column's EFFECTIVE (auto_move, fsm_state) after this partial
@@ -406,6 +410,7 @@ impl BoardRepo {
         board_id: &str,
         column_id: &str,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_column_in_ws(&mut tx, workspace, board_id, column_id).await?;
         // Park the deleted column's cards at NULL (the unmapped pool).
@@ -439,6 +444,7 @@ impl BoardRepo {
         board_id: &str,
         ordered_ids: &[String],
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         // The reorder set must be exactly the board's current columns.
@@ -488,6 +494,7 @@ impl BoardRepo {
         column_id: Option<&str>,
         added_at: i64,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         Self::ensure_issue_in_ws(&mut tx, workspace, issue_id).await?;
@@ -531,6 +538,7 @@ impl BoardRepo {
         issue_id: &str,
         column_id: Option<&str>,
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         if let Some(col) = column_id {
@@ -578,6 +586,7 @@ impl BoardRepo {
         column_id: Option<&str>,
         ordered_issue_ids: &[String],
     ) -> Result<(), BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         if let Some(col) = column_id {
@@ -640,6 +649,7 @@ impl BoardRepo {
         board_id: &str,
         issue_id: &str,
     ) -> Result<CardRemoveOutcome, BoardRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_board_in_ws(&mut tx, workspace, board_id).await?;
         let on_board: Option<i64> =

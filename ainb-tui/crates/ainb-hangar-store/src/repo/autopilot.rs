@@ -433,6 +433,7 @@ impl AutopilotRepo {
         let next_tick_at = compute_next_tick(&req.cron_expr, now_ms)?;
         let id = SystemIdGen.new_ulid();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         sqlx::query(
@@ -523,6 +524,7 @@ impl AutopilotRepo {
         edit: &AutopilotEdit,
         actor: Option<&ActorRef>,
     ) -> Result<UpdateOutcome, AutopilotRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         let before = sqlx::query_as::<_, Autopilot>(&format!(
@@ -715,6 +717,7 @@ impl AutopilotRepo {
         id: &AutopilotId,
         actor: Option<&ActorRef>,
     ) -> Result<(), AutopilotRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let Some(before) = sqlx::query_as::<_, Autopilot>(&format!(
             "SELECT {AUTOPILOT_COLUMNS} FROM autopilot WHERE id = ? AND workspace_id = ?"
@@ -792,6 +795,7 @@ impl AutopilotRepo {
         id: &AutopilotId,
         actor: Option<&ActorRef>,
     ) -> Result<(), AutopilotRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         // Read the stored row, scoped to the workspace.
         let Some(before) = sqlx::query_as::<_, Autopilot>(&format!(
@@ -905,6 +909,7 @@ impl AutopilotRepo {
         enabled: bool,
         actor: Option<&ActorRef>,
     ) -> Result<bool, AutopilotRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let Some(before) = sqlx::query_as::<_, Autopilot>(&format!(
             "SELECT {AUTOPILOT_COLUMNS} FROM autopilot WHERE id = ? AND workspace_id = ?"

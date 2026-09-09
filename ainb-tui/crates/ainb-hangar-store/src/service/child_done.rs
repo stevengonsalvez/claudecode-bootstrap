@@ -241,6 +241,7 @@ pub async fn cascade_children_done(
         //    crash between them is impossible and two racing daemons resolve to
         //    exactly one winner.
         let comment_id = idgen.new_ulid();
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let mut claimed: Vec<Barrier> = Vec::new();
         for b in &barriers {

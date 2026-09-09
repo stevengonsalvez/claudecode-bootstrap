@@ -635,6 +635,7 @@ impl IssueRepo {
         ids: &[String],
         state: &str,
     ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let mut changed = Vec::new();
         for id in ids {
@@ -938,6 +939,7 @@ impl IssueRepo {
         workspace_id: &str,
         issue_id: &str,
     ) -> Result<IssueDeleteSummary, IssueDeleteError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         // Resolve the issue within its workspace; a foreign / unknown id is
@@ -1128,6 +1130,7 @@ impl IssueRepo {
         at: i64,
         by: Option<&str>,
     ) -> Result<Issue, CriterionError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         let raw: Option<String> = sqlx::query_scalar(

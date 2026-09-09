@@ -472,6 +472,7 @@ impl FleetAcpSessionRepo {
         pool: &SqlitePool,
         turn: &TurnEnd<'_>,
     ) -> Result<TurnEndOutcome, FleetAcpSessionError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let claimed = super::fleet_message::FleetMessageRepo::resolve_pending_in_tx(
             &mut tx,
@@ -526,6 +527,7 @@ impl FleetAcpSessionRepo {
         session: &NewFleetAcpSession,
         event: &super::fleet::NewFleetEvent,
     ) -> Result<(FleetAcpSessionRow, Option<i64>), FleetAcpSessionError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let inserted = sqlx::query(
             "INSERT INTO fleet_acp_session \

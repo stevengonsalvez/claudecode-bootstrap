@@ -237,6 +237,7 @@ impl CardDependencyRepo {
             LinkKind::BlockedBy | LinkKind::Related => (from_issue_id, to_issue_id),
         };
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         Self::ensure_issue_in_ws(&mut tx, workspace, dependent_issue_id).await?;
         Self::ensure_issue_in_ws(&mut tx, workspace, blocker_issue_id).await?;

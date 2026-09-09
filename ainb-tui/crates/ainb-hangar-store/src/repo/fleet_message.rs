@@ -213,6 +213,7 @@ impl FleetMessageRepo {
         message: &NewFleetMessage,
         targets: &[String],
     ) -> Result<FleetMessageRow, FleetMessageError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let result = sqlx::query(
             "INSERT INTO fleet_message \

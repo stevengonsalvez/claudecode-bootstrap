@@ -269,6 +269,7 @@ impl FleetProviderEventRepo {
         if events.is_empty() {
             return Ok(None);
         }
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let mut high_water: Option<i64> = None;
         for event in events {

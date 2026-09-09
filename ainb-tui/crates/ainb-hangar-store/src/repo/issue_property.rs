@@ -137,6 +137,7 @@ impl IssuePropertyRepo {
         }
         validate_definition(kind, options)?;
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let existing: Option<String> =
             sqlx::query_scalar("SELECT id FROM issue_property WHERE workspace_id = ? AND key = ?")
@@ -275,6 +276,7 @@ impl IssuePropertyRepo {
         archived: bool,
         now: i64,
     ) -> Result<bool, PropertyRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let existing: Option<(String, Option<i64>)> = sqlx::query_as(
             "SELECT id, archived_at FROM issue_property WHERE workspace_id = ? AND key = ?",

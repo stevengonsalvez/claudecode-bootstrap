@@ -88,6 +88,7 @@ impl LabelRepo {
         name: &str,
         color: Option<&str>,
     ) -> Result<(), LabelRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         ensure_issue_in_workspace(&mut tx, workspace, issue_id).await?;
 
@@ -142,6 +143,7 @@ impl LabelRepo {
         issue_id: &str,
         name: &str,
     ) -> Result<(), LabelRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         ensure_issue_in_workspace(&mut tx, workspace, issue_id).await?;
 

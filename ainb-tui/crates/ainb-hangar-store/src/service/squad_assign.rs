@@ -432,6 +432,7 @@ impl SquadAssignService {
         let leader_task_id = idgen.new_ulid();
         let members = Vec::new();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         TaskRepo::insert_in_tx(
             &mut tx,
@@ -604,6 +605,7 @@ impl SquadAssignService {
 
         let run_group = idgen.new_ulid();
         let mut dispatched = Vec::with_capacity(targets.len());
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         for (agent_id, runtime_id) in targets {
             let task_id = idgen.new_ulid();

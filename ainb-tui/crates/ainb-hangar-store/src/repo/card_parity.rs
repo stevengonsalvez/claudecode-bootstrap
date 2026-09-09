@@ -643,6 +643,7 @@ mod tests {
             Some((None, AgentKind::Claude))
         );
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await.unwrap();
         CardParityRepo::set_task_repo_agent_in_tx(&mut tx, "t1", Some("scratch"), AgentKind::Codex)
             .await
@@ -783,6 +784,7 @@ mod tests {
         sqlx::query("INSERT INTO agent (id, workspace_id, name, runtime_id, instructions, visibility, owner_id) VALUES ('ag','ws-a','A','rt','x','workspace','u')").execute(pool).await.unwrap();
         sqlx::query("INSERT INTO agent_task_queue (id, workspace_id, runtime_id, agent_id, status, created_at) VALUES ('t1','ws-a','rt','ag','queued',0)").execute(pool).await.unwrap();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await.unwrap();
         CardParityRepo::set_task_source_branch_in_tx(&mut tx, "t1", Some("feature/x"))
             .await

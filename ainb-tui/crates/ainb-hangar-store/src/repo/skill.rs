@@ -337,6 +337,7 @@ impl SkillRepo {
         let name = SkillName::new(name)?;
         let new_id = SystemIdGen.new_ulid();
 
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
 
         // Upsert the parent row. On conflict the existing `id` is preserved
@@ -640,6 +641,7 @@ impl SkillRepo {
         workspace: &WorkspaceId,
         id: &SkillId,
     ) -> Result<(), sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         // Scope the child cascade through the parent's workspace: only delete
         // files whose skill is owned by `workspace`.
@@ -703,6 +705,7 @@ impl SkillRepo {
         content: Option<&str>,
         files: &[SkillFileInput],
     ) -> Result<(), sqlx::Error> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO skill (id, workspace_id, name, description, content) \

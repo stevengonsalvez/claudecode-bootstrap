@@ -121,6 +121,7 @@ impl MemberRepo {
         email: &str,
         role: MemberRole,
     ) -> Result<Member, MemberRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let member = Self::add_in_tx(&mut tx, workspace, email, role).await?;
         tx.commit().await?;
@@ -346,6 +347,7 @@ impl MemberRepo {
         user_id: &str,
         role: MemberRole,
     ) -> Result<(), MemberRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let current = member_role_in_tx(&mut tx, workspace, user_id).await?;
         let Some(current) = current else {
@@ -388,6 +390,7 @@ impl MemberRepo {
         workspace: &WorkspaceId,
         user_id: &str,
     ) -> Result<(), MemberRepoError> {
+        let _write_tx_timer = crate::write_tx_timer!();
         let mut tx = pool.begin().await?;
         let current = member_role_in_tx(&mut tx, workspace, user_id).await?;
         let Some(current) = current else {
