@@ -8538,7 +8538,11 @@ impl AppState {
                 // log and the modal closed silently — the user saw a flash and
                 // never learned why (Stevie 2026-06-06). cancel_new_session()
                 // leaves self.notifications intact, so the 5s toast survives.
-                self.add_error_notification(format!("Could not create session: {e}"));
+                // `{e:#}` for the same reason the `error!` above uses it: with
+                // `{e}` the toast showed only the outermost context and dropped
+                // the cause the user needs. The log and the screen must not
+                // disagree about what went wrong.
+                self.add_error_notification(format!("Could not create session: {e:#}"));
                 self.cancel_new_session();
             }
         }
@@ -9581,7 +9585,10 @@ impl AppState {
                 // See the configure-flow comment: `{:#}` keeps the cause.
                 error!("Failed to create Interactive session: {:#}", e);
                 if let Some(logs) = self.logs.get_mut(&session_id) {
-                    logs.push(format!("Session creation failed: {}", e));
+                    // `{:#}`, matching the `error!` above: the session log is
+                    // read instead of the daemon log, so dropping the cause
+                    // chain here hides it from the person most likely to look.
+                    logs.push(format!("Session creation failed: {:#}", e));
                 }
                 Err(Box::new(e))
             }
