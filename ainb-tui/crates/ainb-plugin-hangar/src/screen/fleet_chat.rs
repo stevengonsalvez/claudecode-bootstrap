@@ -1013,6 +1013,33 @@ impl ChatState {
         self.receipts_at_ms = None;
     }
 
+    /// Record what a write has to say, `detail` verbatim.
+    ///
+    /// Not the twin of [`Self::apply_send_failure`] for the other VERDICT: the
+    /// twin of it for everything that is not a send. That one is more than a
+    /// sentence, and both of the extras it adds belong to a send and only to a
+    /// send. It prefixes the row with "send failed", which is a lie on any
+    /// write that posted no message, and it drops the last send's delivery
+    /// legs, which is right only because a send that failed has none.
+    ///
+    /// A cancel showed why the split is by subject and not by verdict. Its
+    /// legs are the legs of the send whose turn is being cancelled, and that
+    /// send is still there on both verdicts: it succeeded, or it refused and
+    /// the turn is still running. Clearing them told the operator the send had
+    /// no recipients at the exact moment they needed to see which ones were
+    /// still in flight.
+    ///
+    /// So the caller words it. A failure says it failed; this only declines to
+    /// call it a SEND failure and leaves the legs alone.
+    pub fn apply_notice(&mut self, detail: String) {
+        // The write's request has come back, which is the end of it, exactly as
+        // for the two outcomes either side of this one. `cancel_open_turns`
+        // latches this before emitting, so leaving it set would refuse the next
+        // cancel with "a cancel is already in flight" until a poll cleared it.
+        self.in_flight = false;
+        self.feedback = Some(detail);
+    }
+
     /// Fold one send's per-recipient legs in.
     ///
     /// The summary says how many legs did NOT deliver, because that is the
