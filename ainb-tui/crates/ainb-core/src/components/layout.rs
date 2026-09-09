@@ -32,12 +32,38 @@ pub const NOTIFICATION_DISMISS_HINT: &str = "Ctrl+X dismiss";
 /// Where a dismissed or expired notice can still be read.
 pub const NOTIFICATION_LOG_HINT: &str = "l from home";
 
+/// The glyph a notice's level is drawn with.
+fn notice_icon(notification: &crate::app::state::Notification) -> &'static str {
+    match notification.notification_type {
+        crate::app::state::NotificationType::Success => "✓ ",
+        crate::app::state::NotificationType::Error => "✗ ",
+        crate::app::state::NotificationType::Warning => "⚠ ",
+        crate::app::state::NotificationType::Info => "ℹ ",
+    }
+}
+
+/// The colour a notice's level is drawn in.
+fn notice_color(notification: &crate::app::state::Notification) -> Color {
+    match notification.notification_type {
+        crate::app::state::NotificationType::Success => SELECTION_GREEN,
+        crate::app::state::NotificationType::Error => Color::Rgb(230, 100, 100),
+        crate::app::state::NotificationType::Warning => WARNING_ORANGE,
+        crate::app::state::NotificationType::Info => CORNFLOWER_BLUE,
+    }
+}
+
 /// Greedy word-wrap for a notice, with the level icon on the first row and the
 /// continuation rows indented under the text.
 ///
 /// Terminal cell width, not `char` count: an emoji in a message (this codebase
 /// puts them in plenty) is two cells wide and a `char`-counted wrap overflows
 /// the border by exactly as many emoji as the line holds.
+///
+/// Breaking between words is not enough. An ainb failure names worktree paths,
+/// tmux session names and URLs, and a single one of those is routinely wider
+/// than the whole box — so a token that cannot fit is split across rows rather
+/// than allowed to run past the border, where the `Paragraph` would clip it and
+/// take the rest of the message with it.
 fn wrap_notification(message: &str, icon: &str, width: usize) -> Vec<String> {
     use unicode_width::UnicodeWidthStr;
 
@@ -47,6 +73,19 @@ fn wrap_notification(message: &str, icon: &str, width: usize) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
     let mut current = String::new();
     for word in message.split_whitespace() {
+        if UnicodeWidthStr::width(word) > body {
+            // Nothing to be gained by starting it on a fresh row: it does not
+            // fit on one either. Fill the current row, then break the rest at
+            // the border.
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            let mut chunks = split_to_width(&format!("{current}{word}"), body);
+            // The tail stays open so a following word can share its row.
+            current = chunks.pop().unwrap_or_default();
+            rows.extend(chunks);
+            continue;
+        }
         let candidate_width = if current.is_empty() {
             UnicodeWidthStr::width(word)
         } else {
@@ -74,6 +113,97 @@ fn wrap_notification(message: &str, icon: &str, width: usize) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Cut `text` into pieces at most `width` CELLS wide.
+///
+/// Always advances by at least one character, so a character wider than
+/// `width` (a two-cell glyph in a one-cell budget) overflows by a cell rather
+/// than looping forever.
+fn split_to_width(text: &str, width: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthChar;
+
+    let width = width.max(1);
+    let mut pieces: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let cells = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if !current.is_empty() && used + cells > width {
+            pieces.push(std::mem::take(&mut current));
+            used = 0;
+        }
+        current.push(ch);
+        used += cells;
+    }
+    if !current.is_empty() {
+        pieces.push(current);
+    }
+    if pieces.is_empty() {
+        pieces.push(String::new());
+    }
+    pieces
+}
+
+/// Trim `rows` to `max`, replacing the last kept row with a marker naming what
+/// was dropped.
+///
+/// Silently dropping the tail is what the old fixed-height box did, and it is
+/// the reason messages were written short: a notice that stops mid-sentence
+/// with no marker tells the operator nothing was missing. Returns the rows to
+/// draw and how many were dropped.
+fn clamp_notice_rows(rows: Vec<String>, max: usize, width: usize) -> (Vec<String>, usize) {
+    if rows.len() <= max {
+        return (rows, 0);
+    }
+    let keep = max.saturating_sub(1);
+    let dropped = rows.len() - keep;
+    let mut kept: Vec<String> = rows.into_iter().take(keep).collect();
+    kept.push(more_lines_marker(dropped, width));
+    (kept, dropped)
+}
+
+/// The widest "N more lines" marker that fits `width` cells.
+fn more_lines_marker(dropped: usize, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+
+    for candidate in [
+        format!("… +{dropped} more lines — see the log"),
+        format!("… +{dropped} more lines"),
+        format!("… +{dropped}"),
+        "…".to_string(),
+    ] {
+        if UnicodeWidthStr::width(candidate.as_str()) <= width {
+            return candidate;
+        }
+    }
+    "…".to_string()
+}
+
+/// The bottom-border label for the last box drawn.
+///
+/// The dismiss hint is the part that cannot be dropped: it is the only place
+/// the chord is advertised while a notice is up, and no one guesses `Ctrl+X`.
+/// The suppressed-box count rides along when the border is wide enough for it.
+fn notice_footer(suppressed: usize, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+
+    let mut candidates = Vec::new();
+    if suppressed > 0 {
+        candidates.push(format!(
+            " +{suppressed} more · {NOTIFICATION_DISMISS_HINT} "
+        ));
+        candidates.push(format!("+{suppressed} more · {NOTIFICATION_DISMISS_HINT}"));
+    }
+    candidates.push(format!(" {NOTIFICATION_DISMISS_HINT} "));
+    candidates.push(NOTIFICATION_DISMISS_HINT.to_string());
+
+    for candidate in candidates {
+        if UnicodeWidthStr::width(candidate.as_str()) <= width {
+            return candidate;
+        }
+    }
+    NOTIFICATION_DISMISS_HINT.to_string()
 }
 
 use super::{
@@ -933,91 +1063,125 @@ impl LayoutComponent {
     /// about it. The old fixed 50x3 box silently clipped anything past ~48
     /// columns, which is why the messages feeding it were written terse.
     ///
-    /// Bounded three ways so a long-lived notice cannot take the screen: at
-    /// most [`MAX_VISIBLE_NOTIFICATIONS`] boxes, at most
-    /// [`NOTIFICATION_MAX_TEXT_ROWS`] wrapped rows each, and never past the
-    /// bottom of `area`. Anything suppressed is counted in a trailing "+N
-    /// more" so the surface never quietly shows less than it has.
+    /// Bounded so a long-lived notice cannot take the screen: at most
+    /// [`MAX_VISIBLE_NOTIFICATIONS`] boxes, at most
+    /// [`NOTIFICATION_MAX_TEXT_ROWS`] rows each, and never past the bottom of
+    /// `area`. Every bound announces itself — dropped rows leave a marker in
+    /// the box, dropped boxes are counted in the footer — because a surface
+    /// that quietly shows less than it has is the one this replaced.
+    ///
+    /// Planned before it is drawn. The dismiss hint has to land on whatever
+    /// element turns out to be last, and which element that is depends on how
+    /// much room the boxes above it took.
     fn render_notifications(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let notifications = state.get_current_notifications();
         if notifications.is_empty() {
             return;
         }
+        if area.width < NOTIFICATION_MIN_WIDTH + 2 || area.height < 4 {
+            return; // Terminal too small to draw a box that says anything.
+        }
 
-        // Newest matter most, so an old notice is the one that gets dropped —
-        // but keep the surviving ones in arrival order, which is how they have
-        // always read top to bottom.
+        // Newest matter most, so an old notice is the one dropped — but keep
+        // the survivors in arrival order, which is how they have always read.
         let shown = notifications.len().min(MAX_VISIBLE_NOTIFICATIONS);
-        let suppressed = notifications.len() - shown;
         let visible = &notifications[notifications.len() - shown..];
 
         let width = NOTIFICATION_MAX_WIDTH
             .min(area.width.saturating_sub(4))
             .max(NOTIFICATION_MIN_WIDTH);
-        if area.width < NOTIFICATION_MIN_WIDTH + 2 || area.height < 4 {
-            return; // Terminal too small to draw a box that says anything.
-        }
         let text_width = width.saturating_sub(2) as usize;
         let x = area.width.saturating_sub(width + 2);
         let bottom = area.height.saturating_sub(1);
 
-        let mut y = 1;
-        let mut drawn = 0usize;
-        for (index, notification) in visible.iter().enumerate() {
-            let (icon, text_color) = match notification.notification_type {
-                crate::app::state::NotificationType::Success => ("✓ ", SELECTION_GREEN),
-                crate::app::state::NotificationType::Error => ("✗ ", Color::Rgb(230, 100, 100)),
-                crate::app::state::NotificationType::Warning => ("⚠ ", WARNING_ORANGE),
-                crate::app::state::NotificationType::Info => ("ℹ ", CORNFLOWER_BLUE),
-            };
+        // ── Plan ────────────────────────────────────────────────────────────
+        struct Planned<'a> {
+            notification: &'a crate::app::state::Notification,
+            rows: Vec<String>,
+            y: u16,
+            height: u16,
+        }
 
-            let rows = wrap_notification(&notification.message, icon, text_width);
-            let height = (rows.len() as u16 + 2).min(NOTIFICATION_MAX_TEXT_ROWS as u16 + 2);
-            if y + height > bottom {
-                break; // Out of screen; the rest are counted as suppressed.
+        let mut planned: Vec<Planned> = Vec::new();
+        let mut y = 1u16;
+        for notification in visible {
+            let room = bottom.saturating_sub(y);
+            if room < 3 {
+                break; // Not even a one-row box fits below what came before.
             }
+            // Shrink to the room actually left rather than skipping the box:
+            // a notice nobody can see is worse than a notice cut short and
+            // saying so.
+            let max_rows = NOTIFICATION_MAX_TEXT_ROWS.min(room as usize - 2);
+            let (rows, _dropped) = clamp_notice_rows(
+                wrap_notification(&notification.message, notice_icon(notification), text_width),
+                max_rows,
+                text_width,
+            );
+            let height = rows.len() as u16 + 2;
+            planned.push(Planned {
+                notification,
+                rows,
+                y,
+                height,
+            });
+            y += height;
+        }
+        if planned.is_empty() {
+            return;
+        }
 
+        // Boxes that never made it onto the screen, either past the visible
+        // cap or past the bottom of the frame.
+        let suppressed = notifications.len() - planned.len();
+        // A dedicated line is clearer than a border label, so use one when
+        // there is room. When there is not, the footer carries the count.
+        let more_line_fits = suppressed > 0 && y + 3 <= bottom;
+        let footer_suppressed = if more_line_fits { 0 } else { suppressed };
+        let footer = notice_footer(footer_suppressed, width.saturating_sub(2) as usize);
+
+        // ── Draw ────────────────────────────────────────────────────────────
+        let last_index = planned.len() - 1;
+        for (index, item) in planned.iter().enumerate() {
+            let color = notice_color(item.notification);
             let mut block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(text_color))
+                .border_style(Style::default().fg(color))
                 .style(Style::default().bg(PANEL_BG));
-            // The hint belongs on the control it operates, and the control is
-            // the stack, not any one box — so it goes on the last one drawn,
-            // unless a "+N more" line follows and carries it instead.
-            if index + 1 == visible.len() && suppressed == 0 {
+            // The hint belongs on the control it operates, and it must be on
+            // SOMETHING: this is the only place the chord is advertised while
+            // a notice is up.
+            if index == last_index && !more_line_fits {
                 block = block.title_bottom(
                     Line::from(Span::styled(
-                        format!(" {NOTIFICATION_DISMISS_HINT} "),
+                        footer.clone(),
                         Style::default().fg(MUTED_GRAY),
                     ))
                     .right_aligned(),
                 );
             }
 
-            let lines: Vec<Line> = rows
+            let lines: Vec<Line> = item
+                .rows
                 .iter()
-                .take(NOTIFICATION_MAX_TEXT_ROWS)
-                .map(|row| Line::from(Span::styled(row.clone(), Style::default().fg(text_color))))
+                .map(|row| Line::from(Span::styled(row.clone(), Style::default().fg(color))))
                 .collect();
 
             frame.render_widget(
                 Paragraph::new(lines).block(block),
                 Rect {
                     x,
-                    y,
+                    y: item.y,
                     width,
-                    height,
+                    height: item.height,
                 },
             );
-            y += height;
-            drawn += 1;
         }
 
-        let hidden = notifications.len() - drawn;
-        if hidden > 0 && y + 3 <= bottom {
+        if more_line_fits {
             let more = Paragraph::new(Line::from(Span::styled(
-                format!("+{hidden} more — see the log ({NOTIFICATION_LOG_HINT})"),
+                format!("+{suppressed} more — see the log ({NOTIFICATION_LOG_HINT})"),
                 Style::default().fg(MUTED_GRAY),
             )))
             .block(
@@ -1027,11 +1191,8 @@ impl LayoutComponent {
                     .border_style(Style::default().fg(SUBDUED_BORDER))
                     .style(Style::default().bg(PANEL_BG))
                     .title_bottom(
-                        Line::from(Span::styled(
-                            format!(" {NOTIFICATION_DISMISS_HINT} "),
-                            Style::default().fg(MUTED_GRAY),
-                        ))
-                        .right_aligned(),
+                        Line::from(Span::styled(footer, Style::default().fg(MUTED_GRAY)))
+                            .right_aligned(),
                     ),
             );
             frame.render_widget(
@@ -1836,11 +1997,242 @@ mod notification_layout_tests {
         assert_eq!(wrap_notification("", "ℹ ", 20).len(), 1);
     }
 
-    /// A word longer than the box (a path, a token) cannot be broken on
-    /// whitespace. It must not take the wrap loop with it.
+    /// A token wider than the box is BROKEN, not run past the border.
+    ///
+    /// The previous version of this test asserted only the row count, which
+    /// stayed true while the row itself overflowed and the `Paragraph` clipped
+    /// it — losing the rest of the message. Assert the width.
     #[test]
-    fn a_word_wider_than_the_box_does_not_hang_the_wrap() {
-        let rows = wrap_notification(&"x".repeat(200), "✗ ", 20);
-        assert_eq!(rows.len(), 1, "an unbreakable word occupies its own row");
+    fn a_word_wider_than_the_box_is_broken_to_fit() {
+        let width = 20;
+        let rows = wrap_notification(&"x".repeat(200), "✗ ", width);
+        assert!(
+            rows.len() > 1,
+            "a 200-cell token cannot occupy one 20-cell row"
+        );
+        for row in &rows {
+            assert!(
+                UnicodeWidthStr::width(row.as_str()) <= width,
+                "row runs past the border and will be clipped: {row:?}"
+            );
+        }
+    }
+
+    /// And breaking it loses nothing. This is the case that matters: ainb
+    /// failures name worktree paths, and a clipped path is a message whose
+    /// second half never reaches the screen.
+    #[test]
+    fn a_worktree_path_survives_the_wrap_intact() {
+        let path =
+            "/Users/dev/.agents-in-a-box/worktrees/by-name/agents-in-a-box--f-improve--17a4b207";
+        let message = format!("Failed to attach to '{path}': no such session.");
+        let rows = wrap_notification(&message, "✗ ", 40);
+        for row in &rows {
+            assert!(
+                UnicodeWidthStr::width(row.as_str()) <= 40,
+                "row overflows: {row:?}"
+            );
+        }
+        let rejoined: String = rows
+            .iter()
+            .map(|r| r.trim_start_matches(['✗', '\u{a0}', ' ']))
+            .collect::<Vec<_>>()
+            .concat()
+            .replace(' ', "");
+        assert!(
+            rejoined.contains(&path.replace(' ', "")),
+            "the path did not survive wrapping: {rejoined}"
+        );
+    }
+
+    /// A one-cell budget must terminate, not loop forever on a two-cell glyph.
+    #[test]
+    fn a_glyph_wider_than_the_budget_still_terminates() {
+        let rows = wrap_notification("🔥🔥🔥", "", 1);
+        assert_eq!(rows.len(), 3, "each glyph takes its own row: {rows:?}");
+    }
+
+    /// Rows past the cap are marked, not silently dropped. A message that ends
+    /// mid-sentence with no marker is what this whole surface replaced.
+    #[test]
+    fn dropped_rows_leave_a_marker_that_names_the_count() {
+        let rows: Vec<String> = (0..20).map(|i| format!("row {i}")).collect();
+        let (kept, dropped) = clamp_notice_rows(rows, 6, 40);
+        assert_eq!(kept.len(), 6, "the cap is honoured");
+        assert_eq!(dropped, 15, "fifteen rows went, and the caller is told so");
+        assert!(
+            kept.last().unwrap().contains("15"),
+            "the marker must name what is missing: {:?}",
+            kept.last()
+        );
+        assert!(kept.last().unwrap().starts_with('…'));
+    }
+
+    #[test]
+    fn rows_within_the_cap_are_left_alone() {
+        let rows: Vec<String> = (0..4).map(|i| format!("row {i}")).collect();
+        let (kept, dropped) = clamp_notice_rows(rows.clone(), 6, 40);
+        assert_eq!(kept, rows);
+        assert_eq!(dropped, 0);
+    }
+
+    /// The marker itself must fit the box it is marking.
+    #[test]
+    fn the_marker_shrinks_to_the_width_it_has() {
+        for width in 1..40usize {
+            let marker = more_lines_marker(12, width);
+            assert!(
+                UnicodeWidthStr::width(marker.as_str()) <= width.max(1),
+                "marker overflows a {width}-cell row: {marker:?}"
+            );
+        }
+    }
+
+    /// The dismiss hint is the one part of the footer that cannot be dropped:
+    /// it is the only advertisement of the chord while a notice is up.
+    #[test]
+    fn the_footer_keeps_the_hint_at_every_width() {
+        for width in 1..70usize {
+            for suppressed in [0usize, 3, 12] {
+                let footer = notice_footer(suppressed, width);
+                assert!(
+                    footer.contains(NOTIFICATION_DISMISS_HINT),
+                    "the hint vanished at width {width} with {suppressed} suppressed: {footer:?}"
+                );
+            }
+        }
+    }
+
+    /// And it fits, once the border is wide enough to hold it at all.
+    #[test]
+    fn the_footer_fits_the_border_it_is_drawn_on() {
+        let usable = (NOTIFICATION_MIN_WIDTH - 2) as usize;
+        for suppressed in [0usize, 3, 12] {
+            let footer = notice_footer(suppressed, usable);
+            assert!(
+                UnicodeWidthStr::width(footer.as_str()) <= usable,
+                "footer overflows the narrowest box: {footer:?}"
+            );
+        }
+    }
+}
+
+/// The notice stack rendered against a real backend.
+///
+/// The wrap maths and the footer text are unit tested above; what those cannot
+/// see is which element ends up LAST on a given screen, and the dismiss hint
+/// rides on whichever one that is. On a short terminal the boxes are cut by the
+/// bottom of the frame and the "+N more" line has nowhere to go, and that is
+/// precisely where the hint used to disappear — from the one surface whose
+/// point is that it can be dismissed, by a chord nobody guesses.
+#[cfg(test)]
+mod notification_render_tests {
+    use super::*;
+    use crate::app::state::AppState;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn screen(width: u16, height: u16, messages: &[&str]) -> String {
+        let mut state = AppState::default();
+        for message in messages {
+            state.add_error_notification((*message).to_string());
+        }
+        let component = LayoutComponent::new();
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| component.render_notifications(frame, frame.area(), &state))
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        (0..buffer.area.height)
+            .map(|row| {
+                (0..buffer.area.width)
+                    .map(|col| buffer[(col, row)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn a_single_notice_carries_the_hint() {
+        let painted = screen(120, 20, &["the daemon is not answering"]);
+        assert!(
+            painted.contains(NOTIFICATION_DISMISS_HINT),
+            "no dismiss hint on screen:\n{painted}"
+        );
+        assert!(painted.contains("daemon is not answering"), "{painted}");
+    }
+
+    /// Boxes cut by the bottom of the frame, with no room left for the "+N
+    /// more" line either. The hint must still be somewhere.
+    #[test]
+    fn a_short_terminal_still_advertises_the_chord() {
+        let painted = screen(
+            120,
+            8,
+            &[
+                "first failure",
+                "second failure",
+                "third failure",
+                "fourth failure",
+            ],
+        );
+        assert!(
+            painted.contains(NOTIFICATION_DISMISS_HINT),
+            "the dismiss hint vanished on a short terminal:\n{painted}"
+        );
+    }
+
+    /// And what it could not show, it counts.
+    #[test]
+    fn what_does_not_fit_is_counted_not_dropped_in_silence() {
+        let painted = screen(
+            120,
+            8,
+            &[
+                "first failure",
+                "second failure",
+                "third failure",
+                "fourth failure",
+            ],
+        );
+        assert!(
+            painted.contains("more"),
+            "suppressed notices were not counted anywhere:\n{painted}"
+        );
+    }
+
+    /// A message longer than the box's row budget is cut with a marker naming
+    /// how much is missing, never trailing off mid-sentence.
+    #[test]
+    fn an_over_long_message_says_how_much_it_is_hiding() {
+        let long = format!("failure: {}", "detail ".repeat(120));
+        let painted = screen(120, 30, &[&long]);
+        assert!(
+            painted.contains("more lines"),
+            "a truncated message must say so:\n{painted}"
+        );
+    }
+
+    /// No row may run past the border. This is what a clipped path looked like
+    /// before the wrap learned to break a token.
+    #[test]
+    fn a_long_path_does_not_run_past_the_border() {
+        let path =
+            "/Users/dev/.agents-in-a-box/worktrees/by-name/agents-in-a-box--f-improve--17a4b207";
+        let painted = screen(120, 20, &[&format!("Failed to attach to '{path}': gone.")]);
+        // The right border column of every notice row must still be a border
+        // glyph. A row that overflowed would have overwritten it with text.
+        for line in painted.lines().filter(|l| l.contains('│') || l.contains('╮')) {
+            let trimmed = line.trim_end();
+            assert!(
+                trimmed.ends_with(['│', '╮', '╯']),
+                "text overwrote the notice border: {trimmed:?}"
+            );
+        }
+        assert!(
+            painted.contains("17a4b207"),
+            "the tail of the path never reached the screen:\n{painted}"
+        );
     }
 }
