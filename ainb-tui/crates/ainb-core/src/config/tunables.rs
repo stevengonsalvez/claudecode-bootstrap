@@ -400,6 +400,33 @@ pub struct UiConfig {
     /// edge. Raise it if your hands or your terminal are slow.
     #[serde(default = "default_double_click_ms")]
     pub double_click_ms: u64,
+
+    /// Seconds an ERROR notice stays on screen before it retires itself.
+    ///
+    /// Five seconds was not long enough to read a failure, let alone act on
+    /// one, so the message had to stay terse to be legible at all — the
+    /// surface was setting the wording. A minute is long enough to read, and
+    /// `Ctrl+X` retires it sooner for anyone who has. Nothing is lost either
+    /// way: every notice is written to the JSONL app log as it is raised, so
+    /// the Log History screen still has it afterwards.
+    #[serde(default = "default_notice_error_secs")]
+    pub notice_error_secs: u64,
+
+    /// Seconds a WARNING notice stays on screen.
+    ///
+    /// Shorter than an error because a warning reports a degraded outcome
+    /// rather than a failed one, longer than an info because the operator did
+    /// not ask for it and may not be looking.
+    #[serde(default = "default_notice_warning_secs")]
+    pub notice_warning_secs: u64,
+
+    /// Seconds an INFO notice stays on screen.
+    ///
+    /// Not all info is a receipt for something the operator just did — a
+    /// degraded Codex launch announces itself this way — so three seconds was
+    /// too short to finish a sentence in.
+    #[serde(default = "default_notice_info_secs")]
+    pub notice_info_secs: u64,
 }
 
 fn default_tick_rate_ms() -> u64 {
@@ -423,6 +450,15 @@ fn default_inbox_list_limit() -> u32 {
 fn default_double_click_ms() -> u64 {
     300
 }
+fn default_notice_error_secs() -> u64 {
+    60
+}
+fn default_notice_warning_secs() -> u64 {
+    20
+}
+fn default_notice_info_secs() -> u64 {
+    10
+}
 
 impl Default for UiConfig {
     fn default() -> Self {
@@ -434,6 +470,9 @@ impl Default for UiConfig {
             attention_err_window_hours: default_attention_err_window_hours(),
             inbox_list_limit: default_inbox_list_limit(),
             double_click_ms: default_double_click_ms(),
+            notice_error_secs: default_notice_error_secs(),
+            notice_warning_secs: default_notice_warning_secs(),
+            notice_info_secs: default_notice_info_secs(),
         }
     }
 }

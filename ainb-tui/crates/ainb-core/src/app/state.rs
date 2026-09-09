@@ -400,45 +400,81 @@ pub struct Notification {
     pub duration: Duration,
 }
 
+/// Notices kept in memory at once.
+///
+/// Only [`MAX_VISIBLE_NOTIFICATIONS`] of them are drawn; the rest exist so the
+/// "+N more" count is honest. A bound is needed at all because a minute-long
+/// notice plus a producer that fails every refresh tick is otherwise an
+/// unbounded `Vec`.
+pub const MAX_STORED_NOTIFICATIONS: usize = 12;
+
+/// How long a success receipt stays up.
+///
+/// A `const` where the other three levels are `[ui]` tunables, and
+/// deliberately: a success notice confirms something the operator just did and
+/// is already watching for. It is the one level with nothing to read.
+const SUCCESS_NOTICE_SECS: u64 = 3;
+
+/// Lifetime for `level`, from `[ui]`.
+///
+/// Read per notice rather than cached, so an edit in the config screen applies
+/// to the next failure instead of the next launch.
+fn notice_lifetime(level: &NotificationType) -> Duration {
+    let ui = &crate::config::tunables::snapshot().ui;
+    let secs = match level {
+        NotificationType::Success => SUCCESS_NOTICE_SECS,
+        NotificationType::Error => ui.notice_error_secs,
+        NotificationType::Warning => ui.notice_warning_secs,
+        NotificationType::Info => ui.notice_info_secs,
+    };
+    Duration::from_secs(secs.max(1))
+}
+
+/// Does a repeat of this level fold into the notice already showing?
+///
+/// Failures do: the same message arriving every refresh tick is one fact, and
+/// stacking it would bury the other failures. Announcements do not, for the
+/// reason spelled out on [`AppState::add_notification`].
+fn coalesces(level: &NotificationType) -> bool {
+    matches!(level, NotificationType::Error | NotificationType::Warning)
+}
+
 impl Notification {
-    pub fn success(message: String) -> Self {
+    /// A notice of `level` that starts its clock now.
+    pub fn new(message: String, notification_type: NotificationType) -> Self {
+        let duration = notice_lifetime(&notification_type);
         Self {
             message,
-            notification_type: NotificationType::Success,
+            notification_type,
             created_at: Instant::now(),
-            duration: Duration::from_secs(3),
+            duration,
         }
+    }
+
+    pub fn success(message: String) -> Self {
+        Self::new(message, NotificationType::Success)
     }
 
     pub fn error(message: String) -> Self {
-        Self {
-            message,
-            notification_type: NotificationType::Error,
-            created_at: Instant::now(),
-            duration: Duration::from_secs(5),
-        }
+        Self::new(message, NotificationType::Error)
     }
 
     pub fn info(message: String) -> Self {
-        Self {
-            message,
-            notification_type: NotificationType::Info,
-            created_at: Instant::now(),
-            duration: Duration::from_secs(3),
-        }
+        Self::new(message, NotificationType::Info)
     }
 
     pub fn warning(message: String) -> Self {
-        Self {
-            message,
-            notification_type: NotificationType::Warning,
-            created_at: Instant::now(),
-            duration: Duration::from_secs(4),
-        }
+        Self::new(message, NotificationType::Warning)
     }
 
     pub fn is_expired(&self) -> bool {
         self.created_at.elapsed() > self.duration
+    }
+
+    /// Restart this notice's clock, as if it had just been raised.
+    fn restart(&mut self) {
+        self.created_at = Instant::now();
+        self.duration = notice_lifetime(&self.notification_type);
     }
 }
 
@@ -11662,9 +11698,66 @@ impl AppState {
         }
     }
 
-    /// Add a notification to the notification queue
+    /// Add a notification to the notification queue.
+    ///
+    /// Three things happen here that a bare `push` did not do, all of them
+    /// consequences of a notice now living for up to a minute instead of five
+    /// seconds:
+    ///
+    /// 1. **It is written to the app log first.** A notice that can expire or
+    ///    be dismissed must not be the only copy of a failure, or the surface
+    ///    starts losing information the operator never saw. The JSONL log the
+    ///    TUI already writes is the durable copy, and the Log History screen
+    ///    (`l` from home) already reads it.
+    /// 2. **An identical FAILURE already on screen is refreshed, not stacked.**
+    ///    A producer that fails once per refresh tick used to pile up five-
+    ///    second toasts that expired as fast as they arrived; at a minute each
+    ///    the same loop would paper over the screen with one message and hide
+    ///    every other failure behind it.
+    ///
+    ///    Errors and warnings only. An info or success notice is an
+    ///    announcement whose repetition can itself be the signal —
+    ///    [`Self::notify_codex_degraded`] raises the same sentence once per
+    ///    degraded session on purpose, and folding those together would
+    ///    answer the second session with a silence its own dedup went out of
+    ///    its way to avoid.
+    /// 3. **The queue is capped.** Coalescing handles a repeated message; the
+    ///    cap handles a stream of distinct ones (an id or a timestamp in the
+    ///    text defeats 2). Oldest go first — they are the ones closest to
+    ///    expiring anyway, and the log still has them.
     pub fn add_notification(&mut self, notification: Notification) {
+        Self::log_notification(&notification);
+
+        if coalesces(&notification.notification_type) {
+            if let Some(existing) = self.notifications.iter_mut().find(|n| {
+                n.notification_type == notification.notification_type
+                    && n.message == notification.message
+            }) {
+                existing.restart();
+                return;
+            }
+        }
+
         self.notifications.push(notification);
+        let overflow = self.notifications.len().saturating_sub(MAX_STORED_NOTIFICATIONS);
+        if overflow > 0 {
+            self.notifications.drain(..overflow);
+        }
+    }
+
+    /// Write a notice to the app log, at the level it was raised with.
+    ///
+    /// The durable half of the notification surface. Every message carries the
+    /// `notice` field so the Log History screen's filter can pick them out of
+    /// ordinary tracing output.
+    fn log_notification(notification: &Notification) {
+        let message = notification.message.as_str();
+        match notification.notification_type {
+            NotificationType::Error => error!(notice = "error", "{message}"),
+            NotificationType::Warning => warn!(notice = "warning", "{message}"),
+            NotificationType::Info => info!(notice = "info", "{message}"),
+            NotificationType::Success => info!(notice = "success", "{message}"),
+        }
     }
 
     /// Add a success notification
@@ -11759,6 +11852,27 @@ impl AppState {
     /// Remove expired notifications
     pub fn cleanup_expired_notifications(&mut self) {
         self.notifications.retain(|n| !n.is_expired());
+    }
+
+    /// Retire every notice currently on screen (`Ctrl+X`).
+    ///
+    /// Returns whether anything was actually showing, so the key can fall
+    /// through untouched when the corner is empty rather than silently
+    /// swallowing a chord no notice claimed.
+    ///
+    /// Clearing the queue loses nothing: [`Self::add_notification`] wrote each
+    /// message to the app log when it was raised.
+    pub fn dismiss_notifications(&mut self) -> bool {
+        if !self.has_visible_notifications() {
+            return false;
+        }
+        self.notifications.clear();
+        true
+    }
+
+    /// Is at least one notice on screen right now?
+    pub fn has_visible_notifications(&self) -> bool {
+        self.notifications.iter().any(|n| !n.is_expired())
     }
 
     /// Get current notifications (non-expired)
