@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-09
+### Added
+- **attention**: carry whether the unreachable daemon is a stopped one
+- **attention**: keep the failure reason, and retire an ERR the row outlived
+- **codex**: carry why a launch has no shared thread, and print it
+- **config**: a window after which an ERR stops lighting a session row
+- **fleet**: start the hangar daemon through the Daemons screen's own runner
+- **fleet-macos**: carry the chat pane on push, not a one-second poll
+- **fleet-macos**: give the chat pane a route, so it can be opened
+- **fleet-macos**: make the acp create frame's provider and cwd optional
+- **fleet-macos**: subscribe to the message stream and decode its events
+- **hangar**: answer a contended store with its own wire code
+- **hangar**: resolve an omitted cwd from the scope's held session
+- **hangar-client**: tell a dead socket apart from a daemon that answered slowly
+- **proto**: make cwd optional on fleet/acp_session_create
+- **recovery**: carry a stopped session's label onto its row
+- **recovery**: fuzzy filter the recovery panel
+- **recovery**: route the filter keys on the recovery screen
+- **sessions**: Enter starts the hangar daemon while the copilot pane offers it
+- **sessions**: an err pane that shows what failed and why
+- **sessions**: announce a degraded Codex launch on screen, once
+- **sessions**: one predicate for a pane that offers a daemon instead of a chat
+- **sessions**: the copilot pane names the daemon it needs and offers to start it
+- **spec**: add desktop app on shared core design spec
+- **store**: expose the lock-contention predicate
+
+### Fixed
+- **ask**: mark the native picker at its source, and stop advertising a send
+- **ask**: say where a native picker is answered, do not fake a send
+- **ask**: show an AskUserQuestion's own options, not approve/deny
+- **attention**: classify a Claude notification by its subtype
+- **attention**: read the subtype from every shape it arrives in
+- **cli**: print a run's degrade notice once, not once per reporting site
+- **codex**: degrade a wedged hangar store instead of failing the launch
+- **codex**: drop a comment that mislabels the hard-failure arm
+- **daemons**: park the collector when nobody is watching the screen
+- **fleet**: omit cwd on the chat mint and anchor the retry ladder
+- **fleet**: retire a start report when the outage it belongs to ends
+- **fleet-macos**: attach to the held copilot session, and mint once
+- **hangar**: answer an uncursored scope read with the newest page
+- **hangar**: code every store call in codex/session_ensure, not just one
+- **hangar**: scope the pull gate the way the pull is scoped
+- **hangar**: stop calling an unreadable peer credential a foreign uid
+- **sessions**: a broker with no waiter is not a delivery
+- **sessions**: announce a degraded FIRST launch, not just resume and restart
+- **sessions**: clamp the daemon offer by what it PASSES, not only by its rect
+- **sessions**: hold the log worker's cadences in state, not in a sleep
+- **sessions**: insert the daemon offer beside the dial header, never in place of it
+- **sessions**: paint the conversation that was ticked, not a second guess at it
+- **sessions**: scope the degrade notice to the launch, not the session
+- **sessions**: the daemon offer takes Enter only when the right pane has it
+
+### Documentation
+- **fleet-macos**: say why the UI journeys do not run in CI
+- **hangar**: say which direction breaks the pull gate, and pin it
+- **plan**: P0 keymap-as-data and Phase S surface safety
+- **plan**: fix notifyd stale-lock recovery race and chord example
+- **plans**: the notch gap survey and its five-PR sequence
+- **research**: desktop app on a shared core with the TUI
+- **research**: open-source Tauri apps that run multiple coding agents
+
+### Other
+- feat(sessions): one predicate for a pane that offers a daemon instead of a chat
+- **hangar**: skip the card pull when the profile has no cards
+- **notifyd**: read one session's notifications without abandoning the ts index
+- **sessions**: let the log worker park when nobody is looking at the pane
+- **sessions**: read the log tab's history off the render thread
+- **fleet-macos**: delete the orphaned roster window
+- **fleet-macos**: drop the state only the deleted window reached
+- **fleet-macos**: let the chat pane close without a presentation
+- **sessions**: one predicate for every tab that refuses Enter
+
+
 ## [1.25.0] - 2026-09-07
 ### Added
 - **acp**: carry the pool's turn deadline to the client
