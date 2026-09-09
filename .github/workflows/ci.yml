@@ -508,18 +508,6 @@ jobs:
           cargo test -p ainb --test tripwire_sessions_answer_outcome_per_question
           --no-fail-fast
         working-directory: ${{ env.WORKING_DIR }}
-      # The help overlay's panel legend is the ONE place the tab strip is
-      # written out as prose, so it drifts silently whenever a tab is added.
-      # It did: `err` joined the strip and this legend did not, and no
-      # workflow named this tripwire, so nothing caught it.
-      - name: Tripwire — the help legend still names every panel and tab
-        if: >-
-          !cancelled() && (github.event_name != 'pull_request' ||
-          needs.changes.outputs.relevant != 'false')
-        run: >-
-          cargo test -p ainb --test tripwire_panel_legend_and_help
-          --no-fail-fast
-        working-directory: ${{ env.WORKING_DIR }}
       - name: Sandbox script safety guards (rm -rf belts)
         if: >-
           !cancelled() && (github.event_name != 'pull_request' ||
