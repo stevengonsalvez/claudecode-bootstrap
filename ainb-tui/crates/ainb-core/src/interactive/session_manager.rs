@@ -416,12 +416,23 @@ where
     }
 }
 
-/// Short actionable TUI message for a shared Codex bridge failure.
+/// Actionable TUI message for a shared Codex bridge failure, and the cause.
 ///
-/// The detailed transport error remains in daemon and client logs. Showing it in
-/// the three-line notification hid the user action behind nested RPC context.
-fn format_codex_remote_control_failure(cause: &str) -> &'static str {
-    if cause.contains("WebSocket handshake")
+/// The action stays FIRST. Leading with the transport error was the original
+/// complaint: nested RPC context buried the one line telling the user what to
+/// do, so the cause was dropped entirely to keep the message inside a
+/// three-line notification.
+///
+/// It comes back now because the notice grew. A notice box sizes itself to its
+/// message, lives for `[ui] notice_error_secs`, and can be retired with
+/// `Ctrl+X`, so a trailing cause costs nothing it used to cost — and without
+/// it, the fallback branch ("Check Hangar logs") sent the user to a log to
+/// learn something this function already had in its hand.
+///
+/// Trimmed to [`CAUSE_EXCERPT_CHARS`], because the full nested chain can run to
+/// several lines and the whole of it is in the app log either way.
+fn format_codex_remote_control_failure(cause: &str) -> String {
+    let action = if cause.contains("WebSocket handshake")
         || cause.contains("Handshake not finished")
         || cause.contains("invalid token")
     {
@@ -432,7 +443,32 @@ fn format_codex_remote_control_failure(cause: &str) -> &'static str {
         "Codex unavailable. Update Codex, then retry."
     } else {
         "Codex remote control unavailable. Check Hangar logs, then retry."
+    };
+
+    match cause_excerpt(cause) {
+        Some(excerpt) => format!("{action} Cause: {excerpt}"),
+        None => action.to_string(),
     }
+}
+
+/// Characters of the underlying error a notice carries.
+const CAUSE_EXCERPT_CHARS: usize = 160;
+
+/// One-line excerpt of `cause`, or `None` when there is nothing to add.
+///
+/// Truncates on a CHARACTER boundary. Byte-slicing a message that reached us
+/// from another process panics the moment the cut lands mid-codepoint, and a
+/// path or a model id is exactly where a non-ASCII byte turns up.
+fn cause_excerpt(cause: &str) -> Option<String> {
+    let flattened = cause.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flattened.is_empty() {
+        return None;
+    }
+    if flattened.chars().count() <= CAUSE_EXCERPT_CHARS {
+        return Some(flattened);
+    }
+    let head: String = flattened.chars().take(CAUSE_EXCERPT_CHARS).collect();
+    Some(format!("{}…", head.trim_end()))
 }
 
 /// Wait briefly for the freshly started remote terminal to publish its exact
@@ -3793,26 +3829,59 @@ trust_level = "trusted"
     }
 
     #[test]
-    fn shared_remote_codex_failures_show_a_short_next_action() {
-        assert_eq!(
-            format_codex_remote_control_failure(
-                "Codex app-server WebSocket handshake failed: invalid token"
+    fn shared_remote_codex_failures_lead_with_the_next_action() {
+        for (cause, action) in [
+            (
+                "Codex app-server WebSocket handshake failed: invalid token",
+                "Codex bridge conflict. Restart Ainb, then retry.",
             ),
-            "Codex bridge conflict. Restart Ainb, then retry."
-        );
-        assert_eq!(
-            format_codex_remote_control_failure("Codex manager command timed out"),
-            "Codex bridge starting. Retry session in 5 seconds."
-        );
-        assert_eq!(
-            format_codex_remote_control_failure(
-                "installed Codex cannot generate app-server schema"
+            (
+                "Codex manager command timed out",
+                "Codex bridge starting. Retry session in 5 seconds.",
             ),
-            "Codex unavailable. Update Codex, then retry."
+            (
+                "installed Codex cannot generate app-server schema",
+                "Codex unavailable. Update Codex, then retry.",
+            ),
+            (
+                "daemon RPC rejected request",
+                "Codex remote control unavailable. Check Hangar logs, then retry.",
+            ),
+        ] {
+            let message = format_codex_remote_control_failure(cause);
+            assert!(
+                message.starts_with(action),
+                "the action must come first, not after the transport error: {message}"
+            );
+            assert!(
+                message.contains(cause),
+                "the cause the user needs is in hand and must be carried: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_cause_is_trimmed_on_a_character_boundary() {
+        // A multi-byte character straddling the cut is the panic this guards:
+        // `&s[..160]` on this input slices a 'é' in half.
+        let cause = "é".repeat(CAUSE_EXCERPT_CHARS * 2);
+        let message = format_codex_remote_control_failure(&cause);
+        assert!(
+            message.ends_with('…'),
+            "trimmed causes are marked: {message}"
         );
+        assert!(
+            message.chars().count() < cause.chars().count(),
+            "a long cause must actually shrink"
+        );
+    }
+
+    #[test]
+    fn a_cause_with_nothing_in_it_adds_nothing() {
         assert_eq!(
-            format_codex_remote_control_failure("daemon RPC rejected request"),
-            "Codex remote control unavailable. Check Hangar logs, then retry."
+            format_codex_remote_control_failure("   "),
+            "Codex remote control unavailable. Check Hangar logs, then retry.",
+            "an empty cause must not leave a dangling 'Cause:' on the notice"
         );
     }
 

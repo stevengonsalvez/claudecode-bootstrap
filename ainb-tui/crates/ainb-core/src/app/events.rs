@@ -4233,7 +4233,15 @@ impl EventHandler {
                         state.selected_workspace_index,
                         state.selected_session_index
                     );
-                    state.add_error_notification("No session selected to attach".to_string());
+                    // Says what to do, not just what failed. A notice that
+                    // lives for a minute and can be dismissed has room for
+                    // the remedy; the five-second box did not.
+                    state.add_error_notification(
+                        "No session selected to attach. Pick a session row with ↑/↓ (or 1-9) \
+                         and press a again; press n to start one, or f to refresh the list if \
+                         you expected a session here."
+                            .to_string(),
+                    );
                 }
             }
             AppEvent::DetachSession => {
