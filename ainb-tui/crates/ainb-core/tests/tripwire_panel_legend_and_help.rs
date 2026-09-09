@@ -209,8 +209,10 @@ fn help_overlay_documents_panels_section() {
     // its origin (and that witr is quit, not Esc-closed).
     for token in [
         "Panels (closing returns here)",
-        // What replaced the deleted Inbox and Fleet panels.
-        "Sessions: preview / ask / thread / copilot / log",
+        // What replaced the deleted Inbox and Fleet panels. `err` joined the
+        // strip with the ERR pane; this line and `help.rs` disagreed on main
+        // because no workflow names this tripwire, so nothing ran it.
+        "Sessions: preview / ask / err / thread / copilot / log",
         "Stats / usage analytics (Esc closes)",
         "Witr process browser (quit witr to return)",
         "Skills catalogue (Esc closes)",
