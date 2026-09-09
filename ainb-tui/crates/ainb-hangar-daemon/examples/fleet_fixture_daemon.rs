@@ -14,6 +14,9 @@ use ainb_hangar_daemon::events::EventBroker;
 use ainb_hangar_daemon::fleet::{self, HookObservation};
 use ainb_hangar_daemon::rpc::{self, DaemonHealth};
 use ainb_hangar_store::Store;
+use ainb_hangar_store::repo::fleet_provider_event::{
+    FleetProviderEventRepo, NewFleetProviderEvent,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -35,6 +38,27 @@ enum Command {
         #[serde(default)]
         observed_at: Option<i64>,
     },
+    /// Commit one ACP transcript chunk and wake the transcript forwarders.
+    ///
+    /// The transcript's only production writer is the ACP pool's store writer,
+    /// which needs a live adapter subprocess, so a fixture that stopped at
+    /// `apply_hook` could prove nothing about `fleet/transcript_subscribe`: a
+    /// client would have no way to make a chunk exist. This writes the SAME row
+    /// the pool writes (`source='acp'`, through the real repo) and rings the
+    /// SAME bell (`emit_transcript_order`); it does not emulate the RPC or the
+    /// forwarder, both of which stay the daemon's own code under test.
+    SeedTranscript {
+        event_id: String,
+        session_key: String,
+        #[serde(default = "default_transcript_event_type")]
+        event_type: String,
+        #[serde(default = "default_transcript_provider")]
+        provider: String,
+        #[serde(default)]
+        payload: Value,
+        #[serde(default)]
+        observed_at: Option<i64>,
+    },
     Shutdown,
 }
 
@@ -50,6 +74,19 @@ fn default_event_type() -> String {
 fn default_cwd() -> String {
     "/fixture".to_string()
 }
+fn default_transcript_event_type() -> String {
+    "acp.message".to_string()
+}
+fn default_transcript_provider() -> String {
+    "claude-agent-acp".to_string()
+}
+
+/// The `fleet_provider_event.source` the ACP pool writes transcript rows under.
+///
+/// Named rather than repeated as a literal: the prune path selects on it, so a
+/// fixture that drifted from the production writer would seed rows the daemon
+/// can read but never reclaim.
+const ACP_TRANSCRIPT_SOURCE: &str = "acp";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -123,6 +160,66 @@ async fn main() -> anyhow::Result<()> {
                                 "duplicate": result.duplicate,
                             })
                         ),
+                        Err(error) => println!(
+                            "{}",
+                            serde_json::json!({ "ok": false, "error": error.to_string() })
+                        ),
+                    }
+                    std::io::stdout().flush()?;
+                }
+                Command::SeedTranscript {
+                    event_id,
+                    session_key,
+                    event_type,
+                    provider,
+                    payload,
+                    observed_at,
+                } => {
+                    let observed_at = observed_at.unwrap_or_else(|| {
+                        next_observed_at += 1;
+                        next_observed_at
+                    });
+                    let row = FleetProviderEventRepo::append(
+                        store.pool(),
+                        &NewFleetProviderEvent {
+                            event_id: event_id.clone(),
+                            provider,
+                            // The source the ACP pool writes its transcript
+                            // rows under. NEITHER transcript read filters on
+                            // it (both select by `session_key` alone), so this
+                            // is about the row being the same shape the
+                            // production writer produces, not about being
+                            // visible: a fixture that seeded some other source
+                            // would be testing a row the daemon never writes.
+                            //
+                            // The prune path DOES filter `source = 'acp'`, so
+                            // a row written under another source would also be
+                            // unprunable, which is the second reason to match.
+                            source: ACP_TRANSCRIPT_SOURCE.to_string(),
+                            session_key: Some(session_key.clone()),
+                            provider_session_id: None,
+                            observed_at,
+                            received_at: observed_at,
+                            event_type,
+                            raw_payload: payload.to_string(),
+                        },
+                    )
+                    .await;
+                    match row {
+                        Ok(row) => {
+                            // AFTER the row is durable, never before: a
+                            // forwarder woken early reads the log and finds
+                            // nothing, which is the shape of a flake.
+                            sink.emit_transcript_order(&session_key, row.ingest_order);
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "ok": true,
+                                    "event_id": event_id,
+                                    "ingest_order": row.ingest_order,
+                                })
+                            );
+                        }
                         Err(error) => println!(
                             "{}",
                             serde_json::json!({ "ok": false, "error": error.to_string() })

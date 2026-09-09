@@ -51,6 +51,8 @@
 		A100000000000000000000111 /* FleetChatPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000110 /* FleetChatPresentation.swift */; };
 		A100000000000000000000113 /* FleetChatPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000112 /* FleetChatPaneView.swift */; };
 		A100000000000000000000115 /* FleetChatPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000114 /* FleetChatPresentationTests.swift */; };
+		A100000000000000000000131 /* FleetTranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000130 /* FleetTranscriptPresentation.swift */; };
+		A100000000000000000000133 /* FleetTranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000132 /* FleetTranscriptPresentationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,6 +110,8 @@
 		A100000000000000000000110 /* FleetChatPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/FleetChat/FleetChatPresentation.swift; sourceTree = SOURCE_ROOT; };
 		A100000000000000000000112 /* FleetChatPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/FleetChat/FleetChatPaneView.swift; sourceTree = SOURCE_ROOT; };
 		A100000000000000000000114 /* FleetChatPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetChatPresentationTests.swift; sourceTree = "<group>"; };
+		A100000000000000000000130 /* FleetTranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/FleetChat/FleetTranscriptPresentation.swift; sourceTree = SOURCE_ROOT; };
+		A100000000000000000000132 /* FleetTranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetTranscriptPresentationTests.swift; sourceTree = "<group>"; };
 		A1000000000000000000004D /* FleetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FleetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000031 /* AINBFleet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AINBFleet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000032 /* FleetRPCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FleetRPCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -196,6 +200,7 @@
 			children = (
 				A100000000000000000000110 /* FleetChatPresentation.swift */,
 				A100000000000000000000112 /* FleetChatPaneView.swift */,
+				A100000000000000000000130 /* FleetTranscriptPresentation.swift */,
 			);
 			path = Sources/FleetChat;
 			sourceTree = SOURCE_ROOT;
@@ -227,6 +232,7 @@
 				A10000000000000000000098 /* FleetReceiptNoticeTests.swift */,
 				A1000000000000000000005B /* FleetFixtureDaemonFallbackTests.swift */,
 				A100000000000000000000114 /* FleetChatPresentationTests.swift */,
+				A100000000000000000000132 /* FleetTranscriptPresentationTests.swift */,
 			);
 			path = Tests/FleetRPCTests;
 			sourceTree = "<group>";
@@ -409,6 +415,7 @@
 				A100000000000000000000105 /* FleetProviderIcon.swift in Sources */,
 				A100000000000000000000111 /* FleetChatPresentation.swift in Sources */,
 				A100000000000000000000113 /* FleetChatPaneView.swift in Sources */,
+				A100000000000000000000131 /* FleetTranscriptPresentation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -429,6 +436,7 @@
 				A1000000000000000000005C /* FleetFixtureDaemon.swift in Sources */,
 				A1000000000000000000005A /* FleetFixtureDaemonFallbackTests.swift in Sources */,
 				A100000000000000000000115 /* FleetChatPresentationTests.swift in Sources */,
+				A100000000000000000000133 /* FleetTranscriptPresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

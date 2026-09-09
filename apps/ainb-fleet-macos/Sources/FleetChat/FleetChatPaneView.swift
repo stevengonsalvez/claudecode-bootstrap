@@ -174,6 +174,7 @@ struct FleetChatPaneView: View {
             VStack(alignment: .leading, spacing: 14) {
                 confirmSection
                 activitySection
+                transcriptSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
@@ -280,6 +281,81 @@ struct FleetChatPaneView: View {
                     .accessibilityIdentifier("fleet.chat.activity.\(row.seq)")
                 }
             }
+        }
+    }
+
+    /// The target session's ACP execution stream.
+    ///
+    /// LAST in the sidebar on purpose: the confirm cards above it are the only
+    /// thing here an operator has to act on, and a transcript that pushed them
+    /// below the fold would bury an approval under an agent's thinking.
+    ///
+    /// Gated on `canReadTranscript`, which is its own capability rather than
+    /// the pane's, so a daemon that serves the conversation but not the
+    /// transcript renders one and explains the other. Every empty state names
+    /// WHY it is empty: an idle session and an unreadable one are different
+    /// facts, and a section that showed silence for both would tell the
+    /// operator the agent has done nothing when the truth is that this build
+    /// cannot see what it did.
+    @ViewBuilder private var transcriptSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Execution transcript")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(FleetChatPalette.muted)
+            if let detail = store.chat.transcriptDetail {
+                Text("Transcript unavailable: \(detail)")
+                    .font(.caption)
+                    .foregroundStyle(FleetChatPalette.amber)
+                    .accessibilityIdentifier("fleet.chat.transcript.detail")
+            } else if store.chat.transcriptState.rows.isEmpty {
+                Text("Nothing yet. The session has not produced a turn.")
+                    .font(.callout)
+                    .foregroundStyle(FleetChatPalette.muted)
+                    .accessibilityIdentifier("fleet.chat.transcript.empty")
+            }
+            // The seam the daemon reported, above the rows it describes. A
+            // transcript that silently starts mid-run reads as a whole one,
+            // which is the failure the flag exists to prevent.
+            if store.chat.transcriptState.truncated, !store.chat.transcriptState.rows.isEmpty {
+                transcriptRow(fleetTranscriptTruncationRow)
+            }
+            ForEach(store.chat.transcriptState.rows) { row in
+                transcriptRow(row)
+            }
+        }
+    }
+
+    private func transcriptRow(_ row: FleetTranscriptRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(FleetTranscriptLabels.lane(row.lane))
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(laneColor(row.lane))
+            Text(row.body)
+                .font(.caption.monospaced())
+                // Bounded here as well as in the classifier: the cap upstream
+                // is a leak backstop at eight thousand characters, which is
+                // still far more than a sidebar row can show.
+                .lineLimit(4)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        // The lane is SPOKEN, not left to the colour. A VoiceOver user must be
+        // able to tell an error line from a tool result, and colour is the one
+        // signal that does not survive.
+        .accessibilityLabel("\(FleetTranscriptLabels.accessibilityLane(row.lane)): \(row.body)")
+        .accessibilityIdentifier("fleet.chat.transcript.\(row.id)")
+    }
+
+    /// Wildcard-free, so a sixth lane is a compile error here rather than a row
+    /// painted in whichever colour the last arm happened to name.
+    private func laneColor(_ lane: FleetTranscriptLane) -> Color {
+        switch lane {
+        case .agent: FleetChatPalette.mint
+        case .thinking: FleetChatPalette.violet
+        case .toolCall: FleetChatPalette.amber
+        case .toolResult: FleetChatPalette.muted
+        case .error: FleetChatPalette.coral
         }
     }
 
