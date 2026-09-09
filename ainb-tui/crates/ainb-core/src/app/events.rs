@@ -136,6 +136,11 @@ pub enum AppEvent {
     PickRepoPaste(String), // Append bracketed-paste text to the repo-picker filter (Cmd+V)
     // Notification events
     ShowNotification(String), // Display a notification message to the user
+    /// Retire every notice currently on screen (`Ctrl+X`).
+    ///
+    /// Only ever raised when something is showing. The messages are not lost:
+    /// each was written to the app log when it was raised.
+    DismissNotifications,
     // File finder events for @ symbol trigger
     FileFinderNavigateUp,
     FileFinderNavigateDown,
@@ -1870,6 +1875,32 @@ impl EventHandler {
             // Global help toggle: `?` or `Shift+H` from any non-text view.
             if matches!(key_event.code, KeyCode::Char('?' | 'H')) {
                 return Some(AppEvent::ToggleHelp);
+            }
+
+            // Global notice dismiss: `Ctrl+X` from any non-text view.
+            //
+            // A Ctrl-chord rather than a bare letter, and not by preference: a
+            // notice can be up on ANY screen, so the dismiss key has to be
+            // global, and every printable letter is already claimed by some
+            // screen's own handler further down. A chord is the mechanism this
+            // block's own contract points at for exactly that reason.
+            //
+            // Claimed ONLY while a notice is actually showing, so an empty
+            // corner leaves the chord exactly where it was. The one behaviour
+            // it does take, and only for as long as a notice is up: the
+            // session list matches a bare `KeyCode::Char('x')` without looking
+            // at modifiers, so `Ctrl+X` there used to fall into Cleanup
+            // Orphaned. Plain `x` is that action's documented key and is
+            // untouched.
+            //
+            // Sits inside the `!host_globals_suppressed` guard so an attached
+            // terminal or any text field still receives its own `Ctrl+X` —
+            // that chord means something in nano and emacs.
+            if matches!(key_event.code, KeyCode::Char('x' | 'X'))
+                && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && state.has_visible_notifications()
+            {
+                return Some(AppEvent::DismissNotifications);
             }
 
             // Global `W`: wire Claude Code statusline. Active from any
@@ -4111,6 +4142,10 @@ impl EventHandler {
             AppEvent::ShowNotification(message) => {
                 tracing::info!("Event: ShowNotification - {}", message);
                 state.add_warning_notification(message);
+            }
+            AppEvent::DismissNotifications => {
+                let dismissed = state.dismiss_notifications();
+                tracing::debug!("Event: DismissNotifications - cleared={dismissed}");
             }
             AppEvent::AttachSession => {
                 if let Some(session_id) = state.get_selected_session_id() {
@@ -8580,6 +8615,56 @@ mod session_list_key_tests {
         let mut state = AppState::default();
         state.current_screen = ids::SESSION_LIST.to_string();
         state
+    }
+
+    fn ctrl_x(state: &mut AppState) -> Option<AppEvent> {
+        EventHandler::handle_key_event(
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            state,
+        )
+    }
+
+    /// The chord is claimed only while a notice is showing; an empty corner
+    /// leaves it doing whatever the screen already did with it.
+    ///
+    /// On the session list that is Cleanup Orphaned, because the branch there
+    /// matches a bare `Char('x')` without looking at modifiers. Asserted
+    /// rather than glossed over: it is the one behaviour the dismiss chord
+    /// takes, and only for as long as there is something to dismiss.
+    #[test]
+    fn ctrl_x_dismisses_only_while_a_notice_is_showing() {
+        let mut state = session_list_state();
+        assert!(
+            matches!(ctrl_x(&mut state), Some(AppEvent::CleanupOrphaned)),
+            "an empty corner must leave the chord where the screen had it"
+        );
+
+        state.add_error_notification("a failure worth reading".to_string());
+        assert!(matches!(
+            ctrl_x(&mut state),
+            Some(AppEvent::DismissNotifications)
+        ));
+
+        EventHandler::process_event(AppEvent::DismissNotifications, &mut state);
+        assert!(
+            !state.has_visible_notifications(),
+            "the notice is gone from the screen"
+        );
+        assert!(
+            matches!(ctrl_x(&mut state), Some(AppEvent::CleanupOrphaned)),
+            "and the chord goes straight back to the screen"
+        );
+    }
+
+    /// The plain key keeps its old meaning whether or not a notice is up.
+    #[test]
+    fn a_notice_on_screen_does_not_steal_the_plain_x_key() {
+        let mut state = session_list_state();
+        state.add_error_notification("a failure worth reading".to_string());
+        assert!(matches!(
+            key(&mut state, 'x'),
+            Some(AppEvent::CleanupOrphaned)
+        ));
     }
 
     /// Locks the attach-key pairing: 'a' = full-screen, Shift+A = in-pane

@@ -88,6 +88,10 @@ impl HelpComponent {
             ListItem::new(""),
             head("General:"),
             row("? / Shift+H", "Toggle this help"),
+            row(
+                "Ctrl+X",
+                "Dismiss the corner notices (they stay in the log: l from home)",
+            ),
             row("q / Esc", "Quit / home"),
             row("Ctrl+C", "Force quit"),
             row(
