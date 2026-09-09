@@ -134,6 +134,16 @@ impl ChatHost {
     pub fn dispatch(&self, intent: ChatIntent) {
         let inbox = Arc::clone(&self.inbox);
         let topic = self.topic.clone();
+        // The scope the surface is CURRENTLY on, for the writes that carry none
+        // of their own. A confirm card and a cancel both name a session or a
+        // card, never a channel, and handing the page no scope does not mean
+        // "page what I am looking at": the copilot page RESOLVES an absent scope
+        // newest-wins, so with a second copilot channel in the store (the CLI
+        // mints one on demand; `chat_page_blocking` documents a race minting one
+        // by accident) the write's page swapped the operator's conversation for
+        // a different one. `None` here still means "resolve", which is right
+        // before the first page has named a scope.
+        let surface_scope = self.state.scope_key().map(ToString::to_string);
         let spawned = std::thread::Builder::new().name("ainb-chat-host".into()).spawn(move || {
             let publish = |outcome: ChatOutcome| {
                 if let Ok(mut inbox) = inbox.lock() {
@@ -170,8 +180,8 @@ impl ChatHost {
                 }
                 ChatIntent::ConfirmAnswer(params) => {
                     match crate::fleet::control::chat_confirm_answer_blocking(params) {
-                        Ok(_) => (None, None, None),
-                        Err(detail) => (Some(detail), None, None),
+                        Ok(_) => (None, surface_scope, None),
+                        Err(detail) => (Some(detail), surface_scope, None),
                     }
                 }
                 // Cancelling is a WRITE like a send, so it ends by paging for
@@ -184,8 +194,8 @@ impl ChatHost {
                         // that is what puts a sentence on the pane's feedback
                         // row; a cancel that lands silently is as unreadable as
                         // a send that does.
-                        Ok(summary) => (Some(summary), None, None),
-                        Err(detail) => (Some(detail), None, None),
+                        Ok(summary) => (Some(summary), surface_scope, None),
+                        Err(detail) => (Some(detail), surface_scope, None),
                     }
                 }
                 // Neither belongs to a conversation: a create mints the scope a
