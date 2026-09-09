@@ -1408,6 +1408,19 @@ pub const FLEET_MESSAGE_BODY_MAX: usize = 256 * 1024;
 /// Maximum chunks one `fleet/transcript_list` page may return.
 pub const FLEET_TRANSCRIPT_LIST_MAX: u32 = 100;
 
+/// Payload byte budget for ONE uncursored `fleet/transcript_list` page.
+///
+/// The row cap alone does not bound this read. A chunk's payload is
+/// adapter-authored JSON with no ceiling of its own, so `FLEET_TRANSCRIPT_LIST_MAX`
+/// rows of a tool call's verbatim update is an unbounded response materialised
+/// in the daemon before it is framed. WHICH cap binds depends on the run and
+/// neither dominates: a hundred short structural rows is a few KiB, while a
+/// hundred coalesced 4 KiB text chunks exhausts this budget first.
+///
+/// The read reports which one bit rather than pretending neither does, and that
+/// is why [`FleetTranscriptListResult::truncated`] exists.
+pub const FLEET_TRANSCRIPT_LIST_MAX_BYTES: usize = 512 * 1024;
+
 /// Chat message kind on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1666,6 +1679,25 @@ pub struct FleetTranscriptListResult {
     /// Cursor for the next page, or `null` when this page is empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_after_order: Option<i64>,
+    /// Whether older rows were left behind by the UNCURSORED read.
+    ///
+    /// Not inferable from `chunks.len()`, which is the whole reason it is on
+    /// the wire. The tail read is bounded twice, by rows and by payload bytes,
+    /// and which bound bit depends entirely on the run: a short page can mean
+    /// a short transcript or one 4 KiB chunk after another. A client that
+    /// assumed the first would render a partial run as a complete one, which is
+    /// the failure `FleetProviderEventRepo::list_by_session_tail` documents.
+    ///
+    /// Always `false` on a CURSORED read, which is bounded by rows alone and
+    /// answers "what came after this row" rather than "is this the whole
+    /// story": a caller walking forward already knows more may follow, because
+    /// `next_after_order` tells it so.
+    ///
+    /// `#[serde(default)]` so a client built against this reads a daemon built
+    /// before it as "nothing was left behind", which is what an older daemon's
+    /// unbounded page meant.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Parameters for `fleet/transcript_subscribe`.
@@ -2699,7 +2731,14 @@ mod tests {
         round_trip(&FleetTranscriptListResult {
             chunks: vec![sample_chunk()],
             next_after_order: Some(41),
+            truncated: true,
         });
+        // And a daemon built before the flag decodes as "nothing left behind"
+        // rather than failing the page, which is what `#[serde(default)]` buys.
+        let legacy: FleetTranscriptListResult =
+            serde_json::from_str(r#"{"chunks":[],"next_after_order":null}"#)
+                .expect("a result without the flag still decodes");
+        assert!(!legacy.truncated);
         round_trip(&FleetTranscriptSubscribeParams {
             session_key: "acp:01J0KEY".to_string(),
             after_order: None,

@@ -352,6 +352,36 @@ struct FleetChatSurface: Equatable {
     var messages: [FleetChatMessageRow] = []
     var confirms: [FleetChatConfirmCard] = []
     var activity: [FleetActivityRow] = []
+    /// Everything about the transcript that SURVIVES a page.
+    ///
+    /// One nested value, not four loose fields, and that is the whole point.
+    /// A page rebuilds its surface from an empty one, so every field here is
+    /// either carried across that boundary or rebuilt by it, and nothing about
+    /// a bare `var` says which. `carryTranscriptForward` used to answer with a
+    /// hand-written assignment per field, so a new field landed on whichever
+    /// side its author remembered and the compiler was happy either way.
+    ///
+    /// Two bugs came out of that one gap, and they were the same bug twice.
+    /// `transcriptDetail` was put on the carry side, so a momentary refusal
+    /// pinned its banner above a live transcript until the app restarted. The
+    /// cursor was carried but not USED on the resubscribe, so a reconnect
+    /// silently lost every row committed during the outage.
+    ///
+    /// Now the question is answered once, at the declaration: a field inside
+    /// this type is carried, a field beside it is rebuilt.
+    var transcriptState = FleetTranscriptState()
+    /// Why the transcript is empty, when it is empty for a REASON.
+    ///
+    /// The same distinction `confirmsDetail` draws: a daemon that does not
+    /// advertise `fleet.transcript.read`, or one that refused the page, is not
+    /// the same fact as a session that has not run a turn yet, and a pane that
+    /// rendered both as silence would tell the operator the agent is idle when
+    /// it simply cannot see.
+    ///
+    /// A PEER of `transcriptState`, never a member, and that placement is the
+    /// fix rather than a detail of it: this describes the page that set it, so
+    /// it must be rebuilt by the next page and cannot be carried by accident.
+    var transcriptDetail: String? = nil
     /// Why the confirm feed is empty, when it is empty for a REASON. A daemon
     /// built between phases answers -32601 here, and a pane that renders that
     /// as "no cards open" is telling the operator there is nothing to approve
@@ -365,25 +395,37 @@ struct FleetChatSurface: Equatable {
 
     /// Fold one live notification into this page.
     ///
-    /// The scope filter is HERE rather than at the call site because the
-    /// daemon's chat stream is fleet-wide: `fleet/message_event` carries every
+    /// The filter is HERE rather than at the call site because the daemon's
+    /// streams are broader than this pane: `fleet/message_event` carries every
     /// committed message on the socket, not this scope's. The surface is the
     /// only thing that knows which conversation is on screen, so it is the only
-    /// thing that can say an event is not this one's. An event for another
-    /// scope is dropped, never rendered.
+    /// thing that can say an event is not this one's. An event that does not
+    /// belong is dropped, never rendered.
     ///
-    /// Nothing is folded before a page has resolved a scope: `scopeKey` is nil
-    /// until then, and an event that cannot be proved to belong here does not
-    /// get the benefit of the doubt.
+    /// The three chat frames are filtered by SCOPE and the transcript frame by
+    /// SESSION, because that is what each one is addressed by: a chat message
+    /// is filed under a scope key, while a transcript chunk belongs to the ACP
+    /// session that produced it. Filtering the transcript on scope would match
+    /// nothing at all, and filtering it on nothing would paint another
+    /// session's execution into this pane.
+    ///
+    /// Nothing is folded before a page has resolved the axis it is filtered on:
+    /// an event that cannot be proved to belong here does not get the benefit
+    /// of the doubt.
     mutating func apply(_ event: FleetChatEvent) {
-        guard let scopeKey, scopeKey == event.scopeKey else { return }
         switch event {
         case let .message(message):
+            guard scopeKey != nil, scopeKey == message.scopeKey else { return }
             upsert(FleetChatMessageRow(message: message))
-        case let .confirm(card, _):
+        case let .confirm(card, cardScope):
+            guard scopeKey != nil, scopeKey == cardScope else { return }
             upsert(card)
         case let .activity(row):
+            guard scopeKey != nil, scopeKey == row.scopeKey else { return }
             upsert(row)
+        case let .transcript(chunk):
+            guard targetSessionKey != nil, targetSessionKey == chunk.sessionKey else { return }
+            append(chunk)
         }
     }
 
@@ -440,6 +482,27 @@ struct FleetChatSurface: Equatable {
             activity.removeFirst(activity.count - Int(fleetActivityListMax))
         }
     }
+
+    /// Classify one transcript chunk and append its rows, oldest first.
+    ///
+    /// APPEND, never upsert, and the guard in front of it is the cursor rather
+    /// than a row id. One chunk classifies into MANY rows, and the classifier
+    /// is stateful, so re-running a chunk is not idempotent: the second pass
+    /// finds the pending tool title already consumed and renders the result
+    /// under the unnamed `tool` form. The cursor stops the second pass ever
+    /// happening, which is both cheaper and the only version that is correct.
+    ///
+    /// Bounded like its neighbours, dropping the OLDEST rows, because this is
+    /// a tail view of a running session and the newest rows are the ones an
+    /// operator is reading.
+    private mutating func append(_ chunk: FleetTranscriptChunk) {
+        if let cursor = transcriptState.cursor, chunk.ingestOrder <= cursor { return }
+        transcriptState.cursor = chunk.ingestOrder
+        transcriptState.rows.append(contentsOf: transcriptState.classifier.rows(for: chunk))
+        if transcriptState.rows.count > fleetTranscriptRowMax {
+            transcriptState.rows.removeFirst(transcriptState.rows.count - fleetTranscriptRowMax)
+        }
+    }
 }
 
 /// One live chat notification, in the three shapes the chat surface folds.
@@ -456,18 +519,62 @@ struct FleetChatSurface: Equatable {
 /// tolerance would be the one shape of card the pane could not show. Its scope
 /// rides alongside because an unrecognised card has no readable fields to take
 /// it from.
+/// The transcript case carries the chunk VERBATIM rather than pre-classified
+/// rows, and that is the same reasoning once more: the taxonomy is stateful, so
+/// the rows a chunk produces depend on which classifier reads it, and the
+/// classifier that must read it is the one belonging to the surface the chunk
+/// is folded into. Classifying at the door would have bound every chunk to
+/// whichever classifier happened to be current when the frame arrived,
+/// including one owned by a page the store went on to disown.
 enum FleetChatEvent: Equatable, Sendable {
     case message(FleetMessage)
     case confirm(card: FleetChatConfirmCard, scopeKey: String)
     case activity(FleetActivityRow)
+    case transcript(FleetTranscriptChunk)
 
-    /// The scope this event was filed under. Every one of the three carries it,
-    /// which is what makes a fleet-wide stream safe to render in a scoped pane.
-    var scopeKey: String {
+    /// The scope this event was filed under, for the three chat frames that
+    /// have one. Nil for the transcript, which is addressed by session.
+    var scopeKey: String? {
         switch self {
         case let .message(message): message.scopeKey
         case let .confirm(_, scopeKey): scopeKey
         case let .activity(row): row.scopeKey
+        case .transcript: nil
+        }
+    }
+
+    /// The ACP session this event belongs to, for the transcript frame that has
+    /// one. Nil for the three chat frames, which are addressed by scope.
+    ///
+    /// Every event names exactly ONE of the two axes, and which one it names is
+    /// which stream it came off. A shape that named neither could not be
+    /// filtered at all.
+    var sessionKey: String? {
+        switch self {
+        case .message, .confirm, .activity: nil
+        case let .transcript(chunk): chunk.sessionKey
+        }
+    }
+
+    /// Whether a page that is still RUNNING should buffer this event to replay
+    /// onto its own result.
+    ///
+    /// Filtered at the door, per axis, for the reason the store's buffer
+    /// documents: the daemon's streams are broader than this pane, so an
+    /// unfiltered buffer collects every conversation's traffic while a page
+    /// whose RPC hangs holds the in-flight count open.
+    ///
+    /// The nil case on either axis is NOT a hole in that filter, it is the
+    /// FIRST page. Until one publishes there is nothing to compare against, and
+    /// a filter that answered "no match" there would drop exactly what the
+    /// buffer exists for. Replay applies the paged surface's own scope and
+    /// session, so nothing foreign gets rendered.
+    func belongsToPage(of surface: FleetChatSurface) -> Bool {
+        switch self {
+        case .message, .confirm, .activity:
+            return surface.scopeKey == nil || surface.scopeKey == scopeKey
+        case .transcript:
+            return surface.targetSessionKey == nil || surface.targetSessionKey == sessionKey
         }
     }
 }

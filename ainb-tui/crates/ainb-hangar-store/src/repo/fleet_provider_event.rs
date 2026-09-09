@@ -431,6 +431,19 @@ impl FleetProviderEventRepo {
     /// The NEWEST rows of one session's transcript, returned oldest first, and
     /// whether older rows were left behind.
     ///
+    /// The read behind BOTH the board timeline and an UNCURSORED
+    /// `fleet/transcript_list`, which want the same thing for the same reason:
+    /// the end of a run, bounded in size as well as in rows, with an honest
+    /// admission when either bound bit.
+    ///
+    /// Its forward twin [`Self::list_by_session_after`] cannot answer this by
+    /// being handed a computed cursor. `ingest_order` is
+    /// `INTEGER PRIMARY KEY AUTOINCREMENT`, ONE global sequence shared by every
+    /// provider's rows in this table, so a window of the newest N ORDERS is not
+    /// a window of the newest N rows of a SESSION: on a machine running several
+    /// agents with hooks, the newest hundred orders can contain none of the
+    /// session being watched.
+    ///
     /// The tail read behind `hangar/board_card_timeline`: an execution view
     /// shows the END of a run, and a whole transcript is unbounded in both rows
     /// and bytes (a coalesced text chunk is a few KiB, a tool call's verbatim
@@ -978,6 +991,208 @@ mod tests {
             FleetProviderEventRepo::append(store.pool(), &event("source-1", "second")).await,
             Err(FleetProviderEventError::EventIdCollision { .. })
         ));
+    }
+
+    /// The uncursored read answers with the END of one session's transcript,
+    /// past its own limit, with ANOTHER session interleaved through it.
+    ///
+    /// The interleaving is the whole point rather than decoration. Because
+    /// `ingest_order` is one global AUTOINCREMENT sequence, a client that
+    /// approximated a tail by asking for the newest N ORDERS would get a page
+    /// that is mostly (here entirely) the other session's rows, and on a busy
+    /// machine an EMPTY page for the session it is watching. That approximation
+    /// is what this read exists to replace, so the test has to make the two
+    /// answers differ.
+    #[tokio::test]
+    async fn the_uncursored_tail_answers_one_session_s_newest_rows_not_the_newest_orders() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in(dir.path()).await.unwrap();
+
+        // 150 rows for the watched session, then 100 for a NOISY neighbour, so
+        // the newest 100 global orders contain none of the watched session.
+        let mut batch: Vec<_> =
+            (0..150).map(|i| acp_event(&format!("mine-{i:03}"), "acp:watched")).collect();
+        batch.extend((0..100).map(|i| acp_event(&format!("noise-{i:03}"), "acp:noisy")));
+        FleetProviderEventRepo::append_batch(store.pool(), &batch).await.unwrap();
+
+        let (tail, truncated) = FleetProviderEventRepo::list_by_session_tail(
+            store.pool(),
+            "acp:watched",
+            100,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+        assert_eq!(tail.len(), 100, "the tail fills its limit from one session");
+        assert!(
+            truncated,
+            "50 older rows were left behind and the caller cannot infer that from a full page"
+        );
+        assert_eq!(
+            tail.first().unwrap().event_id,
+            "mine-050",
+            "the tail starts where the newest 100 of THIS session start"
+        );
+        assert_eq!(
+            tail.last().unwrap().event_id,
+            "mine-149",
+            "and ends at the session's newest row"
+        );
+        assert!(
+            tail.iter().all(|row| row.session_key.as_deref() == Some("acp:watched")),
+            "the neighbour's rows must never appear in this session's transcript"
+        );
+
+        // Ascending, identical to the cursored walk: callers already rely on
+        // commit order and a reversed page would be a wire change in disguise.
+        let orders: Vec<i64> = tail.iter().map(|row| row.ingest_order).collect();
+        let mut sorted = orders.clone();
+        sorted.sort_unstable();
+        assert_eq!(orders, sorted, "the tail is returned oldest first");
+
+        // The global-order window the client used to compute, for contrast:
+        // it lands entirely inside the neighbour's rows.
+        let head = FleetProviderEventRepo::head_order_for_session(store.pool(), "acp:noisy")
+            .await
+            .unwrap()
+            .unwrap();
+        let windowed = FleetProviderEventRepo::list_by_session_after(
+            store.pool(),
+            "acp:watched",
+            head - 100,
+            100,
+        )
+        .await
+        .unwrap();
+        assert!(
+            windowed.is_empty(),
+            "the global-order window is empty for this session, which is the bug the tail fixes"
+        );
+
+        // And the cursored half is untouched: given a row, it still walks
+        // forward from it.
+        let after = FleetProviderEventRepo::list_by_session_after(
+            store.pool(),
+            "acp:watched",
+            tail.first().unwrap().ingest_order,
+            10,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            after.first().unwrap().event_id,
+            "mine-051",
+            "the cursor stays exclusive and forward"
+        );
+    }
+
+    /// A session with FEWER rows than the limit returns all of them, and an
+    /// unknown session returns nothing rather than somebody else's tail.
+    #[tokio::test]
+    async fn a_short_transcript_tails_whole_and_an_unknown_session_tails_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in(dir.path()).await.unwrap();
+        let batch: Vec<_> = (0..3).map(|i| acp_event(&format!("s-{i}"), "acp:short")).collect();
+        FleetProviderEventRepo::append_batch(store.pool(), &batch).await.unwrap();
+
+        let (whole, truncated) = FleetProviderEventRepo::list_by_session_tail(
+            store.pool(),
+            "acp:short",
+            100,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+        assert!(
+            !truncated,
+            "a transcript shorter than the limit is COMPLETE, not truncated"
+        );
+        assert_eq!(
+            whole.iter().map(|row| row.event_id.as_str()).collect::<Vec<_>>(),
+            ["s-0", "s-1", "s-2"],
+            "a transcript shorter than the limit is returned whole, oldest first"
+        );
+
+        let (none, _truncated) = FleetProviderEventRepo::list_by_session_tail(
+            store.pool(),
+            "acp:nobody",
+            100,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+        assert!(
+            none.is_empty(),
+            "an unknown session must not borrow another's rows"
+        );
+    }
+
+    /// The BYTE budget binds independently of the row cap, and says so.
+    ///
+    /// This is the half a caller cannot infer: the page comes back well short
+    /// of its row limit, which on a row-bounded read would mean "that is the
+    /// whole transcript". Here it means the opposite. A client that read
+    /// `rows.len()` as completeness would render a partial run as a whole one,
+    /// which is the failure the flag exists to prevent.
+    #[tokio::test]
+    async fn the_byte_budget_truncates_independently_of_the_row_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in(dir.path()).await.unwrap();
+        let fat = |id: &str| NewFleetProviderEvent {
+            raw_payload: format!("{{\"text\":\"{}\"}}", "x".repeat(4096)),
+            ..acp_event(id, "acp:fat")
+        };
+        let batch: Vec<_> = (0..20).map(|i| fat(&format!("fat-{i:02}"))).collect();
+        FleetProviderEventRepo::append_batch(store.pool(), &batch).await.unwrap();
+
+        // Room for roughly two payloads, against a row cap of twenty.
+        let (rows, truncated) =
+            FleetProviderEventRepo::list_by_session_tail(store.pool(), "acp:fat", 20, 9_000)
+                .await
+                .unwrap();
+
+        assert!(truncated, "the byte budget bit and the caller must be told");
+        assert!(
+            rows.len() < 20,
+            "the byte budget bound the page, not the row cap: {}",
+            rows.len()
+        );
+        assert_eq!(
+            rows.last().unwrap().event_id,
+            "fat-19",
+            "whichever bound bit, the page still ENDS at the newest row"
+        );
+    }
+
+    /// One payload larger than the whole budget is still shown.
+    ///
+    /// The alternative is an empty transcript for a session that has run, which
+    /// reads as "nothing happened" when the truth is "one thing happened and it
+    /// was big". Its own renderer caps the body.
+    #[tokio::test]
+    async fn a_single_oversized_payload_survives_the_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in(dir.path()).await.unwrap();
+        FleetProviderEventRepo::append(
+            store.pool(),
+            &NewFleetProviderEvent {
+                raw_payload: format!("{{\"text\":\"{}\"}}", "x".repeat(100_000)),
+                ..acp_event("huge", "acp:huge")
+            },
+        )
+        .await
+        .unwrap();
+
+        let (rows, _truncated) =
+            FleetProviderEventRepo::list_by_session_tail(store.pool(), "acp:huge", 10, 1_000)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            rows.len(),
+            1,
+            "a lone oversized row must never be swallowed into an empty transcript"
+        );
     }
 
     #[tokio::test]

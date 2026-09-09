@@ -157,6 +157,21 @@ final class FleetStore: ObservableObject {
     /// its own result. Every fold is an upsert by id, so replaying an event the
     /// page already contains changes nothing.
     private var chatEventsDuringPage: [FleetChatEvent] = []
+    /// The transcript's OWN in-flight buffer, separate from the chat one.
+    ///
+    /// One shared FIFO was wrong the moment a fourth axis arrived. The three
+    /// chat frames and the transcript stream have completely different rates:
+    /// an agent mid-turn emits transcript chunks continuously while the
+    /// conversation is idle, so a single hundred-entry buffer is emptied of
+    /// chat messages by transcript traffic within one page. That would silently
+    /// undo the guarantee the buffer was added for, and it would do it exactly
+    /// when the pane is busiest.
+    ///
+    /// Bounded by the transcript page size for the same reason the chat buffer
+    /// is bounded by the message page size: the replay is onto a page that
+    /// already holds that many rows, so anything older is about to be dropped
+    /// by the surface's own ceiling anyway.
+    private var transcriptEventsDuringPage: [FleetChatEvent] = []
     /// How many pages are running. A count, not a flag: the poll loop and the
     /// send path both page, and they overlap. Buffering only while this is
     /// above zero is what keeps the buffer bounded by one page's duration
@@ -245,6 +260,22 @@ final class FleetStore: ObservableObject {
 
     var canAnswerConfirms: Bool {
         canWrite && negotiation?.capabilityIDs.contains("fleet.confirm.answer") == true && pendingIntentID == nil
+    }
+
+    /// Whether this daemon serves the ACP execution transcript.
+    ///
+    /// `fleet.transcript.read` is the id BOTH transcript arms check
+    /// (`handle_fleet_transcript_list`, `handle_fleet_transcript_subscribe`),
+    /// and it is gated SEPARATELY from `canReadChat` for the reason that gate
+    /// gives: a daemon built between phases serves the conversation while
+    /// answering -32601 for the transcript, and one combined gate would either
+    /// hide a working conversation or open a stream that errors.
+    ///
+    /// `fleet.transcript.prune` is deliberately NOT consulted. It is a separate
+    /// id naming the destructive verb, and nothing on this surface deletes a
+    /// transcript.
+    var canReadTranscript: Bool {
+        connectionState.isLive && negotiation?.capabilityIDs.contains("fleet.transcript.read") == true
     }
 
     #if DEBUG
@@ -842,20 +873,181 @@ final class FleetStore: ObservableObject {
             canWrite: canWrite,
             mintedSessionKeyByScope: copilotSessionKeyByScope
         )
+        // An EARLY out on the same ticket, purely to stop a page the store has
+        // already disowned spending two more round trips on a transcript
+        // nobody will see. The check that actually gates the publish is the one
+        // below, after every read has finished.
+        guard copilotCacheGeneration == generation else { return nil }
+        var surface = paged
+        carryTranscriptForward(into: &surface)
+        await pageTranscript(using: connection, into: &surface)
         guard copilotCacheGeneration == generation else { return nil }
         if minted,
-           let scope = paged.scopeKey,
-           let sessionKey = paged.targetSessionKey {
+           let scope = surface.scopeKey,
+           let sessionKey = surface.targetSessionKey {
             copilotSessionKeyByScope[scope] = sessionKey
         }
         // Everything that arrived live while this page was reading, replayed
         // onto it. Without this the page silently rewinds the pane past any
-        // message committed after `fleet/message_list` answered.
-        var surface = paged
-        for event in chatEventsDuringPage {
+        // message committed after `fleet/message_list` answered, or any
+        // transcript chunk committed after `fleet/transcript_list` did.
+        // Both buffers replay, chat then transcript. The two touch disjoint
+        // parts of the surface, so their relative order does not matter; the
+        // order WITHIN each does, and appending preserves it.
+        for event in chatEventsDuringPage + transcriptEventsDuringPage {
             surface.apply(event)
         }
         return surface
+    }
+
+    /// Carry the transcript the operator is already reading onto a fresh page.
+    ///
+    /// A page builds its surface from an empty `FleetChatSurface` and the store
+    /// publishes it WHOLESALE, which is the invariant that stops a half-applied
+    /// refresh showing this page's cards beside the last one's timeline. For
+    /// the conversation that is harmless, because a page re-reads the whole
+    /// conversation. For the transcript it was destructive: nothing carried the
+    /// rows forward, so every safety-net page threw away every live row since
+    /// the last one. An agent mid-turn would emit three hundred rows, and at
+    /// thirty seconds the pane would drop to the empty state while it was still
+    /// running.
+    ///
+    /// The CLASSIFIER is carried for a reason of its own and it is the subtler
+    /// half: it holds the pending tool-title map, so discarding it mid-run
+    /// makes the next tool result render under the unnamed `tool` form. That is
+    /// the exact degradation the replay guard exists to prevent, arriving
+    /// through the page instead of through a replay.
+    ///
+    /// Only when the SESSION is unchanged. A re-minted copilot session is a
+    /// different transcript, and carrying rows across that boundary would paint
+    /// one agent's execution under another's name.
+    private func carryTranscriptForward(into surface: inout FleetChatSurface) {
+        guard let sessionKey = surface.targetSessionKey,
+              sessionKey == chat.targetSessionKey,
+              chat.transcriptState.cursor != nil else { return }
+        // ONE assignment, and that is the fix rather than a tidy-up. This was
+        // four hand-written copies, so what a new field did across a page
+        // depended on whether its author remembered to add a fifth. It is now
+        // decided at the declaration instead: inside `FleetTranscriptState` is
+        // carried, beside it is rebuilt. `transcriptDetail` is beside it, which
+        // is why a momentary refusal can no longer pin its banner forever.
+        surface.transcriptState = chat.transcriptState
+    }
+
+    /// Make sure this connection's transcript stream is open, and fill the tail
+    /// on the pages that need one.
+    ///
+    /// SUBSCRIBE FIRST, then page, which is the opposite order from the chat
+    /// half and not an inconsistency: the forwarder has to be armed before the
+    /// snapshot is taken, or a chunk committing between the two is delivered by
+    /// neither. The daemon registers the forwarder at the acked head and its
+    /// first act is to read everything past that cursor, so the two meet
+    /// exactly. Anything that lands in both is dropped by the surface's cursor.
+    ///
+    /// The page is UNCURSORED, and that is now a tail read rather than a
+    /// client-computed window. `ingest_order` is one global `AUTOINCREMENT`
+    /// sequence shared by every provider's rows, so the newest N orders are not
+    /// the newest N rows of a session: on a machine running several agents with
+    /// hooks, a window of the newest hundred orders can hold ZERO rows for the
+    /// session being watched. The daemon answers an absent cursor with that
+    /// session's own newest page, which is the only version of this read a
+    /// client can be correct with.
+    ///
+    /// A safety-net page costs ONE round trip once rows are on screen: the
+    /// subscribe that re-arms the stream, and no tail read, because the rows
+    /// are carried rather than re-fetched.
+    ///
+    /// TWO while the transcript is still empty, and that state is not rare: a
+    /// session that has not produced a turn leaves the cursor nil, so the tail
+    /// is read again on every page until something exists to read. That is the
+    /// state a pane most often opens in, so the cost is stated rather than
+    /// rounded down to nothing.
+    ///
+    /// Every failure degrades to an explained absence rather than failing the
+    /// page, exactly as the confirm and activity feeds do: a daemon that does
+    /// not serve transcripts must not cost the operator their conversation.
+    private func pageTranscript(
+        using connection: FleetConnection,
+        into surface: inout FleetChatSurface
+    ) async {
+        // Capability FIRST. A daemon that cannot serve transcripts and a scope
+        // with no session are two different absences, and the ORDER decides
+        // which one the operator is told about. Asking about the session first
+        // reported "no session attached" on a daemon that would have refused
+        // the read anyway, sending the reader off to look at the wrong thing.
+        guard canReadTranscript else {
+            surface.transcriptDetail = "This daemon does not serve ACP transcripts."
+            return
+        }
+        guard let sessionKey = surface.targetSessionKey,
+              !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            surface.transcriptDetail = "No copilot session is attached, so there is no transcript to follow."
+            return
+        }
+        // SUBSCRIBE ON EVERY PAGE, with no guard in front of it.
+        //
+        // That is only safe because the subscribe now names a cursor: resuming
+        // from the row already shown can neither gap nor duplicate, so a
+        // repeat costs one round trip and nothing else. It buys the self-heal
+        // that the guard removed. `spawn_transcript_forwarder` exits on a
+        // single read error and leaves the socket alive with no forwarder
+        // behind it, and a transient sqlite lock is enough to do it; with a
+        // guard, that pane stayed silently dead until the session was
+        // re-minted. Re-arming every page is the cheapest way to notice.
+        //
+        // It also retires the bookkeeping this used to need. There is no
+        // remembered stream key to go stale, and therefore no question of
+        // whether a failed LIST should un-record a forwarder that is in fact
+        // registered.
+        let needsPage = surface.transcriptState.cursor == nil
+        do {
+            // RESUMING from the newest row already shown, not from the
+            // daemon's head. This is the lesson `openChatStream` records twenty
+            // lines below, and the transcript repeated it: a bare subscribe
+            // starts the forwarder at the head, so everything committed while
+            // this client was disconnected is never pushed. The tail page used
+            // to be the backstop and no longer is, because a carried cursor
+            // skips it: a five-second outage over a busy turn silently lost
+            // every row in the gap, with no seam to show it happened.
+            //
+            // Nil on a first page, which is the head, and the tail read that
+            // follows fills in behind it. No retry dance is needed here, unlike
+            // the message half: the daemon refuses only a NEGATIVE order, and
+            // an order it has never seen simply delivers nothing until the
+            // session commits past it.
+            //
+            // A long outage replays the whole gap, which is the same unbounded
+            // catch-up the chat stream accepts. The surface's own ceiling
+            // bounds what is kept.
+            _ = try await connection.transcriptSubscribe(
+                FleetTranscriptSubscribeParams(
+                    sessionKey: sessionKey,
+                    afterOrder: surface.transcriptState.cursor
+                )
+            )
+            guard needsPage else { return }
+            let page = try await connection.transcriptList(FleetTranscriptListParams(
+                sessionKey: sessionKey,
+                afterOrder: nil,
+                limit: fleetTranscriptListMax
+            ))
+            // The daemon's admission that it left rows behind, carried onto the
+            // surface rather than dropped. A short page is not the same fact as
+            // a short transcript: the tail is bounded by payload BYTES as well
+            // as rows, so a session of large chunks returns few of them, and a
+            // pane that read that as completeness would draw a partial run as a
+            // whole one.
+            surface.transcriptState.truncated = page.truncated
+            // Folded through the SAME door a live chunk takes, so the paged
+            // half and the live half of one transcript cannot disagree about a
+            // row, and the classifier the page leaves behind is the one the
+            // stream continues on.
+            for chunk in page.chunks {
+                surface.apply(.transcript(chunk))
+            }
+        } catch {
+            surface.transcriptDetail = String(describing: error)
+        }
     }
 
     /// Open the live chat stream, RESUMING from the newest row already shown.
@@ -916,6 +1108,7 @@ final class FleetStore: ObservableObject {
     private func beginChatPage() {
         if chatPagesInFlight == 0 {
             chatEventsDuringPage.removeAll()
+            transcriptEventsDuringPage.removeAll()
         }
         chatPagesInFlight += 1
     }
@@ -1169,6 +1362,12 @@ final class FleetStore: ObservableObject {
             }
         case let .activityEvent(params):
             fold(.activity(params.activity))
+        case let .transcriptEvent(params):
+            // The chunk goes in VERBATIM. Classifying here would bind it to
+            // whichever classifier was current when the frame arrived, and the
+            // one that has to read it is the surface's, which a page may be
+            // about to replace.
+            fold(.transcript(params.chunk))
         case .unknownNotification:
             break
         }
@@ -1181,9 +1380,11 @@ final class FleetStore: ObservableObject {
     /// moves NOW, and the event is remembered if a page is running so that
     /// page cannot overwrite it with a read that predates it.
     ///
-    /// The scope filter lives in `FleetChatSurface.apply`, where the scope key
-    /// is: the daemon's chat stream is fleet-wide, and every one of the three
-    /// event types carries the scope it was filed under.
+    /// The filter lives in `FleetChatSurface.apply`, where the keys are: the
+    /// daemon's streams are broader than this pane. Of the FOUR event types,
+    /// the three chat frames carry the scope they were filed under and the
+    /// transcript chunk carries no scope at all, so it is filtered by the
+    /// session that produced it instead.
     ///
     /// The write is guarded on a real change for the same reason the poll's is:
     /// an assignment to a `@Published` value redraws the pane whether or not
@@ -1194,24 +1395,58 @@ final class FleetStore: ObservableObject {
         // opens is what makes the surface current again, so the only thing lost
         // is liveness for a view nobody is looking at.
         guard chatPanesOpen > 0 else { return }
-        if chatPagesInFlight > 0, chat.scopeKey == nil || event.scopeKey == chat.scopeKey {
-            // Buffered by SCOPE at the door, not at replay. The stream is
-            // fleet-wide, so an unfiltered buffer collects every conversation's
+        if chatPagesInFlight > 0, event.belongsToPage(of: chat) {
+            // Buffered at the door, not at replay, and per AXIS: the chat
+            // frames are matched on scope and the transcript on session, which
+            // is what each stream is addressed by. The streams are broader than
+            // this pane, so an unfiltered buffer collects every conversation's
             // traffic, and a page whose RPC never answers holds the in-flight
             // count above zero for as long as that call hangs.
             //
-            // The nil case is not a hole in that filter, it is the FIRST page.
-            // Until one publishes there is no scope to compare against, and a
-            // filter that answered "no match" there would drop exactly what the
-            // buffer exists for: a message committed while the opening page was
-            // still reading its confirm and activity feeds. Replay applies the
-            // paged surface's own scope, so nothing foreign gets rendered, and
-            // the window lasts one page with the cap still in force.
-            chatEventsDuringPage.append(event)
-            if chatEventsDuringPage.count > Int(fleetMessageListMax) {
-                chatEventsDuringPage.removeFirst()
+            // The nil case on either axis is not a hole in that filter, it is
+            // the FIRST page. Until one publishes there is nothing to compare
+            // against, and a filter that answered "no match" there would drop
+            // exactly what the buffer exists for: a message committed while the
+            // opening page was still reading its confirm and activity feeds.
+            // Replay applies the paged surface's own scope and session, so
+            // nothing foreign gets rendered, and the window lasts one page with
+            // the cap still in force.
+            // Buffered per AXIS, not into one shared queue. An agent
+            // mid-turn emits transcript chunks continuously while the
+            // conversation sits idle, so a single FIFO would evict the chat
+            // messages this buffer was added to protect, and would do it
+            // exactly when the pane is busiest. Each axis is bounded by its own
+            // page size, which is the number of rows its replay target already
+            // holds.
+            switch event {
+            case .message, .confirm, .activity:
+                chatEventsDuringPage.append(event)
+                if chatEventsDuringPage.count > Int(fleetMessageListMax) {
+                    chatEventsDuringPage.removeFirst()
+                }
+            case .transcript:
+                transcriptEventsDuringPage.append(event)
+                if transcriptEventsDuringPage.count > Int(fleetTranscriptListMax) {
+                    transcriptEventsDuringPage.removeFirst()
+                }
             }
         }
+        // ponytail: this copies the surface and compares it whole, on the main
+        // actor, once per incoming event. With the transcript's ceiling that is
+        // up to 500 rows compared per chunk while an agent streams.
+        //
+        // Measured as cheap and left alone deliberately. `next` is a
+        // copy-on-write struct, so the copy is O(1) until `apply` mutates one
+        // array; the comparison then walks rows whose Strings are the SAME
+        // instances on both sides, which takes the identity fast path rather
+        // than comparing text. At ACP chunk rates (tens per second at the very
+        // most) it does not register.
+        //
+        // The obvious alternative, a dirty flag from `apply`, would trade that
+        // for a correctness hazard: this comparison is the ONLY thing stopping
+        // a no-op event writing `@Published` and redrawing the roster, the
+        // chips and the menu bar. Raise the ceiling a lot, or start folding
+        // something with genuinely expensive equality, and revisit it then.
         var next = chat
         next.apply(event)
         if next != chat { chat = next }

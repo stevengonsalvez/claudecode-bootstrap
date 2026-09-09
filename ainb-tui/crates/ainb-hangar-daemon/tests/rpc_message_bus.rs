@@ -1588,6 +1588,169 @@ async fn transcript_readers_answer_empty_and_the_forwarder_filters_its_session()
     assert_eq!(chunks[0]["chunk"]["session_key"], "acp:mine");
 }
 
+/// An UNCURSORED `fleet/transcript_list` answers with the end of the session's
+/// transcript, and a CURSORED one still walks forward from the named row.
+///
+/// The second session is what makes this test mean anything. `ingest_order` is
+/// one global AUTOINCREMENT sequence over every provider's rows, so the newest
+/// orders in the table are not the newest rows of a SESSION. A client that
+/// approximated the tail by naming `head - limit` as its cursor got a page that
+/// was mostly, and on a busy machine entirely, somebody else's rows: the pane
+/// went empty mid-turn. That approximation is what the uncursored arm replaces.
+#[tokio::test]
+async fn an_uncursored_transcript_read_answers_the_tail_of_its_own_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, store, _sink) = start_server(dir.path()).await;
+
+    // More rows than the page, then a noisy neighbour holding the newest
+    // global orders.
+    for index in 0..12 {
+        seed_transcript_row(&store, "acp:mine", &format!("mine-{index:02}")).await;
+    }
+    for index in 0..20 {
+        seed_transcript_row(&store, "acp:noisy", &format!("noise-{index:02}")).await;
+    }
+    let mut client = Client::authed(dir.path(), &socket).await;
+
+    let tail = client
+        .call(
+            methods::FLEET_TRANSCRIPT_LIST,
+            serde_json::json!({ "session_key": "acp:mine", "limit": 5 }),
+        )
+        .await;
+    let chunks = tail["result"]["chunks"].as_array().unwrap();
+    let ids: Vec<&str> = chunks.iter().map(|chunk| chunk["event_id"].as_str().unwrap()).collect();
+    assert_eq!(
+        ids,
+        ["mine-07", "mine-08", "mine-09", "mine-10", "mine-11"],
+        "an uncursored read answers the NEWEST page, oldest first"
+    );
+    assert!(
+        chunks.iter().all(|chunk| chunk["session_key"] == "acp:mine"),
+        "the neighbour's rows must never appear in this session's transcript"
+    );
+    assert_eq!(
+        tail["result"]["next_after_order"],
+        chunks.last().unwrap()["ingest_order"],
+        "the cursor to resume from is still the last row of the page"
+    );
+    assert_eq!(
+        tail["result"]["truncated"], true,
+        "seven older rows were left behind, and a full page cannot say so by itself"
+    );
+
+    // The cursored half is untouched by construction: named a row, it walks
+    // forward from it, exclusive, exactly as before.
+    let after_order = chunks[0]["ingest_order"].as_i64().unwrap();
+    let forward = client
+        .call(
+            methods::FLEET_TRANSCRIPT_LIST,
+            serde_json::json!({
+                "session_key": "acp:mine",
+                "after_order": after_order,
+                "limit": 3,
+            }),
+        )
+        .await;
+    let forward_ids: Vec<&str> = forward["result"]["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| chunk["event_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        forward_ids,
+        ["mine-08", "mine-09", "mine-10"],
+        "a cursor still means walk forward from this row, not re-read the tail"
+    );
+    assert_eq!(
+        forward["result"]["truncated"], false,
+        "a cursored walk has nothing to admit: next_after_order already says more follows"
+    );
+
+    // And a cursor of 0 is a real forward walk from the beginning, NOT the
+    // uncursored tail: absent and zero are different questions.
+    let from_start = client
+        .call(
+            methods::FLEET_TRANSCRIPT_LIST,
+            serde_json::json!({ "session_key": "acp:mine", "after_order": 0, "limit": 3 }),
+        )
+        .await;
+    let start_ids: Vec<&str> = from_start["result"]["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| chunk["event_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        start_ids,
+        ["mine-00", "mine-01", "mine-02"],
+        "an explicit zero cursor still walks from the start of the log"
+    );
+
+    // A negative cursor stays refused rather than silently becoming a tail.
+    let refused = client
+        .call(
+            methods::FLEET_TRANSCRIPT_LIST,
+            serde_json::json!({ "session_key": "acp:mine", "after_order": -1, "limit": 3 }),
+        )
+        .await;
+    assert_eq!(refused["error"]["code"], -32602);
+}
+
+/// A CURSORED `fleet/transcript_subscribe` replays the gap, which is what a
+/// client reconnecting after an outage depends on.
+///
+/// The uncursored form starts the forwarder at the head, so everything
+/// committed while a client was disconnected is never pushed. Naming the last
+/// row the client holds is the only thing that asks for the rest, and the
+/// existing subscribe test covers only the uncursored form.
+#[tokio::test]
+async fn a_cursored_transcript_subscribe_replays_the_gap() {
+    use ainb_hangar_store::repo::fleet_provider_event::FleetProviderEventRepo;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, store, _sink) = start_server(dir.path()).await;
+
+    // What the client saw before it dropped, then the outage's worth of rows,
+    // committed while nobody was subscribed.
+    seed_transcript_row(&store, "acp:mine", "seen").await;
+    let seen = FleetProviderEventRepo::head_order_for_session(store.pool(), "acp:mine")
+        .await
+        .unwrap()
+        .expect("the row it already holds");
+    for index in 0..3 {
+        seed_transcript_row(&store, "acp:mine", &format!("missed-{index}")).await;
+    }
+    // A neighbour's rows in the same window, which must not be replayed here.
+    seed_transcript_row(&store, "acp:other", "not-mine").await;
+
+    let mut client = Client::authed(dir.path(), &socket).await;
+    let ack = client
+        .call(
+            methods::FLEET_TRANSCRIPT_SUBSCRIBE,
+            serde_json::json!({ "session_key": "acp:mine", "after_order": seen }),
+        )
+        .await;
+    assert!(
+        ack["result"]["head_order"].as_i64().unwrap() > seen,
+        "the head has moved past the row the client holds"
+    );
+
+    let replayed = client
+        .drain_notifications("fleet/transcript_event", Duration::from_millis(800))
+        .await;
+    let ids: Vec<&str> = replayed
+        .iter()
+        .map(|chunk| chunk["chunk"]["event_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        ["missed-0", "missed-1", "missed-2"],
+        "the gap must replay in commit order, exclusive of the row the client already had"
+    );
+}
+
 /// An unbounded `targets` list is one request that writes an unbounded leg set
 /// and holds the daemon across a verified transport submit per recipient.
 #[tokio::test]

@@ -1330,6 +1330,156 @@ struct FleetActivityEventParams: Codable, Equatable {
     let activity: FleetActivityRow
 }
 
+// MARK: - fleet/transcript_* (the ACP execution stream)
+//
+// Addressed by SESSION, not by scope, which is the one structural difference
+// from the three chat frames above: a transcript belongs to the ACP session
+// that produced it, and `fleet/transcript_subscribe` names that session. The
+// gate on all of it is `fleet.transcript.read`, which is what BOTH daemon arms
+// check (`handle_fleet_transcript_list`, `handle_fleet_transcript_subscribe`).
+
+/// One ACP transcript chunk: a `fleet_provider_event` row with `source='acp'`.
+///
+/// `payload` is arbitrary adapter-authored JSON, decoded as `JSONValue` rather
+/// than as a typed shape, because the taxonomy that reads it
+/// (`AcpTranscriptClassifier`) is deliberately total: a row type this build
+/// does not carry yields nothing rather than failing the page it arrived on.
+struct FleetTranscriptChunk: Codable, Equatable, Sendable {
+    /// Commit-ordered transcript cursor (`ingest_order`).
+    let ingestOrder: Int64
+    /// Replay-safe chunk identity.
+    let eventID: String
+    /// The owning Fleet session.
+    let sessionKey: String
+    /// Normalized discriminator, `acp.<kind>`.
+    let eventType: String
+    /// Normalized chunk body.
+    let payload: JSONValue
+    /// Observation time in epoch milliseconds.
+    let observedAt: Int64
+
+    private enum CodingKeys: String, CodingKey {
+        case payload
+        case ingestOrder = "ingest_order"
+        case eventID = "event_id"
+        case sessionKey = "session_key"
+        case eventType = "event_type"
+        case observedAt = "observed_at"
+    }
+}
+
+/// Maximum chunks one `fleet/transcript_list` page may return
+/// (`FLEET_TRANSCRIPT_LIST_MAX`). The daemon clamps, so asking for more is not
+/// an error, but asking for the wrong number silently pages differently from
+/// the CLI reading the same transcript.
+let fleetTranscriptListMax: UInt32 = 100
+
+/// Params for `fleet/transcript_list`.
+///
+/// `after_order` is OMITTED when nil rather than sent as `null`, matching the
+/// daemon's `skip_serializing_if`, for the same reason `FleetMessageListParams`
+/// omits its cursor.
+struct FleetTranscriptListParams: Encodable, Equatable {
+    let sessionKey: String
+    let afterOrder: Int64?
+    let limit: UInt32
+
+    private enum CodingKeys: String, CodingKey {
+        case limit
+        case sessionKey = "session_key"
+        case afterOrder = "after_order"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sessionKey, forKey: .sessionKey)
+        try container.encodeIfPresent(afterOrder, forKey: .afterOrder)
+        try container.encode(limit, forKey: .limit)
+    }
+}
+
+/// Result for `fleet/transcript_list`: chunks in ascending `ingest_order`.
+///
+/// The page walks FORWARD from `after_order`, so a page taken from the start of
+/// a long transcript is its OLDEST hundred chunks. A tail view has to name a
+/// window that ends at the head, which is why the store subscribes first and
+/// pages from the head the ack publishes.
+struct FleetTranscriptListResult: Codable, Equatable {
+    let chunks: [FleetTranscriptChunk]
+    let nextAfterOrder: Int64?
+    /// Whether the daemon left older rows behind.
+    ///
+    /// NOT inferable from `chunks.count`, which is the whole reason it is on
+    /// the wire. The uncursored read is bounded twice, by rows and by payload
+    /// bytes, and which bound bit depends on the run: a short page can mean a
+    /// short transcript or one 4 KiB chunk after another. A pane that read a
+    /// short page as completeness would render a partial run as a whole one.
+    ///
+    /// Defaulted rather than required, so a daemon built before the flag reads
+    /// as "nothing was left behind", which is what its unbounded page meant.
+    let truncated: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case chunks, truncated
+        case nextAfterOrder = "next_after_order"
+    }
+
+    init(chunks: [FleetTranscriptChunk], nextAfterOrder: Int64?, truncated: Bool = false) {
+        self.chunks = chunks
+        self.nextAfterOrder = nextAfterOrder
+        self.truncated = truncated
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            chunks: try container.decode([FleetTranscriptChunk].self, forKey: .chunks),
+            nextAfterOrder: try container.decodeIfPresent(Int64.self, forKey: .nextAfterOrder),
+            truncated: try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        )
+    }
+}
+
+/// Params for `fleet/transcript_subscribe`.
+///
+/// An absent `after_order` starts the forwarder at the head the ack publishes;
+/// a named one asks the daemon to replay from that cursor. The daemon refuses a
+/// NEGATIVE order outright, so nothing here may send one.
+struct FleetTranscriptSubscribeParams: Encodable, Equatable {
+    let sessionKey: String
+    let afterOrder: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionKey = "session_key"
+        case afterOrder = "after_order"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sessionKey, forKey: .sessionKey)
+        try container.encodeIfPresent(afterOrder, forKey: .afterOrder)
+    }
+}
+
+/// Result for `fleet/transcript_subscribe`: the newest committed
+/// `ingest_order` for the session, or nil on an empty transcript.
+///
+/// The ack is not the point of the call; the `fleet/transcript_event`
+/// notifications that follow it on the SAME socket are. The daemon registers
+/// the forwarder at this head AFTER the response is queued, and the forwarder
+/// reads everything past its cursor before it waits, so a client that pages up
+/// to this head cannot miss a chunk between the two.
+struct FleetTranscriptSubscribeResult: Codable, Equatable {
+    let headOrder: Int64?
+
+    private enum CodingKeys: String, CodingKey { case headOrder = "head_order" }
+}
+
+/// Payload of the `fleet/transcript_event` notification.
+struct FleetTranscriptEventParams: Codable, Equatable, Sendable {
+    let chunk: FleetTranscriptChunk
+}
+
 enum FleetWire {
     static func decoder() -> JSONDecoder { JSONDecoder() }
     static func encoder() -> JSONEncoder {

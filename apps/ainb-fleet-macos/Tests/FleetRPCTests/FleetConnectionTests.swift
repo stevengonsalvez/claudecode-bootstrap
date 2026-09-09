@@ -1132,16 +1132,675 @@ final class FleetConnectionTests: XCTestCase {
         }
     }
 
+    // MARK: - The ACP transcript stream (PR C)
+
+    /// The store opens the transcript stream for the session the page just
+    /// resolved, then reads that session's tail with NO cursor.
+    ///
+    /// The absent cursor is the assertion. `ingest_order` is one global
+    /// AUTOINCREMENT sequence over every provider's rows, so a client cannot
+    /// name a window of its own that means "the newest rows of THIS session":
+    /// the newest hundred orders on a busy machine can hold none of them. An
+    /// uncursored read is the daemon's tail arm, and it is the only version of
+    /// this read a client can be correct with.
+    func testTheStoreSubscribesFirstThenReadsTheSessionTailWithNoCursor() async throws {
+        let counts = ChatServerCounts(
+            transcriptHeadOrder: 500,
+            transcriptChunks: [Self.transcriptChunkObject(order: 500, text: "reading the code")]
+        )
+        try await withChatStore(counts: counts) { store, _ in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            let subscribes = counts.transcriptSubscribes
+            XCTAssertEqual(subscribes.count, 1, "the stream must be opened exactly once per page")
+            let subscribeParams = subscribes[0]["params"] as? [String: Any]
+            XCTAssertEqual(
+                subscribeParams?["session_key"] as? String, "acp:1",
+                "the stream must follow the session the page minted, not the channel"
+            )
+            XCTAssertNil(
+                subscribeParams?["after_order"],
+                "an absent cursor is what asks the daemon to start at the head; a null is not the same frame"
+            )
+
+            let lists = counts.transcriptLists
+            XCTAssertEqual(lists.count, 1)
+            let listParams = lists[0]["params"] as? [String: Any]
+            XCTAssertEqual(listParams?["session_key"] as? String, "acp:1")
+            XCTAssertNil(
+                listParams?["after_order"],
+                "a client-computed window over GLOBAL orders is the bug; the tail read takes no cursor"
+            )
+            XCTAssertEqual((listParams?["limit"] as? NSNumber)?.uint32Value, fleetTranscriptListMax)
+
+            await MainActor.run {
+                XCTAssertEqual(store.chat.transcriptState.rows.map(\.body), ["reading the code"])
+                XCTAssertEqual(store.chat.transcriptState.cursor, 500)
+                XCTAssertNil(store.chat.transcriptDetail, "a page that worked must not explain an absence")
+            }
+        }
+    }
+
+    /// An EMPTY transcript opens the stream, reads its tail, and shows nothing
+    /// without claiming the transcript is unreadable.
+    ///
+    /// The tail read is issued regardless: an empty answer and an unreadable
+    /// one are different facts, and only the daemon can tell them apart. The
+    /// stream is open, so the session's first chunk still arrives live.
+    func testAnEmptyTranscriptOpensTheStreamAndShowsNothing() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(counts: counts) { store, _ in
+            await store.refreshChatOnce()
+
+            XCTAssertEqual(counts.transcriptSubscribes.count, 1)
+            XCTAssertEqual(counts.transcriptLists.count, 1, "an empty transcript is still read, not assumed")
+            await MainActor.run {
+                XCTAssertEqual(store.chat.transcriptState.rows, [])
+                XCTAssertNil(store.chat.transcriptDetail, "empty is not the same fact as unreadable")
+            }
+        }
+    }
+
+    /// THE CRITICAL. A safety-net page must not throw away the transcript the
+    /// operator is reading.
+    ///
+    /// The page rebuilds its surface from an empty one and the store publishes
+    /// it wholesale, so without an explicit carry the rows accumulated live
+    /// since the last page are discarded every thirty seconds. The concrete
+    /// failure it caused: an agent runs a long turn, hundreds of rows arrive on
+    /// the stream, and the pane drops to "Nothing yet" mid-turn.
+    ///
+    /// The scripted daemon answers with an empty transcript throughout, so this
+    /// fails unless the rows are genuinely carried rather than re-read. That is
+    /// also the live shape: a tail read can legitimately return nothing the
+    /// client did not already have.
+    func testASafetyNetPageKeepsTheTranscriptTheOperatorIsReading() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            // A turn's worth of live rows, none of which any page will return.
+            for order in 1...3 {
+                try Self.writeNotification(
+                    to: server,
+                    method: "fleet/transcript_event",
+                    params: ["chunk": Self.transcriptChunkObject(order: Int64(order), text: "row \(order)")]
+                )
+            }
+            let arrived = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.rows.count == 3 }
+            }
+            XCTAssertTrue(arrived, "the live rows never landed, so the page cannot be what drops them")
+
+            // The safety net fires.
+            await store.refreshChatOnce()
+
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.chat.transcriptState.rows.map(\.body), ["row 1", "row 2", "row 3"],
+                    "the page wiped a transcript the operator was reading mid-turn"
+                )
+                XCTAssertEqual(store.chat.transcriptState.cursor, 3, "and the cursor went with it")
+            }
+        }
+    }
+
+    /// The CLASSIFIER is carried too, which is the subtler half of the same
+    /// fix.
+    ///
+    /// It holds the pending tool-title map, so a page that dropped it would
+    /// leave the next tool result rendering under the unnamed `tool` form. That
+    /// is the exact degradation the replay guard exists to prevent, arriving
+    /// through the page instead of through a replay, and no row-count assertion
+    /// would notice it.
+    func testASafetyNetPageKeepsThePendingToolTitles() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            // A tool call, whose title only the classifier now remembers.
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(
+                    order: 1,
+                    eventType: "acp.tool_call",
+                    payload: ["sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash"]
+                )]
+            )
+            let called = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.rows.map(\.body) == ["Bash"] }
+            }
+            XCTAssertTrue(called, "the tool call never landed")
+
+            // The safety net fires BETWEEN the call and its result.
+            await store.refreshChatOnce()
+
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(
+                    order: 2,
+                    eventType: "acp.tool_call",
+                    payload: [
+                        "sessionUpdate": "tool_call_update", "toolCallId": "t1",
+                        "status": "completed", "rawOutput": "ok",
+                    ]
+                )]
+            )
+            let resolved = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.rows.count == 2 }
+            }
+            XCTAssertTrue(resolved, "the tool result never landed")
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.chat.transcriptState.rows.last?.body, "Bash  ok",
+                    "the page dropped the pending tool title, so the result lost the tool it belongs to"
+                )
+            }
+        }
+    }
+
+    /// A page whose transcript was carried forward is never RE-READ.
+    ///
+    /// The subscribe repeats once per page, deliberately: naming the cursor
+    /// makes a repeat neither gap nor duplicate, and repeating it is what
+    /// re-arms a forwarder the daemon dropped on a transient error. The tail
+    /// read is the half that must not repeat, because the rows are already on
+    /// screen. This is also the guard against the carry-forward being
+    /// implemented as a re-read that happens to produce the same rows.
+    func testACarriedTranscriptIsNotReReadFromTheDaemon() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            XCTAssertEqual(counts.transcriptSubscribes.count, 1, "the first page opens the stream")
+            XCTAssertEqual(counts.transcriptLists.count, 1, "and reads the tail once")
+
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(order: 1, text: "live")]
+            )
+            let landed = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.cursor == 1 }
+            }
+            XCTAssertTrue(landed, "the live row never landed")
+
+            await store.refreshChatOnce()
+            await store.refreshChatOnce()
+
+            // The SUBSCRIBE repeats deliberately, once per page: it names a
+            // cursor, so it can neither gap nor duplicate, and re-arming is
+            // what notices a forwarder the daemon has silently dropped.
+            XCTAssertEqual(
+                counts.transcriptSubscribes.count, 3,
+                "every page must re-arm the stream, or a dead forwarder is never noticed"
+            )
+            // The tail READ is the expensive half, and it must not repeat.
+            XCTAssertEqual(
+                counts.transcriptLists.count, 1,
+                "a carried transcript must not be re-read from the daemon"
+            )
+            for subscribe in counts.transcriptSubscribes.dropFirst() {
+                let params = subscribe["params"] as? [String: Any]
+                XCTAssertEqual(
+                    (params?["after_order"] as? NSNumber)?.int64Value, 1,
+                    "a repeat subscribe must resume from the cursor, or it re-delivers the whole tail"
+                )
+            }
+        }
+    }
+
+    /// A committed chunk reaches an open pane with no page behind it, and one
+    /// for ANOTHER session never appears.
+    ///
+    /// Ordered rather than timed, like its message sibling: both frames go down
+    /// one socket in order, so when the second has landed the first has already
+    /// been through the fold. Waiting a fixed interval to prove an absence is
+    /// how a suite gets a flake that only fires on a loaded machine.
+    func testALiveTranscriptChunkReachesTheOpenPaneWithoutAPage() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            await MainActor.run { XCTAssertEqual(store.chat.targetSessionKey, "acp:1") }
+
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(
+                    order: 8, sessionKey: "acp:elsewhere", text: "another agent"
+                )]
+            )
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(order: 9, text: "on it")]
+            )
+
+            let landed = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.rows.map(\.body) == ["on it"] }
+            }
+            XCTAssertTrue(
+                landed,
+                "a committed chunk must reach the pane on the stream, and only this session's"
+            )
+        }
+    }
+
+    /// A chunk that arrives while a page is READING must survive that page.
+    ///
+    /// The page replaces the surface wholesale and its `fleet/transcript_list`
+    /// answered before this chunk was committed, so folding it into the live
+    /// surface alone is not enough: the page lands afterwards and rewinds the
+    /// pane past it. Driven by holding the daemon inside the page rather than
+    /// by hoping the interleaving happens, so it fails deterministically
+    /// without the replay.
+    func testALiveTranscriptChunkIsNotLostByAPageAlreadyInFlight() async throws {
+        let gate = ChatServerGate()
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(gate: gate, counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            gate.arm()
+            let paging = Task { await store.refreshChatOnce() }
+            let stopped = await Self.waitUntil { gate.hasReached }
+            XCTAssertTrue(stopped, "the daemon never reached the point the page is held at")
+
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(order: 11, text: "mid-page")]
+            )
+            let folded = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.rows.map(\.body) == ["mid-page"] }
+            }
+            XCTAssertTrue(folded, "the chunk never reached the surface, so the page cannot be what dropped it")
+
+            gate.letGo()
+            await paging.value
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.chat.transcriptState.rows.map(\.body), ["mid-page"],
+                    "the page overwrote a chunk that was committed while it was reading"
+                )
+            }
+        }
+    }
+
+    /// A transcript BURST during a page must not evict the chat message that
+    /// page's buffer exists to protect.
+    ///
+    /// The buffers are per axis for exactly this. An agent mid-turn emits
+    /// transcript chunks continuously while the conversation sits idle, so one
+    /// shared hundred-entry FIFO is emptied of chat messages by transcript
+    /// traffic inside a single page. That would silently undo the guarantee the
+    /// previous PR added, and it would do it precisely when the pane is
+    /// busiest.
+    ///
+    /// The message goes in FIRST and the burst after it, so a shared FIFO
+    /// evicts the message and this fails.
+    func testATranscriptBurstDoesNotEvictTheBufferedChatMessage() async throws {
+        let gate = ChatServerGate()
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(gate: gate, counts: counts) { store, server in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+
+            gate.arm()
+            let paging = Task { await store.refreshChatOnce() }
+            let stopped = await Self.waitUntil { gate.hasReached }
+            XCTAssertTrue(stopped, "the daemon never reached the point the page is held at")
+
+            try Self.writeNotification(
+                to: server,
+                method: "fleet/message_event",
+                params: ["message": Self.messageObject(id: "01J0KEEP", scope: "channel:c1")]
+            )
+            // Well past the shared buffer's old hundred-entry ceiling.
+            for order in 1...150 {
+                try Self.writeNotification(
+                    to: server,
+                    method: "fleet/transcript_event",
+                    params: ["chunk": Self.transcriptChunkObject(order: Int64(order), text: "burst \(order)")]
+                )
+            }
+            let burstLanded = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.cursor == 150 }
+            }
+            XCTAssertTrue(burstLanded, "the burst never landed, so nothing was under pressure")
+
+            gate.letGo()
+            await paging.value
+
+            await MainActor.run {
+                XCTAssertEqual(
+                    store.chat.messages.map(\.id), ["01J0KEEP"],
+                    "the transcript burst evicted the chat message the buffer was added to protect"
+                )
+            }
+        }
+    }
+
+    /// The daemon's truncation flag reaches the surface, and survives the
+    /// carry-forward.
+    ///
+    /// A short page is not the same fact as a short transcript: the tail is
+    /// bounded by payload BYTES as well as rows, so a session of large chunks
+    /// returns few of them. A pane that read that as completeness would draw a
+    /// partial run as a whole one. The second page is the other half: the
+    /// marker describes rows that are still on screen, so dropping it thirty
+    /// seconds later would quietly turn a partial run into a complete-looking
+    /// one.
+    func testTheTruncationFlagReachesTheSurfaceAndSurvivesTheCarryForward() async throws {
+        let counts = ChatServerCounts(
+            transcriptHeadOrder: 9,
+            transcriptChunks: [Self.transcriptChunkObject(order: 9, text: "the tail")],
+            transcriptTruncated: true
+        )
+        try await withChatStore(counts: counts) { store, _ in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertTrue(
+                    store.chat.transcriptState.truncated,
+                    "the daemon said it left rows behind and the pane must say so too"
+                )
+                XCTAssertNil(store.chat.transcriptDetail, "a seam is not an error")
+            }
+
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertTrue(
+                    store.chat.transcriptState.truncated,
+                    "the seam marker was dropped by the page that kept the rows it describes"
+                )
+            }
+        }
+    }
+
+    /// A daemon that cannot serve transcripts says SO, even when there is also
+    /// no session to follow.
+    ///
+    /// Two absences, and the order of the guards decides which one the operator
+    /// is told about. Reporting the missing session first sent the reader off
+    /// to look at a session that would have been refused the read anyway.
+    func testAMissingCapabilityIsReportedAheadOfAMissingSession() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: nil)
+        try await withChatStore(serveTranscript: false, refuseAcpSessionCreate: true, counts: counts) { store, _ in
+            await store.refreshChatOnce()
+
+            await MainActor.run {
+                XCTAssertNil(store.chat.targetSessionKey, "the fixture refused the mint, so there is no session")
+                XCTAssertEqual(
+                    store.chat.transcriptDetail, "This daemon does not serve ACP transcripts.",
+                    "the capability is the real reason and must be the one reported"
+                )
+            }
+        }
+    }
+
+    /// MAJOR 1. A MOMENTARY refusal must not pin the banner forever.
+    ///
+    /// The detail describes what happened on the page that set it. Carrying it
+    /// forward made a single hiccup permanent: it rode onto every later
+    /// surface, the steady-state page returned before anything could clear it,
+    /// and the pane rendered "Transcript unavailable" above a live, updating
+    /// transcript until the session was re-minted or the app restarted. Before
+    /// the carry-forward existed this self-healed on the next page, so the
+    /// regression arrived with the fix for something else.
+    ///
+    /// It takes a RECONNECT to reach, and the first version of this test did
+    /// not: a refusal on the opening page leaves no cursor, so the carry never
+    /// runs and the assertion passes against the bug. The failure needs an
+    /// opening subscribe that SUCCEEDS, so a cursor exists to be carried, and a
+    /// later one that does not. Five older assertions touch `transcriptDetail`
+    /// and none watches it CLEAR, which is how this could land unnoticed.
+    func testATransientTranscriptRefusalClearsOnceItStopsHolding() async throws {
+        // The subscribe on the SECOND connection is refused; the opening one
+        // and the retry after it are not.
+        let counts = ChatServerCounts(
+            transcriptHeadOrder: 5,
+            transcriptChunks: [Self.transcriptChunkObject(order: 5, text: "still running")],
+            refusedTranscriptSubscribes: [2]
+        )
+        try await withReconnectingChatStore(counts: counts) { store, firstServer, factory in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertEqual(store.chat.transcriptState.cursor, 5, "the opening page must leave a cursor to carry")
+                XCTAssertNil(store.chat.transcriptDetail)
+            }
+
+            Darwin.shutdown(firstServer, SHUT_RDWR)
+            let reconnected = await Self.waitUntil { factory.count == 2 }
+            XCTAssertTrue(reconnected, "the store never reconnected")
+            _ = await Self.waitUntil { await MainActor.run { store.connectionState.isLive } }
+
+            // The page whose subscribe is refused, with a cursor carried.
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertNotNil(
+                    store.chat.transcriptDetail,
+                    "a refused subscribe must be explained while it is still the truth"
+                )
+                XCTAssertEqual(
+                    store.chat.transcriptState.cursor, 5,
+                    "and the rows already read must survive the refusal"
+                )
+            }
+
+            // The daemon is well again. Nothing else changed.
+            await store.refreshChatOnce()
+            await MainActor.run {
+                XCTAssertNil(
+                    store.chat.transcriptDetail,
+                    "the banner outlived the refusal and now sits above a working transcript"
+                )
+            }
+        }
+    }
+
+    /// MAJOR 2. A reconnect resumes the stream from the rows already on screen,
+    /// not from the daemon's head.
+    ///
+    /// A bare subscribe starts the forwarder at the head, so everything
+    /// committed while this client was disconnected is never pushed. The tail
+    /// page used to be the backstop and no longer is, because a carried cursor
+    /// skips it: a five-second outage over a busy turn silently lost every row
+    /// in the gap, with no seam to show it happened. `openChatStream` records
+    /// this lesson for the chat half; the transcript half repeated it.
+    ///
+    /// Two connections, because the failure only exists across a reconnect: the
+    /// assertion is on the SECOND subscribe's cursor.
+    func testAReconnectResumesTheTranscriptStreamFromTheRowsAlreadyShown() async throws {
+        let counts = ChatServerCounts(
+            transcriptHeadOrder: 5,
+            transcriptChunks: [Self.transcriptChunkObject(order: 5, text: "before the drop")]
+        )
+        try await withReconnectingChatStore(counts: counts) { store, firstServer, factory in
+            await MainActor.run { store.chatPaneAppeared() }
+            await store.refreshChatOnce()
+            // One row past the page, so the cursor is somewhere only the live
+            // stream could have put it.
+            try Self.writeNotification(
+                to: firstServer,
+                method: "fleet/transcript_event",
+                params: ["chunk": Self.transcriptChunkObject(order: 6, text: "live before the drop")]
+            )
+            let atSix = await Self.waitUntil {
+                await MainActor.run { store.chat.transcriptState.cursor == 6 }
+            }
+            XCTAssertTrue(atSix, "the live row never landed, so there is no cursor to resume from")
+
+            // The outage.
+            Darwin.shutdown(firstServer, SHUT_RDWR)
+            let reconnected = await Self.waitUntil { factory.count == 2 }
+            XCTAssertTrue(reconnected, "the store never reconnected")
+            let relive = await Self.waitUntil {
+                await MainActor.run { store.connectionState.isLive }
+            }
+            XCTAssertTrue(relive, "the second connection never came up")
+
+            // The first page on the new socket, which is where the stream reopens.
+            await store.refreshChatOnce()
+
+            let subscribes = counts.transcriptSubscribes
+            XCTAssertEqual(subscribes.count, 2, "the new connection must re-open the stream")
+            let resumed = subscribes[1]["params"] as? [String: Any]
+            XCTAssertEqual(
+                (resumed?["after_order"] as? NSNumber)?.int64Value, 6,
+                "the reconnect subscribed at the daemon's head, so every row committed during the outage is lost"
+            )
+        }
+    }
+
+    /// Bring a store up against TWO scripted chat connections, so a test can
+    /// drop the first and watch what the second asks for.
+    ///
+    /// Both legs are served by the same `serveChatConnection`, and both share
+    /// one `counts`, which is what lets a test compare the frames the two
+    /// connections sent. A second copy of the bootstrap is how the two legs of
+    /// a reconnect test start disagreeing about the wire.
+    private func withReconnectingChatStore(
+        counts: ChatServerCounts,
+        _ body: (FleetStore, Int32, TestConnectionFactory) async throws -> Void
+    ) async throws {
+        var first = [Int32](repeating: 0, count: 2)
+        var second = [Int32](repeating: 0, count: 2)
+        XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &first), 0)
+        XCTAssertEqual(Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &second), 0)
+        let firstServer = first[1]
+        let secondServer = second[1]
+        defer {
+            Darwin.close(firstServer)
+            Darwin.close(secondServer)
+        }
+        let location = try Self.testLocation()
+        defer { try? FileManager.default.removeItem(at: location.home) }
+        let factory = TestConnectionFactory(descriptors: [first[0], second[0]], location: location)
+        let store = await MainActor.run {
+            FleetStore(
+                location: location,
+                makeConnection: factory.make,
+                reconnectDelayNanoseconds: { _ in 0 }
+            )
+        }
+
+        let serversDone = expectation(description: "both chat servers finished")
+        serversDone.expectedFulfillmentCount = 2
+        let serverResult = SocketServerResult()
+        for descriptor in [firstServer, secondServer] {
+            DispatchQueue.global().async {
+                defer { serversDone.fulfill() }
+                do {
+                    try Self.serveChatConnection(descriptor: descriptor, counts: counts)
+                } catch StoreServerError.closed {
+                    // The client hung up. Expected on both legs.
+                } catch {
+                    serverResult.record(error)
+                }
+            }
+        }
+
+        await MainActor.run { store.start() }
+        let live = await Self.waitUntil {
+            await MainActor.run { store.connectionState.isLive && store.canWrite }
+        }
+        XCTAssertTrue(live, "the fixture never reached a live connection")
+
+        try await body(store, firstServer, factory)
+
+        await MainActor.run { store.stop() }
+        await fulfillment(of: [serversDone], timeout: 5)
+        try serverResult.throwIfRecorded()
+    }
+
+    /// Bootstrap one scripted chat connection and serve it until it closes.
+    ///
+    /// Extracted so a test with TWO connections drives both the same way
+    /// `withChatStore` drives one; a second copy of the bootstrap is how the
+    /// two legs of a reconnect test start disagreeing about the wire.
+    private static func serveChatConnection(descriptor: Int32, counts: ChatServerCounts) throws {
+        try serveStoreBootstrap(
+            descriptor: descriptor,
+            subscriptionSnapshot: try snapshotObject(head: 1, sessions: []),
+            eventBeforeSubscriptionResponse: false,
+            snapshotAfterEvent: try snapshotObject(head: 1, sessions: []),
+            capabilityIDs: [
+                "fleet.chat.read", "fleet.chat.write",
+                "fleet.message.read", "fleet.message.send", "fleet.acp.spawn",
+                "fleet.transcript.read",
+            ]
+        )
+        while true {
+            try answerChatRequest(try readRequest(from: descriptor), to: descriptor, counts: counts)
+        }
+    }
+
+    /// A daemon that does not advertise `fleet.transcript.read` costs the pane
+    /// its transcript and NOTHING else, with the absence explained.
+    ///
+    /// Gated separately from the conversation for exactly this: a daemon built
+    /// between phases serves the chat while answering -32601 here, and a
+    /// combined gate would either hide a working conversation or open a stream
+    /// that errors on every page.
+    func testADaemonWithoutTheTranscriptCapabilityExplainsTheAbsence() async throws {
+        let counts = ChatServerCounts(transcriptHeadOrder: 5)
+        try await withChatStore(serveTranscript: false, counts: counts) { store, _ in
+            await store.refreshChatOnce()
+
+            await MainActor.run {
+                XCTAssertFalse(store.canReadTranscript)
+                XCTAssertTrue(store.canReadChat, "the conversation must survive a missing transcript capability")
+                XCTAssertEqual(store.chat.scopeKey, "channel:c1", "and the page still published")
+                XCTAssertNotNil(store.chat.transcriptDetail, "an unreadable transcript must say so")
+                XCTAssertEqual(store.chat.transcriptState.rows, [])
+            }
+            XCTAssertEqual(counts.transcriptSubscribes.count, 0, "a capability this daemon lacks must not be called")
+            XCTAssertEqual(counts.transcriptLists.count, 0)
+        }
+    }
+
+    /// One transcript chunk in the shape the daemon frames it.
+    private static func transcriptChunkObject(
+        order: Int64,
+        sessionKey: String = "acp:1",
+        eventType: String = "acp.message",
+        text: String = "hello",
+        payload: [String: Any]? = nil
+    ) -> [String: Any] {
+        [
+            "ingest_order": order,
+            "event_id": "evt-\(order)",
+            "session_key": sessionKey,
+            "event_type": eventType,
+            "payload": payload ?? ["text": text],
+            "observed_at": 1_700_000_000_000,
+        ]
+    }
+
     /// Bring a store up against the scripted chat daemon and hand both it and
     /// the SERVER end of the socket to `body`.
     ///
     /// Handing over the raw descriptor is what lets a test push a notification.
     /// It is safe because the server thread is blocked reading (or held at the
     /// gate) whenever `body` runs, so there is never a second writer.
+    /// `counts` is passed IN rather than handed back, so a test that needs to
+    /// assert on what the wire was asked for holds the same object the
+    /// scripted daemon is writing to.
     private func withChatStore(
         refuseMessageSubscribe: Bool = false,
         gate: ChatServerGate? = nil,
         pagesReturnMarkerRows: Bool = false,
+        serveTranscript: Bool = true,
+        refuseAcpSessionCreate: Bool = false,
+        counts providedCounts: ChatServerCounts? = nil,
         _ body: (FleetStore, Int32) async throws -> Void
     ) async throws {
         var descriptors = [Int32](repeating: 0, count: 2)
@@ -1152,7 +1811,7 @@ final class FleetConnectionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: location.home) }
         let serverDone = expectation(description: "chat server finished")
         let serverResult = SocketServerResult()
-        let counts = ChatServerCounts(pagesReturnMarkerRows: pagesReturnMarkerRows)
+        let counts = providedCounts ?? ChatServerCounts(pagesReturnMarkerRows: pagesReturnMarkerRows)
 
         DispatchQueue.global().async {
             defer { serverDone.fulfill() }
@@ -1165,7 +1824,7 @@ final class FleetConnectionTests: XCTestCase {
                     capabilityIDs: [
                         "fleet.chat.read", "fleet.chat.write",
                         "fleet.message.read", "fleet.message.send", "fleet.acp.spawn",
-                    ],
+                    ] + (serveTranscript ? ["fleet.transcript.read"] : []),
                     refuseMessageSubscribe: refuseMessageSubscribe
                 )
                 while true {
@@ -1173,7 +1832,8 @@ final class FleetConnectionTests: XCTestCase {
                         try Self.readRequest(from: serverDescriptor),
                         to: serverDescriptor,
                         counts: counts,
-                        gate: gate
+                        gate: gate,
+                        refuseAcpSessionCreate: refuseAcpSessionCreate
                     )
                 }
             } catch StoreServerError.closed {
@@ -1223,7 +1883,8 @@ final class FleetConnectionTests: XCTestCase {
         _ request: [String: Any],
         to descriptor: Int32,
         counts: ChatServerCounts,
-        gate: ChatServerGate? = nil
+        gate: ChatServerGate? = nil,
+        refuseAcpSessionCreate: Bool = false
     ) throws {
         switch request["method"] as? String {
         case "fleet/channel_list":
@@ -1237,6 +1898,12 @@ final class FleetConnectionTests: XCTestCase {
             ]]])
         case "fleet/acp_session_create":
             counts.recordAcpCreate()
+            // A refused mint leaves the surface with no target at all, because
+            // a copilot channel carries no recipient list to fall back on.
+            if refuseAcpSessionCreate {
+                try writeError(to: descriptor, request: request)
+                return
+            }
             try writeResponse(to: descriptor, request: request, result: [
                 "session_key": "acp:1",
                 "scope_key": "channel:c1",
@@ -1258,6 +1925,28 @@ final class FleetConnectionTests: XCTestCase {
             try writeResponse(to: descriptor, request: request, result: ["confirms": []])
         case "fleet/activity_list":
             try writeResponse(to: descriptor, request: request, result: ["activities": []])
+        case "fleet/transcript_subscribe":
+            // The head the page's window is measured back from, and the
+            // session it was asked for, both recorded: the ack is the only
+            // place the wire says WHICH session's stream the store opened.
+            if counts.recordTranscriptSubscribe(request) {
+                try writeError(to: descriptor, request: request)
+                return
+            }
+            try writeResponse(
+                to: descriptor,
+                request: request,
+                result: ["head_order": counts.transcriptHeadOrder as Any]
+            )
+        case "fleet/transcript_list":
+            counts.recordTranscriptList(request)
+            try writeResponse(to: descriptor, request: request, result: [
+                "chunks": counts.transcriptChunks,
+                "next_after_order": counts.transcriptChunks.isEmpty
+                    ? NSNull()
+                    : counts.transcriptHeadOrder as Any,
+                "truncated": counts.transcriptTruncated,
+            ])
         case "fleet/message_send":
             try writeResponse(to: descriptor, request: request, result: [
                 "message_id": "01J0MSG",
@@ -1652,9 +2341,63 @@ private final class ChatServerCounts: @unchecked Sendable {
     /// which page's surface reached the screen.
     let pagesReturnMarkerRows: Bool
 
-    init(rejectionDetail: String = "target_not_running", pagesReturnMarkerRows: Bool = false) {
+    /// The head order this fixture's transcript reports, or nil for an empty
+    /// one. The store measures its page window back from this.
+    let transcriptHeadOrder: Int64?
+    /// The chunks `fleet/transcript_list` answers with.
+    let transcriptChunks: [[String: Any]]
+    /// Whether the scripted tail read says it left older rows behind.
+    let transcriptTruncated: Bool
+    /// Which `fleet/transcript_subscribe` calls are refused, counted from one.
+    ///
+    /// By INDEX rather than "the first N", because the failure that pinned the
+    /// banner needs an opening subscribe that SUCCEEDS (so a cursor exists to
+    /// be carried) and a later one that does not.
+    private var transcriptSubscribeRequests: [[String: Any]] = []
+    private var transcriptListRequests: [[String: Any]] = []
+
+    init(
+        rejectionDetail: String = "target_not_running",
+        pagesReturnMarkerRows: Bool = false,
+        transcriptHeadOrder: Int64? = nil,
+        transcriptChunks: [[String: Any]] = [],
+        transcriptTruncated: Bool = false,
+        refusedTranscriptSubscribes: Set<Int> = []
+    ) {
+        self.refusedTranscriptSubscribes = refusedTranscriptSubscribes
         self.rejectionDetail = rejectionDetail
         self.pagesReturnMarkerRows = pagesReturnMarkerRows
+        self.transcriptHeadOrder = transcriptHeadOrder
+        self.transcriptChunks = transcriptChunks
+        self.transcriptTruncated = transcriptTruncated
+    }
+
+    let refusedTranscriptSubscribes: Set<Int>
+
+    /// Record the call and say whether this one is refused.
+    func recordTranscriptSubscribe(_ request: [String: Any]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        transcriptSubscribeRequests.append(request)
+        return refusedTranscriptSubscribes.contains(transcriptSubscribeRequests.count)
+    }
+
+    func recordTranscriptList(_ request: [String: Any]) {
+        lock.lock()
+        transcriptListRequests.append(request)
+        lock.unlock()
+    }
+
+    var transcriptSubscribes: [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return transcriptSubscribeRequests
+    }
+
+    var transcriptLists: [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return transcriptListRequests
     }
 
     /// Count this page's timeline read and answer with its ordinal.
