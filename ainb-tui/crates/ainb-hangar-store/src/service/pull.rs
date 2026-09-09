@@ -200,6 +200,51 @@ impl PullService {
         idgen: &dyn IdGen,
         clock: &dyn HangarClock,
     ) -> Result<Option<PulledCard>, sqlx::Error> {
+        // Gate: a profile with no cards can never satisfy this statement, and
+        // paying a write lock to discover that is what wedged a real daemon.
+        //
+        // `PULL_SQL` is an INSERT, so `SQLite` takes the WRITE lock at statement
+        // start, before any predicate is evaluated. On a contended database a
+        // board-less profile therefore burnt the full `busy_timeout` (measured:
+        // 10.64s, every ~22s, `rows_affected=0` every time) queueing behind
+        // other writers for a statement whose driving table is EMPTY. Two of
+        // those per main-loop tick — this one and the claim behind it — is what
+        // took the daemon from a 1s poll to a ~22s one.
+        //
+        // The gate is a READ, and in WAL mode readers never wait for the write
+        // lock, so it costs microseconds and cannot itself block. Checking is
+        // strictly cheaper than the write it avoids.
+        //
+        // NOT cached, deliberately: the check IS its own invalidation. The first
+        // `board_card` row a profile ever gains makes this pass on the very next
+        // tick, with no daemon restart and no stale flag. This skips work that
+        // cannot match; it does not disable boards.
+        // Gate: a profile with no cards can never satisfy this statement, and
+        // paying a write lock to discover that is what wedged a real daemon.
+        //
+        // `PULL_SQL` is an INSERT, so `SQLite` takes the WRITE lock at statement
+        // start, before any predicate is evaluated. On a contended database a
+        // board-less profile therefore burnt the full `busy_timeout` (measured:
+        // 10.64s, every ~22s, `rows_affected=0` every time) queueing behind
+        // other writers for a statement whose driving table is EMPTY. Two of
+        // those per main-loop tick — this one and the claim behind it — is what
+        // took the daemon from a 1s poll to a ~22s one.
+        //
+        // The gate is a READ, and in WAL mode readers never wait for the write
+        // lock, so it costs microseconds and cannot itself block. Checking is
+        // strictly cheaper than the write it avoids.
+        //
+        // NOT cached, deliberately: the check IS its own invalidation. The first
+        // `board_card` row a profile ever gains makes this pass on the very next
+        // tick, with no daemon restart and no stale flag. This skips work that
+        // cannot match; it does not disable boards.
+        let has_cards: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM board_card)")
+            .fetch_one(pool)
+            .await?;
+        if !has_cards {
+            return Ok(None);
+        }
+
         let task_id = idgen.new_ulid();
         let now = clock.now_ms();
 
