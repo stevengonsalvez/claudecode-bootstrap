@@ -103,13 +103,39 @@ fn launch_line(layout: &SandboxLayout, bin: &Path) -> String {
     s
 }
 
+/// Columns at the right edge a notice box can occupy.
+///
+/// Notices are a top-RIGHT corner overlay, at most 64 cells wide plus a
+/// two-cell margin; 70 leaves headroom. The Units table's own columns (`#`,
+/// name, kind, source) all sit far to the left of that on the 200-column pane
+/// this test drives, so dropping this many columns removes any overlay without
+/// touching a single table cell.
+const NOTICE_OVERLAY_COLUMNS: usize = 70;
+
 /// The Units table occupies the top band of the screen; the Detail pane
 /// is the lower band and keeps echoing the selected unit's name even
 /// after the table is rebuilt. Scope substring checks to the table by
 /// taking the first 20 rows (well clear of the Detail pane on a 50-row
 /// terminal). Mirrors the search tripwire's region-scoping helper.
+///
+/// The right edge of each line is dropped, because taking a RECTANGLE of the
+/// screen cannot tell a table row from something drawn on top of one. A notice
+/// legitimately overlays this corner, and the remove confirm quotes the full
+/// unit URI — so once notices stopped being clipped at 48 cells, the name this
+/// test looks for arrived inside the region from the OVERLAY while the table
+/// row was correctly gone. The assertion is about the table's own columns, and
+/// those are on the left.
 fn units_region(full: &str) -> String {
-    full.lines().take(20).collect::<Vec<_>>().join("\n")
+    full.lines()
+        .take(20)
+        .map(|line| {
+            let cells: Vec<char> = line.chars().collect();
+            cells[..cells.len().saturating_sub(NOTICE_OVERLAY_COLUMNS)]
+                .iter()
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
