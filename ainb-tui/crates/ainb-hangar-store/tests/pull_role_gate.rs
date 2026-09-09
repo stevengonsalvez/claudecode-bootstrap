@@ -1116,3 +1116,73 @@ async fn a_board_less_profile_never_reaches_for_the_write_lock() {
         ),
     }
 }
+
+/// A runtime with no pullable card of its own skips the write, even when the
+/// database holds cards belonging to SOMEONE ELSE.
+///
+/// The gate this pins used to be `SELECT EXISTS(SELECT 1 FROM board_card)`,
+/// which short-circuits only when the ENTIRE table is empty. `PULL_SQL` is
+/// scoped — `a.runtime_id = ?3` — so on any database with a single card owned
+/// by another runtime, every other runtime went straight back to paying the
+/// full 10s write-lock wait per tick. That version happened to work on the one
+/// profile it was diagnosed against, whose whole table was empty, and would
+/// have silently done nothing for anyone else.
+///
+/// Assertion is on the ERROR, not on elapsed time: the subject pool has
+/// `busy_timeout(0)`, so any statement reaching for the held write lock fails
+/// at once. `Ok(None)` is only reachable if the write was never attempted.
+#[tokio::test]
+async fn a_runtime_with_no_cards_skips_even_when_another_runtime_has_one() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open_in(dir.path()).await.expect("store");
+
+    // A fully populated, genuinely pullable card — owned by `rt-1`.
+    seed_world(store.pool()).await;
+    add_agent(store.pool(), "ag-1", "impl", 4).await;
+    add_column(store.pool(), "col-1", 1, Some("impl"), None, false).await;
+    add_card(store.pool(), "iss-1", "col-1", 0).await;
+
+    // Closed, not dropped: dropping a sqlx pool does not await its connections,
+    // so a checkpoint still in flight would race the zero-timeout pools below
+    // during SETUP rather than testing anything.
+    store.pool().close().await;
+
+    let db = dir.path().join("hangar.db");
+    let base = |timeout_ms: u64| {
+        SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(false)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_millis(timeout_ms))
+    };
+
+    // Setup gets a normal timeout so winning the write lock is never flaky.
+    let holder = SqlitePool::connect_with(base(5_000)).await.expect("holder pool");
+    let mut held = holder.acquire().await.expect("hold a connection");
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *held)
+        .await
+        .expect("take the write lock");
+
+    // A DIFFERENT runtime, with no agent and so no reachable card. `board_card`
+    // is NOT empty, which is exactly what the unscoped gate could not survive.
+    let pool = SqlitePool::connect_with(base(0)).await.expect("pull pool");
+    let pulled = PullService::pull_for_runtime(
+        &pool,
+        "rt-2-has-no-agents",
+        &SeqIdGen::new(&["task-never-minted"]),
+        &FixedClock(NOW_MS),
+    )
+    .await;
+
+    match pulled {
+        Ok(None) => {}
+        Ok(Some(card)) => panic!("rt-2 owns no agent, so it cannot pull {card:?}"),
+        Err(error) => panic!(
+            "another runtime's card put this runtime back on the write lock, so the gate \
+             only ever helped an all-empty database: {error}"
+        ),
+    }
+}

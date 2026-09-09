@@ -200,48 +200,46 @@ impl PullService {
         idgen: &dyn IdGen,
         clock: &dyn HangarClock,
     ) -> Result<Option<PulledCard>, sqlx::Error> {
-        // Gate: a profile with no cards can never satisfy this statement, and
-        // paying a write lock to discover that is what wedged a real daemon.
+        // Gate: when THIS runtime has no pullable card, skip the write entirely.
         //
         // `PULL_SQL` is an INSERT, so `SQLite` takes the WRITE lock at statement
-        // start, before any predicate is evaluated. On a contended database a
-        // board-less profile therefore burnt the full `busy_timeout` (measured:
-        // 10.64s, every ~22s, `rows_affected=0` every time) queueing behind
-        // other writers for a statement whose driving table is EMPTY. Two of
-        // those per main-loop tick — this one and the claim behind it — is what
-        // took the daemon from a 1s poll to a ~22s one.
+        // start, before evaluating a single predicate. A daemon whose pull can
+        // never match therefore burnt the full `busy_timeout` on a contended
+        // database (measured: 10.64s, every ~22s, `rows_affected=0` every time)
+        // queueing behind other writers for nothing. Two of those per main-loop
+        // tick — this one and the claim behind it — is what took the daemon from
+        // a 1s poll to a ~22s one.
+        //
+        // SCOPED THE SAME WAY THE PULL IS. An unscoped "is `board_card` empty"
+        // check only helps a database with no cards at all; one card belonging
+        // to ANY other runtime would put every runtime back on the 10s wait. So
+        // this carries the pull's own runtime, archived and issue predicates.
+        // Every clause here is a strict SUBSET of `PULL_SQL`'s `WHERE`, which is
+        // what makes skipping safe: if this finds nothing, the superset cannot
+        // match either.
         //
         // The gate is a READ, and in WAL mode readers never wait for the write
         // lock, so it costs microseconds and cannot itself block. Checking is
         // strictly cheaper than the write it avoids.
         //
         // NOT cached, deliberately: the check IS its own invalidation. The first
-        // `board_card` row a profile ever gains makes this pass on the very next
+        // card this runtime can pull makes the pull resume on the very next
         // tick, with no daemon restart and no stale flag. This skips work that
         // cannot match; it does not disable boards.
-        // Gate: a profile with no cards can never satisfy this statement, and
-        // paying a write lock to discover that is what wedged a real daemon.
-        //
-        // `PULL_SQL` is an INSERT, so `SQLite` takes the WRITE lock at statement
-        // start, before any predicate is evaluated. On a contended database a
-        // board-less profile therefore burnt the full `busy_timeout` (measured:
-        // 10.64s, every ~22s, `rows_affected=0` every time) queueing behind
-        // other writers for a statement whose driving table is EMPTY. Two of
-        // those per main-loop tick — this one and the claim behind it — is what
-        // took the daemon from a 1s poll to a ~22s one.
-        //
-        // The gate is a READ, and in WAL mode readers never wait for the write
-        // lock, so it costs microseconds and cannot itself block. Checking is
-        // strictly cheaper than the write it avoids.
-        //
-        // NOT cached, deliberately: the check IS its own invalidation. The first
-        // `board_card` row a profile ever gains makes this pass on the very next
-        // tick, with no daemon restart and no stale flag. This skips work that
-        // cannot match; it does not disable boards.
-        let has_cards: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM board_card)")
-            .fetch_one(pool)
-            .await?;
-        if !has_cards {
+        let pullable: bool = sqlx::query_scalar(
+            "SELECT EXISTS( \
+                SELECT 1 FROM board_card AS bc \
+                  JOIN board AS bd ON bd.id = bc.board_id \
+                  JOIN agent AS a ON a.workspace_id = bd.workspace_id \
+                 WHERE a.runtime_id = ?1 \
+                   AND a.archived = 0 \
+                   AND (?2 IS NULL OR bc.issue_id = ?2))",
+        )
+        .bind(runtime_id)
+        .bind(only_issue)
+        .fetch_one(pool)
+        .await?;
+        if !pullable {
             return Ok(None);
         }
 
