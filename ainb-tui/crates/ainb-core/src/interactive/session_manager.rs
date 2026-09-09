@@ -254,6 +254,14 @@ pub enum SharedThreadDegrade {
     NoDaemon,
     /// The daemon answered that its store was too contended to serve.
     StoreBusy,
+    /// Codex launched and connected, but had not published its thread identity
+    /// before the claim deadline.
+    ///
+    /// Unlike the other three this session DOES have the shared endpoint: the
+    /// CLI is already running with `--remote <endpoint>`, because the argv is
+    /// built and the pane started BEFORE the claim. Only the thread id is
+    /// missing, so the loss is narrower and the sentence differs.
+    ThreadNotPublished,
 }
 
 impl SharedThreadDegrade {
@@ -264,7 +272,19 @@ impl SharedThreadDegrade {
             Self::EphemeralHome => "ephemeral hangar home",
             Self::NoDaemon => "no Hangar daemon",
             Self::StoreBusy => "Hangar store busy",
+            Self::ThreadNotPublished => "Codex still starting up",
         }
+    }
+
+    /// Whether the session nonetheless holds the shared app-server endpoint.
+    ///
+    /// True only for [`Self::ThreadNotPublished`]: that launch already passed
+    /// `--remote <endpoint>` to the CLI and is connected. The other three never
+    /// got an endpoint at all, so they lose strictly more, and telling a user
+    /// they lost remote control when they did not is its own bug.
+    #[must_use]
+    pub const fn kept_the_endpoint(self) -> bool {
+        matches!(self, Self::ThreadNotPublished)
     }
 
     /// The on-screen sentence: what happened, and what it cost.
@@ -275,6 +295,19 @@ impl SharedThreadDegrade {
     /// user back to a 30 MB log.
     #[must_use]
     pub fn notice(self) -> String {
+        if self.kept_the_endpoint() {
+            // Do NOT say "without shared remote control" here: this session HAS
+            // the endpoint and is connected. What it lacks is a recorded thread
+            // id, so a later resume opens a NEW thread instead of continuing
+            // this one. Overstating the loss is how a working session gets
+            // treated as a broken one — which is the bug this cause exists for.
+            return format!(
+                "Codex is running but Ainb did not record its shared thread id ({}) - this \
+                 session works, and resuming it later will start a new thread rather than \
+                 continue this one",
+                self.cause()
+            );
+        }
         format!(
             "Codex started without shared remote control ({}) - the phone and other \
              app-server clients cannot join this conversation",
@@ -450,22 +483,67 @@ pub(crate) async fn claim_codex_remote_thread(
     tmux_session: &str,
 ) -> anyhow::Result<CodexRemote> {
     let exact_target = format!("={tmux_session}");
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let cwd = cwd.to_path_buf();
+    claim_codex_remote_thread_with(
+        CLAIM_DEADLINE,
+        || {
+            let cwd = cwd.clone();
+            async move {
+                ensure_codex_remote_thread(
+                    session_id,
+                    &cwd,
+                    model,
+                    skip_permissions,
+                    headroom_enabled,
+                    None,
+                )
+                .await
+            }
+        },
+        || codex_launch_exit(&exact_target),
+        || capture_failed_launch_pane(&exact_target),
+    )
+    .await
+}
+
+/// How long a launch waits for Codex to publish its thread identity.
+///
+/// Ten seconds, and deliberately NOT the thing that was raised when this bit a
+/// real machine. Expiry is not fatal (see
+/// [`claim_codex_remote_thread_with`]), so the number only decides how long a
+/// fast start is willing to wait before settling for no recorded thread id. A
+/// bigger value would just make a slow machine wait longer for the same
+/// outcome.
+const CLAIM_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`claim_codex_remote_thread`] with its three impure inputs passed in.
+///
+/// The seam is what makes the degrade testable at all: the real function dials
+/// the daemon and shells out to tmux, so a test of the DEADLINE would otherwise
+/// need both. Same reasoning as `ensure_codex_remote_thread_with` — a degrade
+/// that is computed and then ignored still passes a classifier-only test, so
+/// the launch itself has to be driven.
+async fn claim_codex_remote_thread_with<Ensure, EnsureFut, Exited, ExitedFut, Pane, PaneFut>(
+    deadline_in: std::time::Duration,
+    mut ensure: Ensure,
+    mut exited: Exited,
+    capture: Pane,
+) -> anyhow::Result<CodexRemote>
+where
+    Ensure: FnMut() -> EnsureFut,
+    EnsureFut: std::future::Future<Output = anyhow::Result<CodexRemote>>,
+    Exited: FnMut() -> ExitedFut,
+    ExitedFut: std::future::Future<Output = Option<String>>,
+    Pane: FnOnce() -> PaneFut,
+    PaneFut: std::future::Future<Output = Option<String>>,
+{
+    let deadline = tokio::time::Instant::now() + deadline_in;
     loop {
-        let outcome = ensure_codex_remote_thread(
-            session_id,
-            cwd,
-            model,
-            skip_permissions,
-            headroom_enabled,
-            None,
-        )
-        .await?;
-        let remote = match outcome {
+        let remote = match ensure().await? {
             // Shared remote control is unavailable, so there is no thread to
             // wait for. Report that once, carrying the reason, rather than
-            // spending the 10s deadline re-asking a question whose answer
-            // cannot change.
+            // spending the deadline re-asking a question whose answer cannot
+            // change.
             CodexRemote::Degraded(reason) => return Ok(CodexRemote::Degraded(reason)),
             CodexRemote::Shared(remote) => remote,
         };
@@ -476,23 +554,39 @@ pub(crate) async fn claim_codex_remote_thread(
         // it is instant: Codex prints one line and exits inside a second. It
         // used to leave us polling a corpse for the remaining nine, then
         // reporting a timeout that named nothing while the pane held the exact
-        // cause (a dead app-server cwd, a trust modal, a bad model id).
-        if let Some(detail) = codex_launch_exit(&exact_target).await {
+        // cause (a dead app-server cwd, a trust modal, a bad model id). A dead
+        // Codex is a REAL failure and stays one.
+        if let Some(detail) = exited().await {
             anyhow::bail!(
                 "Codex exited during startup: {detail}{}",
                 codex_exit_hint(&detail)
             );
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(match capture_failed_launch_pane(&exact_target).await {
-                Some(detail) => anyhow::anyhow!(
-                    "Codex started but did not publish a remote thread within 10 seconds; \
-                     last pane output: {detail}"
-                ),
-                None => anyhow::anyhow!(
-                    "Codex started but did not publish a remote thread within 10 seconds"
-                ),
-            });
+            // DEGRADE, do not fail. Codex is alive — the exit check above ran
+            // first and found no corpse — and it is already connected, because
+            // the pane was started with `--remote <endpoint>` before this loop
+            // began. All that is missing is the thread id, which Codex had not
+            // published yet because it was still loading its model.
+            //
+            // This used to be an `Err`, and the caller's failed-session cleanup
+            // then deleted the worktree of a session whose pane was sitting on
+            // a healthy prompt. Ten seconds is not evidence of failure; it is
+            // evidence of a slow model load.
+            //
+            // Raising the deadline was the obvious alternative and is not a
+            // fix: a bigger number moves the cliff onto a slower machine, a
+            // colder model or a busier daemon. A timeout must not be fatal at
+            // all when the thing it waited for is optional.
+            let detail = capture().await;
+            warn!(
+                pane = detail.as_deref().unwrap_or("<no pane output>"),
+                "Codex did not publish a remote thread before the claim deadline; the \
+                 session keeps running with its endpoint and no recorded thread id"
+            );
+            return Ok(CodexRemote::Degraded(
+                SharedThreadDegrade::ThreadNotPublished,
+            ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -5262,6 +5356,148 @@ trust_level = "trusted"
                 "the warning must not advise a retry ({advice:?}): {warning}"
             );
         }
+    }
+
+    /// A slow Codex that never published a thread id yields a LAUNCH.
+    ///
+    /// The failure this pins, from a real machine on v1.26.0: the pane was
+    /// sitting on a healthy Codex prompt — banner rendered, YOLO mode, "Ask
+    /// Codex to do anything" — and still on `model: loading` when the claim
+    /// deadline expired at exactly ten seconds. The launch was reported as a
+    /// failure and the cleanup deleted the worktree Ainb had created seconds
+    /// earlier.
+    ///
+    /// Ten seconds is not evidence of failure. It is evidence of a slow model
+    /// load, and the thing it waits for is optional: the pane is ALREADY
+    /// connected, because the argv carries `--remote <endpoint>` and is built
+    /// before this wait begins.
+    ///
+    /// Raising the deadline is not the fix and this test would not catch it:
+    /// a larger number moves the cliff onto a slower machine, a colder model or
+    /// a busier daemon. What is asserted is that expiry is not FATAL.
+    #[tokio::test]
+    async fn a_thread_that_never_arrives_still_launches_the_session() {
+        // A daemon that answers healthily and never publishes a thread id: the
+        // exact shape of a Codex still loading its model.
+        let never_publishes = || async {
+            Ok(super::CodexRemote::Shared(
+                ainb_hangar_proto::fleet::CodexSessionEnsureResult {
+                    thread_id: None,
+                    endpoint: "unix:///tmp/codex-app-server.sock".to_string(),
+                },
+            ))
+        };
+
+        let outcome = super::claim_codex_remote_thread_with(
+            // Already expired, so the loop takes the deadline branch on its
+            // first pass. A test that actually waited ten seconds would be
+            // deleted by the first person to run the suite.
+            std::time::Duration::ZERO,
+            never_publishes,
+            // Codex is ALIVE. This is the whole point: the pane is healthy and
+            // sitting on a prompt.
+            || async { None },
+            || async { Some("| model: loading   /model to change |".to_string()) },
+        )
+        .await
+        .unwrap_or_else(|failure| {
+            panic!("a slow Codex must not fail the launch, its worktree is deleted: {failure:#}")
+        });
+
+        assert_eq!(
+            outcome.degrade(),
+            Some(super::SharedThreadDegrade::ThreadNotPublished),
+            "an expired deadline must degrade, naming the slow start as the reason"
+        );
+        assert!(
+            outcome.thread().is_none(),
+            "there is no thread to hand back; the session runs without a recorded id"
+        );
+    }
+
+    /// A Codex that actually DIED stays a hard failure.
+    ///
+    /// The guard on the guard. The degrade above must not swallow the case it
+    /// sits next to: a Codex that printed one line and exited inside a second
+    /// is a real failure, and the pane holds the reason. Turning that into a
+    /// launch would hand the user a dead tmux pane and call it success.
+    #[tokio::test]
+    async fn a_codex_that_exited_during_startup_still_fails() {
+        let never_publishes = || async {
+            Ok(super::CodexRemote::Shared(
+                ainb_hangar_proto::fleet::CodexSessionEnsureResult {
+                    thread_id: None,
+                    endpoint: "unix:///tmp/codex-app-server.sock".to_string(),
+                },
+            ))
+        };
+
+        let failure = super::claim_codex_remote_thread_with(
+            // Comfortably longer than the instant corpse check, so a pass
+            // proves it failed on the CORPSE rather than on time — but bounded,
+            // because a regression here otherwise hangs the suite for the whole
+            // deadline. Measured: removing the corpse check made this test take
+            // 600s before it went red, which is barely better than no test.
+            std::time::Duration::from_secs(5),
+            never_publishes,
+            || async { Some("error: unexpected argument '--remote'".to_string()) },
+            || async { None },
+        )
+        .await
+        .expect_err("a Codex that exited during startup must fail the launch");
+
+        assert!(
+            failure.to_string().contains("Codex exited during startup"),
+            "the failure must name the corpse, not a timeout: {failure:#}"
+        );
+    }
+
+    /// The notice for a slow start does NOT claim the session lost remote
+    /// control, because it did not.
+    ///
+    /// This cause is the only one where the endpoint SURVIVES: the CLI is
+    /// already running with `--remote`, so telling the user the phone cannot
+    /// join would be false, and treating a working session as a broken one is
+    /// the whole bug. The other three causes genuinely have no endpoint and
+    /// must keep saying so.
+    #[test]
+    fn a_slow_start_is_not_described_as_losing_remote_control() {
+        use super::SharedThreadDegrade;
+
+        let slow = SharedThreadDegrade::ThreadNotPublished.notice();
+        assert!(
+            !slow.contains("without shared remote control"),
+            "this session HAS the endpoint; saying otherwise misdescribes a working \
+             session: {slow}"
+        );
+        assert!(
+            slow.contains("did not record its shared thread id"),
+            "the notice must name what was actually lost: {slow}"
+        );
+        assert!(
+            slow.contains("start a new thread"),
+            "the notice must name the consequence the user will actually meet: {slow}"
+        );
+
+        for lost in [
+            SharedThreadDegrade::EphemeralHome,
+            SharedThreadDegrade::NoDaemon,
+            SharedThreadDegrade::StoreBusy,
+        ] {
+            assert!(
+                lost.notice().contains("without shared remote control"),
+                "{lost:?} really does lose remote control and must keep saying so: {}",
+                lost.notice()
+            );
+            assert!(
+                !lost.kept_the_endpoint(),
+                "{lost:?} never received an endpoint"
+            );
+        }
+        assert!(
+            SharedThreadDegrade::ThreadNotPublished.kept_the_endpoint(),
+            "a slow start keeps the endpoint it was already launched with"
+        );
     }
 
     /// A daemon whose Codex transport is still warming up stays a HARD failure.
