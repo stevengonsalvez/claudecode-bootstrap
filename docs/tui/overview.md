@@ -1,52 +1,45 @@
 ---
-title: "ainb TUI — overview"
+title: "TUI screen tour"
+description: "Interactive terminal screens and navigation in ainb."
 ---
 
-`ainb` is the terminal UI and CLI for Agents-in-a-Box: a Rust + ratatui app that spawns and manages AI coding sessions (Claude Code, Codex, Gemini, Copilot) in isolated git worktrees, each driven inside its own tmux session.
+`ainb` is a terminal UI and CLI for managing AI coding sessions in isolated git worktrees and tmux sessions.
 
-Run `ainb` with no arguments to launch the TUI. Every operation the TUI performs is also exposed as a subcommand, so agents and automation can drive it headlessly. See the [CLI reference](cli.md) for the full subcommand list.
-
-## Launching
+Launch the TUI with no arguments:
 
 ```bash
 ainb            # launch the TUI (default when no command is given)
-ainb init       # first-time setup + prerequisite check
-ainb auth       # set up authentication
+ainb init       # first-time setup and prerequisite check
+ainb auth       # set up provider authentication
 ```
 
-First launch runs an onboarding flow that checks prerequisites (git, tmux, a provider CLI) and helps you authenticate. Use `ainb init --check` to verify prerequisites without changing anything, or `ainb init --status` to see onboarding completion.
+First launch runs an onboarding check for prerequisites (git, tmux, provider CLIs). Use `ainb init --check` to verify your environment headlessly.
 
 ## Screen tour
 
-From the home screen, single keys jump to each screen (see [Keyboard shortcuts](keyboard-shortcuts.md)):
+From the home screen, single keys jump to each screen:
 
-| Screen | Key | What it does |
-|--------|-----|--------------|
-| Home | — | Landing screen with the sidebar + tile navigation |
+| Screen | Key | Description |
+|--------|-----|-------------|
 | Sessions | `s` | List, attach, restart, and delete agent sessions |
-| Agents | `a` | Pick a provider/agent before spawning a session |
-| Recovery | `R` | Find and resume orphaned sessions / broken worktrees |
-| Stats | `i` | Usage analytics: Daily, Weekly, Project, Burndown, Optimize, [Savings](token-optimization.mdx) (`[`/`]` switch tabs) |
-| Daemons | `d` | Read-only [Daemons overlay](daemons.mdx): shared MCP pool + Headroom proxy |
-| Skills | `k` | Browse available skills |
-| Inbox | `I` | ainb-hooks notification inbox |
-| Config | `C` | View configuration |
+| Agents | `a` | Select a provider or agent before spawning a session |
+| Recovery | `R` | Find and resume orphaned sessions or interrupted worktrees |
+| Stats | `i` | Usage analytics: Daily, Weekly, Project, Burndown, [Savings](token-optimization.mdx) (`[` / `]` switch tabs) |
+| Daemons | `d` | Read-only [Daemons overlay](daemons.mdx): shared MCP pool and Headroom proxy |
+| Skills | `k` | Browse and manage available skills |
+| Inbox | `I` | Central notification inbox for agent events |
+| Config | `C` | View configuration options |
 
-Git operations, log streaming, and a tmux preview are available from within the session views. Press **`g`** on a session to open the Warp-style **[Code Review](code-review.md)** diff — a file sidebar plus per-file collapsible blocks with syntax highlighting and word-level emphasis (also available standalone as `ainb diff-review`). Press **`a`** to [attach](attach.md) full-screen, or **`A`** to turn the preview pane into a live embedded tmux client in-place (`Ctrl+Q` releases it).
+## Session controls
 
-## Multi-provider session model
+- **Code Review diff (`g`):** Open the Warp-style [Code Review](code-review.md) diff for the selected session. Displays file tree, collapsible blocks, syntax highlighting, and word-level emphasis. Also available standalone as `ainb diff-review`.
+- **Full-screen attach (`a`):** Attach directly to the session tmux instance. Detach with `Ctrl-b d` to return to the TUI.
+- **In-pane attach (`A`):** Embed a live tmux client in-place inside the preview pane. Press `Ctrl+Q` to release keyboard focus back to the TUI.
 
-A session pairs a repository checkout with an AI tool. `ainb run` accepts `--tool claude|codex|gemini|copilot` (default `claude`) and `--model` (default `sonnet`). Each session gets its own tmux session you can attach to and detach from without killing the agent.
+## Next steps
 
-## Worktree + tmux integration
-
-With `--worktree`, each session is isolated in a fresh git worktree (default branch prefix `agents/`), so parallel sessions never collide on the same working tree. The agent process runs inside a dedicated tmux session; `ainb attach <name>` drops you into it, and detaching leaves it running. Claude Code emits very high-frequency screen updates, so a tuned tmux config is recommended — see [Architecture](architecture.md) and `ainb-tui/config/tmux.conf`.
-
-## See also
-
-- [Install the TUI](install.md)
-- [Quickstart](quickstart.md)
-- [CLI reference](cli.md)
-- [Keyboard shortcuts](keyboard-shortcuts.md)
-- [Architecture](architecture.md)
-- [Docs hub](../README.md)
+- [Quickstart](quickstart.md): start your first session
+- [Starting a new session](start-session.md): configure wizard options
+- [Attaching to sessions](attach.md): full-screen and embedded tmux modes
+- [Keyboard shortcuts](keyboard-shortcuts.md): complete keymap
+- [CLI reference](cli.md): all subcommands and flags

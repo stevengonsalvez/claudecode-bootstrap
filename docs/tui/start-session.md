@@ -1,81 +1,79 @@
 ---
 title: "Starting a new session"
-description: "Walk through the new-session wizard in ainb-tui — pick a repo, choose a preset, and tune the Agent, Model, Mode, Yolo, and Branch options. What each option means and when to change it."
+description: "Configure options in the new-session wizard: repo, preset, agent, model, mode, yolo, and branch."
 ---
 
-Every session in ainb runs in its own **git worktree + tmux + agent**, fully isolated. The new-session wizard is where you choose *what* runs and *where*. This page walks through opening it and explains every option.
+Every session in `ainb` runs in its own **git worktree + tmux + agent**, fully isolated. The new-session wizard is where you choose what runs and where.
 
 ## Open the wizard
 
-From the home or Sessions screen, press **`n`**. ainb opens the **repo picker** — type to filter, or paste an `owner/repo`, an `https://` / `ssh://` URL, or a local path — then press `Enter` to pick one.
+From the home or Sessions screen, press **`n`**. `ainb` opens the repo picker (type to filter, or paste an `owner/repo`, an `https://` or `ssh://` URL, or a local directory path), then press `Enter` to select it.
 
-You land on the **Configure** screen. Move between rows with **`Tab`** (or `↑` / `↓`), change the focused row's value with **`←` / `→`**, and launch from the **`[ Launch ]`** row:
+You land on the **Configure** screen. Move between rows with **`Tab`** (or `↑` / `↓`), change the focused value with **`←` / `→`**, and launch from the **`[ Launch ]`** row:
 
-![The new-session Configure wizard cycling through every option — Preset, Agent (Claude · Codex · Gemini [soon] · Copilot · Shell · SSH), Model, Mode, Yolo, Branch, and Launch](../assets/screenshots/new-session-options.gif)
+![The new-session Configure wizard cycling through options: Preset, Agent, Model, Mode, Yolo, Branch, and Launch](../assets/screenshots/new-session-options.gif)
 
-## The options
+## Wizard options
 
 ### Preset
 
-A named bundle of all the settings below — the fast path. ainb ships a few (e.g. `claude-interactive-yolo`, `codex-interactive-yolo`, `opusplan`, `shell`), with **`Custom`** at the end of the ring.
+A named bundle of all settings below. `ainb` includes presets like `claude-interactive-yolo`, `codex-interactive-yolo`, `opusplan`, and `shell`, with **`Custom`** at the end:
 
-- Pick a **named preset** and the rows below are *locked* to its values.
-- Pick **`Custom`** to *unlock* every row and tune it by hand.
-- After tweaking Custom, press **`Ctrl+S`** to save it as a new named preset.
+- Pick a **named preset** to lock rows to proven defaults.
+- Pick **`Custom`** to unlock every row for manual tuning.
+- After editing Custom, press **`Ctrl+S`** to save it as a new named preset.
 
 ### Agent
 
-Which tool drives the session:
+Select which tool drives the session:
 
-| Agent | What it is |
-|-------|-----------|
+| Agent | Description |
+|-------|-------------|
 | **Claude** | Anthropic's Claude Code |
 | **Codex** | OpenAI's Codex CLI |
 | **Copilot** | GitHub Copilot CLI |
-| **Gemini** `[soon]` | greyed out — shown for visibility, not yet selectable |
-| **Shell** | a plain terminal, no agent |
-| **SSH** | connect to a remote host |
-
-Cycle with `←` / `→`. The greyed **`Gemini [soon]`** pill is skipped by the cursor — it can't be selected yet.
+| **Gemini** `[soon]` | Greyed out, non-selectable placeholder |
+| **Shell** | Plain terminal with no agent |
+| **SSH** | Remote host execution |
 
 ### Model
 
-The model the agent uses. Only **Claude** and **Codex** expose a model ring (Claude Opus / Sonnet / Haiku; Codex GPT variants) — other agents use their own default, so the row reads `system default` or is hidden. Leave it on the default to let the agent's CLI decide.
+Model selector for supported providers. **Claude** and **Codex** expose model variants (Claude Opus, Sonnet, Haiku; Codex GPT variants). Other agents default to their CLI system configuration.
 
 ### Mode
 
-- **Interactive** — you drive; the agent waits for your input. The normal mode.
-- **Boss** `[alpha]` — autonomous; the agent works on its own. Marked `[alpha]` because it isn't production-ready yet — don't rely on it.
+- **Interactive:** You drive and the agent asks for confirmation. Standard mode.
+- **Boss** `[alpha]`: Autonomous mode where the agent executes independently.
 
 ### Yolo
 
-How the agent handles permissions:
+Controls automatic permission grants:
 
-- **ON** — auto-approve everything (skip permission prompts). Fast, but the agent can run commands without asking.
-- **OFF** — prompt before sensitive actions.
+- **ON:** Auto-approve tool operations (fast, but permits unprompted commands).
+- **OFF:** Prompt for confirmation on sensitive actions.
 
 ### Branch
 
-Each session gets its own git worktree. This row shows **`<source> → <worktree>`** — the branch you base off and the new worktree branch ainb creates (default `agents/<hash>`). Press `Enter` to rename it or pick a different base.
+Each session gets its own git worktree. The row displays **`<source> → <worktree>`** (base branch and new session branch, default `agents/<hash>`). Press `Enter` to rename or choose another base.
 
 ### Launch
 
-`Tab` down to **`[ Launch ]`** and press `Enter` to start the session — or press **`Ctrl+Enter`** from any row to quick-launch with the current settings.
+Press `Enter` on **`[ Launch ]`**, or press **`Ctrl+Enter`** from any row to quick-launch with active settings.
 
-## Keys
+## Keyboard controls
 
 | Key | Action |
 |-----|--------|
-| `Tab` / `↑` `↓` | move between rows |
-| `←` / `→` | change the focused value |
-| `Enter` | launch (on the Launch row); on the Branch row, pick a base (source segment) or edit the name (worktree segment) |
-| `Ctrl+Enter` | quick-launch from any row |
-| `Ctrl+S` | save Custom as a named preset |
-| `Esc` | back to the repo picker |
+| `Tab` / `↑` / `↓` | Move between setting rows |
+| `←` / `→` | Cycle focused value |
+| `Enter` | Launch session, or edit branch target |
+| `Ctrl+Enter` | Quick-launch from any row |
+| `Ctrl+S` | Save Custom settings as new preset |
+| `Esc` | Return to repo picker |
 
-## Where to go next
+## Next steps
 
-- [Quickstart](quickstart.md) — install to first session, plus the `ainb run` CLI equivalent
-- [Keyboard shortcuts](keyboard-shortcuts.md)
-- [CLI reference](cli.md)
-- [Overview](overview.md) — every screen
+- [Quickstart](quickstart.md): command-line `ainb run` equivalents
+- [Attaching to sessions](attach.md): full-screen and embedded tmux attach
+- [Keyboard shortcuts](keyboard-shortcuts.md): complete keymap
+- [Overview](overview.md): all TUI screens
