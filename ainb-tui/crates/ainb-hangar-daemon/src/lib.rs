@@ -922,6 +922,17 @@ pub async fn boot(once: bool) -> anyhow::Result<()> {
         // and deadline paths run, so the outcomes cannot drift.
         crate::acp_pool::converge_dirty_sessions_at_boot(store.pool(), &broker.sink()).await;
 
+        // Then retire what the scan could not see. An adapter is a CHILD of the
+        // daemon, so no ACP session survives a restart, yet a session that was
+        // cleanly IDLE when the previous daemon died is not dirty and the scan
+        // above never visits it. Its row keeps saying IDLE forever while the
+        // Fleet twin goes EXITED under the stale reaper, so the mint hands the
+        // same corpse back to every client and delivery refuses each prompt as
+        // `target_not_running`, with no way out because the dead row still holds
+        // the scope. AFTER the convergence, never before: retiring first would
+        // hide the dirty sessions from it and strand their open turns.
+        crate::acp_pool::retire_live_sessions_at_boot(store.pool()).await;
+
         // The confirm-card TTL, swept once at boot. The park's own bound is a
         // `tokio` timer inside a copilot turn, and a timer dies with the process:
         // without this, a card left open by a SIGKILLed or upgraded daemon keeps
