@@ -12,7 +12,7 @@ description: Detect units that have drifted ahead of or behind their upstream so
 
 Locked units pin a source SHA, but the upstream repo keeps moving.
 Before v1.2 there was no surface that said *"the version you
-installed is 4 commits behind"* — users had to run `ainb skill
+installed is 4 commits behind"*: users had to run `ainb skill
 update --check` per-source. Drift detection replaces that with a
 single CLI + an always-on column in the SkillManager TUI.
 
@@ -85,16 +85,16 @@ The Detail pane shows the commit count under the active unit (for
 `mpsc::unbounded_channel`). Results land in `drift_cache` on the
 next `AppState::tick`. The table renders `…` placeholders until
 results arrive, so the screen stays interactive. A second
-`GoToSkillManager` while a poll is in flight coalesces — the second
+`GoToSkillManager` while a poll is in flight coalesces: the second
 request is a no-op until the first lands.
 
 ## Acceptance tripwires
 
-- `drift::` unit tests (14) — every variant reachable through the
+- `drift::` unit tests (14): every variant reachable through the
   Mock backend; backend errors propagate.
-- `skill_check_tests` (4) — tabular + JSON + `--source` scoping +
+- `skill_check_tests` (4): tabular + JSON + `--source` scoping +
   empty-lockfile path.
-- `tripwire_core_skill_manager_drift_column` (5) — every glyph +
+- `tripwire_core_skill_manager_drift_column` (5): every glyph +
   colour combination rendered.
-- `tripwire_core_skill_manager_drift_background_poll` (2) — async
+- `tripwire_core_skill_manager_drift_background_poll` (2): async
   fetch lands in `drift_cache`; second start coalesces.
