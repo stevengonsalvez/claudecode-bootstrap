@@ -18,4 +18,4 @@ How a release is cut, tagged, built, and shipped.
 
 ## See also
 
-- [Docs hub](../README.md)
+- [Docs hub](/readme)
