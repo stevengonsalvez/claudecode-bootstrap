@@ -6,7 +6,7 @@ description: "Per-session / model / day / group spend rollups + budget caps for 
 `ainb fleet cost` surfaces ainb's existing cost tracking as fleet-shaped
 spend rollups, plus configurable budget caps that fire notifyd alerts.
 
-ainb already prices every provider call — `cost_usd` is recorded on each
+ainb already prices every provider call: `cost_usd` is recorded on each
 `ProviderCall` / `TokenBucket` and aggregated by the **burndown** plugin
 (the same data behind `ainb usage`). This verb does **not** re-price
 anything: it fetches burndown's `usage report --format json` payload live
@@ -23,7 +23,7 @@ ainb --format json fleet cost                    # JSON
 ainb --format json fleet cost --period week      # today | week | 30days | month | all
 ```
 
-`--format` is a global flag — it precedes `fleet`. `--period` (default
+`--format` is a global flag: it precedes `fleet`. `--period` (default
 `month`) scopes the reporting window: the burndown plugin date-bounds its
 call set and re-aggregates every rollup, so a narrower period returns less
 spend. `all` reports lifetime totals.
@@ -74,7 +74,7 @@ A breach is delivered through the existing **notifyd** substrate: a valid
 `Envelope` is written to `~/.agents-in-a-box/notify.sock` with raw event
 `Notification:budget_exceeded`. It classifies as `AlertKind::WaitingOnUser`,
 passes notifyd's user-facing filter, and lands as a row in
-`notifications.db` — the same path idle/permission prompts take. No new
+`notifications.db`: the same path idle/permission prompts take. No new
 alert kind is introduced. Delivery is best-effort: if the socket is
 unreachable the report still prints, with a warning on stderr.
 
@@ -91,5 +91,5 @@ unreachable the report still prints, with a warning on stderr.
   `~/.claude/projects`; subsequent calls hit the cache and return sub-second.
 - Requires the burndown plugin (`ainb plugin install burndown`), the same
   dependency `ainb usage` has.
-- To change pricing or the spend plan, use `ainb usage plan ...` — this verb
+- To change pricing or the spend plan, use `ainb usage plan ...`: this verb
   consumes ainb's pricing, it does not own it.
