@@ -5,23 +5,23 @@ description: Turn a local orphan skill into a git-backed source with `ainb skill
 
 > One-shot command that turns a hand-edited orphan into a
 > git-backed source. Bridges the gap between adopting a `local:`
-> unit and tracking it as upstream — without forcing the user
+> unit and tracking it as upstream: without forcing the user
 > through `skill-creator` + manual `git init` / `git push`.
 >
 > Full design: spec
 > `.agents/goals/ainb-skill-manager-v1.1-discovery-spec.md`
-> §`ainb skill promote` — Detailed Design.
+> §`ainb skill promote`: Detailed Design.
 
 ## What promote does
 
 After discovery imports an orphan as
 `local:~/.claude/skills@head/my-skill`, the unit is tracked but
 the source of truth is still a single file under the user's home
-directory — fragile, machine-local, and impossible to share or
+directory: fragile, machine-local, and impossible to share or
 version. `ainb skill promote` migrates that file into a git repo
 the user controls, commits + pushes it, and rewrites the manifest
 URI from `local:` to `gh:user/repo@<branch>/skills/<name>`. The
-on-disk file at `~/.claude/skills/my-skill/` stays where it is —
+on-disk file at `~/.claude/skills/my-skill/` stays where it is , 
 that's the deployed instance now, with the git repo as upstream.
 
 `ainb skill update my-skill` thereafter pulls upstream and
@@ -51,16 +51,16 @@ Options:
 These were settled before implementation began and should not be
 revisited without re-opening the spec interview:
 
-1. **Clone location** — persistent cache at
+1. **Clone location**: persistent cache at
    `~/.agents-in-a-box/promote-cache/<user>/<repo>/`. Cloned once,
    reused on subsequent promotes against the same repo (`git pull
    --ff-only`). Survives across runs. No automatic cache eviction
    (manual: `rm -rf ~/.agents-in-a-box/promote-cache/`).
-2. **Push strategy** — direct push to the repo's default branch,
+2. **Push strategy**: direct push to the repo's default branch,
    resolved via `gh repo view --json defaultBranchRef`. No PR
    creation in v1.1. Users who want a PR push to a feature branch
    manually post-promote.
-3. **Post-promote local-copy handling** — keep
+3. **Post-promote local-copy handling**: keep
    `~/.<tool>/skills/<name>/` files in place. Rewrite the manifest
    URI to `gh:user/repo@<branch>/skills/<name>`. Register the
    existing local files as the deployed instance in the lockfile:
@@ -71,7 +71,7 @@ revisited without re-opening the spec interview:
    ```
    Future `ainb skill update` pulls upstream, compares hashes,
    no-ops if unchanged.
-4. **`gh` dependency** — hard requirement. Pre-flight runs `gh
+4. **`gh` dependency**: hard requirement. Pre-flight runs `gh
    auth status` and bails fast with an exact remediation command
    if it fails.
 
@@ -147,21 +147,21 @@ it does not happen at all.
 
 ## Out of scope for v1.1 (deferred to v1.2)
 
-The following are explicitly deferred — please do NOT add them as
+The following are explicitly deferred: please do NOT add them as
 follow-up beads under the v1.1 epic without re-opening the spec
 interview:
 
-- **`--pr` flag** — open a PR via `gh pr create` instead of
+- **`--pr` flag**: open a PR via `gh pr create` instead of
   pushing directly to the default branch.
-- **`--new-repo` flag** — create the target repo via `gh repo
+- **`--new-repo` flag**: create the target repo via `gh repo
   create` if it doesn't exist.
-- **`--workdir` flag** — promote into a named branch in the cache
+- **`--workdir` flag**: promote into a named branch in the cache
   for manual PR follow-up.
-- **`ainb skill pull`** — bidirectional sync from a promoted
+- **`ainb skill pull`**: bidirectional sync from a promoted
   upstream back to the local copy. v1.1 promote is one-shot.
-- **Multi-unit promote** — loop manually for now
+- **Multi-unit promote**: loop manually for now
   (`for u in a b c; do ainb skill promote $u --to ...; done`).
-- **`--clean-cache` flag** — explicit eviction of
+- **`--clean-cache` flag**: explicit eviction of
   `~/.agents-in-a-box/promote-cache/`. Manual `rm -rf` works.
 
 ## Open questions (tracked for v1.2 design)
@@ -177,7 +177,7 @@ interview:
 
 - Spec: `.agents/goals/ainb-skill-manager-v1.1-discovery-spec.md`
 - Discovery flow (the input to promote):
-  [`docs/skill-manager/discovery.md`](./discovery.md)
+  [`docs/skill-manager/discovery.md`](/skill-manager/discovery)
 - v1 skill-manager CLI surface:
   `ainb-tui/plans/skill-manager/spec.md` §8 (`source`, `skill`,
   `migrate`, `doctor`, `usage`).
