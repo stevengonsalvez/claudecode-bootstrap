@@ -1,15 +1,15 @@
 ---
-title: "ainb web — fleet dashboard"
+title: "ainb web: fleet dashboard"
 ---
 
 `ainb web` serves a browser-based dashboard *and remote-control surface* for
 your agent fleet: the live session list, fleet `needs` (ASK / ERR / IDLE /
-WAIT), and cost rollups — updated live over Server-Sent Events — plus a **live
+WAIT), and cost rollups: updated live over Server-Sent Events: plus a **live
 in-browser terminal** for any running session and **web-push notifications**
 when a session needs attention. It is an installable PWA.
 
 It is intended as a glanceable view of *what's running, what needs attention,
-and what it's costing* — and a way to actually *drive* a session — on
+and what it's costing*: and a way to actually *drive* a session: on
 localhost, or over a tailnet with a bearer token.
 
 > **The terminal is the one write surface.** Everything else (sessions, needs,
@@ -28,14 +28,14 @@ ainb web
 # Pick a port
 ainb web --listen 127.0.0.1:9000
 
-# Expose over a tailnet / LAN — a token is REQUIRED for a non-loopback bind
+# Expose over a tailnet / LAN: a token is REQUIRED for a non-loopback bind
 ainb web --listen 0.0.0.0:8420 --token "$(openssl rand -hex 24)"
 ```
 
 Then open the printed URL, e.g. <http://127.0.0.1:8420>.
 
-When a token is set, append it once to the URL —
-`http://host:8420/?token=YOUR_TOKEN` — the page stores it for the session and
+When a token is set, append it once to the URL , 
+`http://host:8420/?token=YOUR_TOKEN`: the page stores it for the session and
 strips it from the address bar.
 
 ---
@@ -46,7 +46,7 @@ strips it from the address bar.
 |------|---------|---------|
 | `--listen <ADDR>` | `127.0.0.1:8420` | Address to bind. Non-loopback requires `--token`. |
 | `--token <SECRET>` | _(none)_ | Bearer token required on every `/api/*` route + the WS terminal. Enables a non-loopback bind. |
-| `--insecure-bind` | `false` | Allow a non-loopback bind with **no** token. **Dangerous** — only honored with `--read-only`; refused otherwise, because an unauthenticated write surface exposes the live WS terminal (shell access to every session). |
+| `--insecure-bind` | `false` | Allow a non-loopback bind with **no** token. **Dangerous**: only honored with `--read-only`; refused otherwise, because an unauthenticated write surface exposes the live WS terminal (shell access to every session). |
 | `--read-only` | `false` | Viewer-only: disable the live terminal (the `/ws/session/{id}` upgrade is refused with `403`). |
 
 ---
@@ -54,7 +54,7 @@ strips it from the address bar.
 ## Security model
 
 The bind policy mirrors agent-deck's `CheckBindSecurity` and is enforced
-**before any socket is opened** — an unsafe bind is refused and never listens.
+**before any socket is opened**: an unsafe bind is refused and never listens.
 
 First matching rule wins:
 
@@ -85,16 +85,16 @@ When a token is configured:
   without `Authorization: Bearer <token>`, **200**/upgrade with the correct
   token.
 - The token is compared in **constant time** (no timing oracle).
-- The **two streaming surfaces** that cannot send an `Authorization` header —
+- The **two streaming surfaces** that cannot send an `Authorization` header , 
   the SSE `EventSource` (`/api/events`) and the WebSocket terminal
-  (`/ws/session/{id}`) — additionally accept the token via `?token=…` query
+  (`/ws/session/{id}`): additionally accept the token via `?token=…` query
   string. The fallback is scoped to exactly those two paths; every JSON route
   still requires the header, so tokens never leak via logs/history/`Referer` on
   ordinary requests. The frontend strips the token from the URL after
   connecting.
 
 The static frontend shell (`/`, `/static/*`) and the PWA surface
-(`/manifest.webmanifest`, `/sw.js`) are served **without** auth — they carry no
+(`/manifest.webmanifest`, `/sw.js`) are served **without** auth: they carry no
 secrets and must load before the page can prompt for a token. Only data and the
 terminal are gated.
 
@@ -104,9 +104,9 @@ The live terminal at `/ws/session/{id}` is the only route that can *change*
 fleet state (it forwards keystrokes into a session's tmux pane). It is gated
 twice:
 
-1. **Auth** — the bearer middleware runs before the WebSocket upgrade. An
+1. **Auth**: the bearer middleware runs before the WebSocket upgrade. An
    unauthenticated client never attaches.
-2. **Posture** — in `--read-only` mode the upgrade is refused outright with
+2. **Posture**: in `--read-only` mode the upgrade is refused outright with
    `403 READ_ONLY`. There is no "connect then reject input" half-state; the
    write surface simply does not exist.
 
@@ -128,7 +128,7 @@ All API responses are JSON. Errors use `{ "error": { "code", "message" } }`.
 | GET | `/manifest.webmanifest` | PWA manifest (no auth). |
 | GET | `/sw.js` | Service worker, `Service-Worker-Allowed: /` (no auth). |
 | GET | `/healthz` | `{ ok, readOnly, tokenRequired, version }` |
-| GET | `/api/snapshot` | `{ sessions, needs, cost }` — the full dashboard payload. |
+| GET | `/api/snapshot` | `{ sessions, needs, cost }`: the full dashboard payload. |
 | GET | `/api/sessions` | Live session list (proxies `ainb --format json list`). |
 | GET | `/api/needs` | Fleet needs (proxies `ainb --format json fleet needs`). |
 | GET | `/api/cost` | Cost rollups (proxies `ainb --format json fleet cost`); `null` when absent. |
@@ -139,10 +139,10 @@ All API responses are JSON. Errors use `{ "error": { "code", "message" } }`.
 | POST | `/api/push/unsubscribe` | Drop a subscription by `endpoint`. |
 | POST | `/api/push/presence` | Report tab focus (`{ endpoint, focused }`) to suppress pushes you don't need. |
 
-`401 UNAUTHORIZED` — missing/invalid bearer (only when a token is configured).
-`403 READ_ONLY` — the WS terminal in `--read-only` mode.
-`502 UPSTREAM_FAILED` — an underlying `ainb` command failed.
-`503 PUSH_NOT_CONFIGURED` — a `/api/push/*` route when push isn't enabled.
+`401 UNAUTHORIZED`: missing/invalid bearer (only when a token is configured).
+`403 READ_ONLY`: the WS terminal in `--read-only` mode.
+`502 UPSTREAM_FAILED`: an underlying `ainb` command failed.
+`503 PUSH_NOT_CONFIGURED`: a `/api/push/*` route when push isn't enabled.
 
 ### Terminal wire protocol
 
@@ -161,7 +161,7 @@ Resize is clamped to a minimum 10×3 to keep tmux out of a degenerate pane.
 
 A background task reads the same cached `needs` snapshot the dashboard renders
 and sends a push the moment a session **transitions into** an attention state
-(`ASK` / `ERR` / `WAIT` — the kinds `ainb fleet needs` emits; a permission
+(`ASK` / `ERR` / `WAIT`: the kinds `ainb fleet needs` emits; a permission
 prompt surfaces as `ASK`). The first tick is a baseline, so there's no flood
 on startup. Pushes are suppressed for any subscription whose tab reports itself
 focused (via `/api/push/presence`), and dead endpoints (404/410) are pruned
@@ -192,7 +192,7 @@ skipped entirely when there are no SSE subscribers.
 ### Cost graceful degradation
 
 `ainb fleet cost` ships with the **fleet cost-surface** feature. If it isn't
-present in your build, the dashboard does not fail — the Cost panel shows
+present in your build, the dashboard does not fail: the Cost panel shows
 "Cost surface not available in this build" and everything else works.
 
 ---
@@ -210,11 +210,11 @@ present in your build, the dashboard does not fail — the Cost panel shows
 
 - Core crate `ainb-web` (axum HTTP + SSE + WebSocket), wired in as the
   `ainb web` subcommand via `cli/registry.rs`.
-- The frontend is a single embedded vanilla-JS bundle (`rust-embed`) — **no
+- The frontend is a single embedded vanilla-JS bundle (`rust-embed`): **no
   Node build step, no framework, no runtime filesystem dependency**. xterm.js
   is vendored and embedded the same way (no runtime CDN).
 - The terminal uses `portable-pty` to run `tmux attach-session` and streams raw
-  bytes to xterm.js — the browser is the terminal emulator, so no server-side
+  bytes to xterm.js: the browser is the terminal emulator, so no server-side
   vt100 re-parse.
 - Web-push uses the `web-push` crate (`hyper-client`, no libcurl); the VAPID
   keypair is generated with `p256`.
@@ -231,5 +231,5 @@ present in your build, the dashboard does not fail — the Cost panel shows
   macOS, OpenSSL on Linux). This is isolated to the push send path.
 - **Push targets attention transitions, not every hook.** Delivery is driven
   off the polled `needs` surface (same cadence as the dashboard), not a direct
-  notifyd socket subscription — simple, and it reuses the existing cache. A
+  notifyd socket subscription: simple, and it reuses the existing cache. A
   future event-driven upgrade could hook notifyd directly for lower latency.
