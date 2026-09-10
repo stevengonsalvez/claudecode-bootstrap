@@ -228,7 +228,8 @@ fn seed_session_registry(home: &Path, tmux_name: &str, worktree: &Path) {
                 "worktree_path": worktree,
                 "workspace_name": "tabstrip",
                 "created_at": "2026-09-04T00:00:00Z",
-                "agent_type": "Claude",
+                "agent_type": "Codex",
+                "codex_thread_id": "provider-tabs-1",
                 "skip_permissions": true,
             }
         }
@@ -254,9 +255,9 @@ fn seed_notification(base: &Path, cwd: &Path) {
         .insert_and_prune(
             &Envelope {
                 protocol_version: 1,
-                agent: "claude".into(),
+                agent: "codex".into(),
                 raw_event: "Notification:idle_prompt".into(),
-                session_id: "tabstrip-1".into(),
+                session_id: "provider-tabs-1".into(),
                 cwd: cwd.to_string_lossy().into_owned(),
                 project: "tabstrip".into(),
                 ts: chrono::Utc::now().timestamp_millis() - 120_000,
