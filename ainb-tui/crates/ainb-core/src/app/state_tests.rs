@@ -2078,10 +2078,8 @@ mod tests {
     /// A background task finishing must not erase an open question.
     ///
     /// `agent_completed` is a SUBAGENT/background event — real payloads read
-    /// "rust dependency compilation finished". Mapping it to a DONE chip let a
-    /// build completion supersede a still-open question on a newest-wins
-    /// scan, and then blank the row entirely once the DONE TTL elapsed, while
-    /// the session was genuinely waiting on the operator.
+    /// "rust dependency compilation finished". It must not erase an explicit
+    /// input wait from the same session.
     #[test]
     fn a_finished_background_task_does_not_erase_an_open_question() {
         use crate::fleet::attention::AttentionKind;
@@ -2094,7 +2092,7 @@ mod tests {
             r#"{"message":"Which sqlite path?","notification_type":"idle_prompt"}"#.to_string();
         assert_eq!(
             kind_of(CWD, Some("claude"), false, 0, NOW, &[done, question]),
-            Some(AttentionKind::Ask),
+            Some(AttentionKind::Wait),
             "the question is still open; a finished build says nothing about it"
         );
     }
@@ -2252,9 +2250,9 @@ mod tests {
         );
     }
 
-    /// An idle prompt stays ASK. Same bare event, different subtype.
+    /// An idle prompt is WAIT, never a structured ASK.
     #[test]
-    fn a_claude_idle_prompt_stays_ask() {
+    fn a_claude_idle_prompt_is_wait() {
         use crate::fleet::attention::AttentionKind;
         let mut record = rec("claude", CWD, "Notification", NOW - 1000);
         record.payload_json =
@@ -2262,7 +2260,7 @@ mod tests {
                 .to_string();
         assert_eq!(
             kind_of(CWD, Some("claude"), false, 0, NOW, &[record]),
-            Some(AttentionKind::Ask),
+            Some(AttentionKind::Wait),
         );
     }
 
@@ -2332,21 +2330,69 @@ mod tests {
         let recent = vec![rec("claude", CWD, "Notification:idle_prompt", NOW - 1000)];
         assert_eq!(
             kind_of(CWD, Some("claude"), false, 0, NOW, &recent),
-            Some(AttentionKind::Ask),
+            Some(AttentionKind::Wait),
         );
     }
 
     #[test]
-    fn attention_fresh_stop_marks_finished_stale_stop_clears() {
-        use crate::fleet::attention::AttentionKind;
+    fn attention_stop_clears_immediately() {
         let fresh = vec![rec("claude", CWD, "Stop", NOW - 1000)];
-        assert_eq!(
-            kind_of(CWD, Some("claude"), false, 0, NOW, &fresh),
-            Some(AttentionKind::Done),
-        );
-        // Older than the 5-minute DONE TTL → retired, no chip.
+        assert_eq!(kind_of(CWD, Some("claude"), false, 0, NOW, &fresh), None);
         let stale = vec![rec("claude", CWD, "Stop", NOW - 6 * 60 * 1000)];
         assert_eq!(kind_of(CWD, Some("claude"), false, 0, NOW, &stale), None);
+    }
+
+    #[test]
+    fn attention_session_end_clears_an_older_wait() {
+        let recent = vec![
+            rec("codex", CWD, "SessionEnd", NOW - 1_000),
+            rec("codex", CWD, "request_user_input", NOW - 5_000),
+        ];
+        assert_eq!(kind_of(CWD, Some("codex"), false, 0, NOW, &recent), None);
+    }
+
+    #[test]
+    fn terminal_hooks_project_neutral_or_terminal_row_status() {
+        use crate::models::SessionStatus;
+
+        let stop = vec![rec("claude", CWD, "Stop", NOW - 1_000)];
+        assert_eq!(
+            AppState::local_terminal_status_for_session(CWD, Some("claude"), 0, &stop),
+            Some(SessionStatus::Idle)
+        );
+        let end = vec![rec("codex", CWD, "SessionEnd", NOW - 1_000)];
+        assert_eq!(
+            AppState::local_terminal_status_for_session(CWD, Some("codex"), 0, &end),
+            Some(SessionStatus::Stopped)
+        );
+        let newer_work = vec![
+            rec("claude", CWD, "UserPromptSubmit", NOW - 500),
+            rec("claude", CWD, "Stop", NOW - 1_000),
+        ];
+        assert_eq!(
+            AppState::local_terminal_status_for_session(CWD, Some("claude"), 0, &newer_work),
+            None,
+            "new work must supersede an older terminal hook"
+        );
+    }
+
+    #[test]
+    fn fleet_lifecycle_projects_visible_row_status() {
+        use crate::models::SessionStatus;
+        use ainb_hangar_proto::fleet::LifecycleState;
+
+        assert_eq!(
+            AppState::session_status_for_fleet_lifecycle(LifecycleState::Idle),
+            Some(SessionStatus::Idle)
+        );
+        assert_eq!(
+            AppState::session_status_for_fleet_lifecycle(LifecycleState::Exited),
+            Some(SessionStatus::Stopped)
+        );
+        assert_eq!(
+            AppState::session_status_for_fleet_lifecycle(LifecycleState::Unknown),
+            None
+        );
     }
 
     #[test]
@@ -2382,7 +2428,7 @@ mod tests {
         // Baseline just before the event → still marks.
         assert_eq!(
             kind_of(CWD, Some("claude"), false, 499, NOW, &recent),
-            Some(AttentionKind::Ask),
+            Some(AttentionKind::Wait),
         );
     }
 
@@ -2395,10 +2441,7 @@ mod tests {
             rec("claude", CWD, "Stop", NOW - 1000),
             rec("claude", CWD, "Notification", NOW - 5000),
         ];
-        assert_eq!(
-            kind_of(CWD, Some("claude"), false, 0, NOW, &recent),
-            Some(AttentionKind::Done),
-        );
+        assert_eq!(kind_of(CWD, Some("claude"), false, 0, NOW, &recent), None,);
     }
 
     #[test]
@@ -2415,7 +2458,54 @@ mod tests {
         let recent = vec![rec("claude", "/work/feat-x/", "Notification", NOW - 100)];
         assert_eq!(
             kind_of("/work/feat-x", Some("claude"), false, 0, NOW, &recent),
-            Some(AttentionKind::Ask),
+            Some(AttentionKind::Wait),
+        );
+    }
+
+    #[test]
+    fn same_cwd_local_hooks_require_the_exact_provider_session_id() {
+        use crate::fleet::attention::AttentionKind;
+
+        let mut parent = rec("codex", CWD, "PermissionRequest", NOW - 1_000);
+        parent.session_id = "parent-thread".into();
+        parent.payload_json = r#"{
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{"question": "Ship now?", "options": []}]}
+        }"#
+        .into();
+        let mut child = rec("codex", CWD, "Notification:idle_prompt", NOW - 2_000);
+        child.session_id = "child-thread".into();
+        let recent = [parent, child];
+
+        assert_eq!(
+            AppState::attention_for_session_identity(
+                CWD,
+                Some("codex"),
+                Some("parent-thread"),
+                false,
+                true,
+                false,
+                0,
+                NOW,
+                &recent,
+            )
+            .map(|chip| chip.kind),
+            Some(AttentionKind::Ask)
+        );
+        assert_eq!(
+            AppState::attention_for_session_identity(
+                CWD,
+                Some("codex"),
+                Some("child-thread"),
+                false,
+                true,
+                false,
+                0,
+                NOW,
+                &recent,
+            )
+            .map(|chip| chip.kind),
+            Some(AttentionKind::Wait)
         );
     }
 
@@ -2531,6 +2621,103 @@ mod tests {
     }
 
     #[test]
+    fn daemon_attention_uses_exact_provider_id_before_shared_cwd() {
+        use crate::fleet::attention::{AttentionKind, DaemonAttention, SessionAttention};
+        use crate::models::Session;
+
+        let cwd = "/work/shared";
+        let mut state = state_with_session_at(cwd, Some("tmux_parent"));
+        let parent_id = state.workspaces[0].sessions[0].id;
+        state.workspaces[0].sessions[0].provider_session_id = Some("parent-provider-id".into());
+        let mut child = Session::new("child".into(), cwd.into());
+        child.tmux_session_name = Some("tmux_child".into());
+        child.provider_session_id = Some("child-provider-id".into());
+        let child_id = child.id;
+        state.workspaces[0].add_session(child);
+
+        let chip = SessionAttention::daemon(AttentionKind::Ask, 1_000, "att-parent".into());
+        let mut by_session_id = std::collections::HashMap::new();
+        by_session_id.insert("parent-provider-id".into(), vec![chip.clone()]);
+        let mut by_cwd = std::collections::HashMap::new();
+        by_cwd.insert(cwd.into(), vec![chip.clone()]);
+        let mut all = std::collections::HashMap::new();
+        all.insert("att-parent".into(), chip);
+        *state.daemon_attention.lock().unwrap() = DaemonAttention::up_indexed(
+            by_session_id,
+            by_cwd,
+            std::collections::HashMap::new(),
+            all,
+        );
+
+        state.refresh_attention_markers(2_000);
+
+        assert_eq!(
+            state.find_session(parent_id).unwrap().live_attention.len(),
+            1,
+            "the exact provider session receives its ASK"
+        );
+        assert!(
+            state.find_session(child_id).unwrap().live_attention.is_empty(),
+            "a shared cwd must not copy parent attention onto a child"
+        );
+    }
+
+    #[test]
+    fn a_known_provider_id_never_falls_back_to_another_rows_cwd() {
+        use crate::fleet::attention::{AttentionKind, DaemonAttention, SessionAttention};
+
+        let cwd = "/work/known-id";
+        let mut state = state_with_session_at(cwd, Some("tmux_parent"));
+        let id = state.workspaces[0].sessions[0].id;
+        state.workspaces[0].sessions[0].provider_session_id = Some("local-parent".into());
+        let chip = SessionAttention::daemon(AttentionKind::Ask, 1_000, "att-child".into());
+        let mut by_session_id = std::collections::HashMap::new();
+        by_session_id.insert("hidden-child".into(), vec![chip.clone()]);
+        let mut by_cwd = std::collections::HashMap::new();
+        by_cwd.insert(cwd.into(), vec![chip.clone()]);
+        let mut all = std::collections::HashMap::new();
+        all.insert("att-child".into(), chip);
+        *state.daemon_attention.lock().unwrap() = DaemonAttention::up_indexed(
+            by_session_id,
+            by_cwd,
+            std::collections::HashMap::new(),
+            all,
+        );
+
+        state.refresh_attention_markers(2_000);
+
+        assert!(
+            state.find_session(id).unwrap().live_attention.is_empty(),
+            "a known local id must refuse an unrelated daemon row even alone in its cwd"
+        );
+    }
+
+    #[test]
+    fn cwdless_daemon_attention_lands_by_exact_provider_id() {
+        use crate::fleet::attention::{AttentionKind, DaemonAttention, SessionAttention};
+
+        let mut state = state_with_session_at("/work/codex", Some("tmux_codex"));
+        let id = state.workspaces[0].sessions[0].id;
+        state.workspaces[0].sessions[0].agent_type = crate::models::SessionAgentType::Codex;
+        state.workspaces[0].sessions[0].provider_session_id = Some("codex-thread".into());
+        let chip = SessionAttention::daemon(AttentionKind::Ask, 1_000, "att-codex".into());
+        let mut by_session_id = std::collections::HashMap::new();
+        by_session_id.insert("codex-thread".into(), vec![chip.clone()]);
+        let mut all = std::collections::HashMap::new();
+        all.insert("att-codex".into(), chip);
+        *state.daemon_attention.lock().unwrap() = DaemonAttention::up_indexed(
+            by_session_id,
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+            all,
+        );
+
+        state.refresh_attention_markers(2_000);
+
+        assert_eq!(state.find_session(id).unwrap().live_attention.len(), 1);
+    }
+
+    #[test]
     fn a_daemon_row_is_routed_through_the_daemon_while_it_is_up() {
         use crate::fleet::attention::{Answerable, AttentionKind, SessionAttention};
         let cwd = "/work/routed";
@@ -2568,7 +2755,10 @@ mod tests {
             )],
         );
         *state.daemon_attention.lock().unwrap() = DaemonAttention {
+            by_session_id: std::collections::HashMap::new(),
+            by_cwd_without_session_id: by_cwd.clone(),
             by_cwd,
+            all: std::collections::HashMap::new(),
             reachable: false,
             error: Some("attention/list via /x/hangar.sock: refused".into()),
             not_running: true,

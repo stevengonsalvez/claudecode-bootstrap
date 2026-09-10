@@ -41,7 +41,9 @@ const BRAND_SSH: Color = Color::Rgb(255, 165, 0); // amber
 const PILL_LEFT: &str = "\u{e0b6}"; //
 const PILL_RIGHT: &str = "\u{e0b4}"; //
 
-use crate::fleet::attention::{AttentionKind, SessionAttention, format_age, needs_you_count};
+use crate::fleet::attention::{
+    AttentionKind, AttentionTone, SessionAttention, format_age, needs_you_count, tone,
+};
 
 use crate::app::{
     AppState,
@@ -91,11 +93,10 @@ fn next_badge(attach_no: &mut usize) -> Span<'static> {
 
 /// The colour a chip and its age share.
 const fn chip_color(kind: AttentionKind) -> Color {
-    match kind {
-        AttentionKind::Ask => ALERT_WAITING_AMBER,
-        AttentionKind::Approve => ALERT_PERMISSION_RED,
-        AttentionKind::Err => ALERT_ERROR_RED,
-        AttentionKind::Done => SELECTION_GREEN,
+    match tone(kind) {
+        AttentionTone::Blocking => ALERT_PERMISSION_RED,
+        AttentionTone::Error => ALERT_ERROR_RED,
+        AttentionTone::Complete => SELECTION_GREEN,
     }
 }
 
@@ -720,7 +721,7 @@ impl SessionListComponent {
                     let checkbox = ballot_checkbox(is_multi_selected);
 
                     // The row's live attention chips, already in precedence
-                    // order (ASK, APPROVE, ERR, DONE). Recomputed each refresh
+                    // order (ASK, WAIT, APPROVE, ERR, DONE). Recomputed each refresh
                     // from the hook events and the session's own status; empty
                     // while the agent is generating, because nothing is waiting
                     // on a human then.

@@ -328,21 +328,20 @@ pub fn resolve(state: &AppState, active: SessionTab) -> SessionTab {
 // Palette shared with the rest of the sessions screen.
 const GOLD: Color = Color::Rgb(255, 215, 0);
 const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
+const ALERT_AMBER: Color = Color::Rgb(255, 190, 70);
 const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
 const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
 const ALERT_RED: Color = Color::Rgb(220, 90, 90);
-const ALERT_AMBER: Color = Color::Rgb(230, 180, 80);
 
 /// The colour a chip and its age share, mirrored from the session list so the
-/// row and the pane never disagree about what an ASK looks like.
+/// row and the pane never disagree about what an attention state looks like.
 const fn chip_color(kind: crate::fleet::attention::AttentionKind) -> Color {
-    use crate::fleet::attention::AttentionKind;
-    match kind {
-        AttentionKind::Ask => ALERT_AMBER,
-        AttentionKind::Approve => ALERT_RED,
-        AttentionKind::Err => Color::Rgb(230, 100, 100),
-        AttentionKind::Done => SELECTION_GREEN,
+    use crate::fleet::attention::{AttentionTone, tone};
+    match tone(kind) {
+        AttentionTone::Blocking => ALERT_RED,
+        AttentionTone::Error => Color::Rgb(230, 100, 100),
+        AttentionTone::Complete => SELECTION_GREEN,
     }
 }
 
@@ -433,6 +432,38 @@ pub fn footer(state: &AppState, active: SessionTab, capturing: bool) -> Line<'st
             " attach (any tab) ",
             Style::default().fg(MUTED_GRAY),
         ));
+    }
+    if let Some(metadata) = state.selected_fleet_metadata() {
+        spans.push(Span::styled("│", Style::default().fg(SUBDUED_BORDER)));
+        if let Some(model) = metadata.model.as_deref() {
+            spans.push(Span::styled(" model ", Style::default().fg(MUTED_GRAY)));
+            spans.push(Span::styled(
+                model.to_string(),
+                Style::default().fg(SOFT_WHITE),
+            ));
+        }
+        if let Some(effort) = metadata.reasoning_effort.as_deref() {
+            spans.push(Span::styled(" effort ", Style::default().fg(MUTED_GRAY)));
+            spans.push(Span::styled(
+                effort.to_string(),
+                Style::default().fg(SOFT_WHITE),
+            ));
+        }
+        if metadata.direct_child_count > 0 {
+            let label = if metadata.direct_child_count == 1 {
+                " 1 direct child "
+            } else {
+                " direct children "
+            };
+            if metadata.direct_child_count == 1 {
+                spans.push(Span::styled(label, Style::default().fg(MUTED_GRAY)));
+            } else {
+                spans.push(Span::styled(
+                    format!(" {}{label}", metadata.direct_child_count),
+                    Style::default().fg(MUTED_GRAY),
+                ));
+            }
+        }
     }
     Line::from(spans)
 }
@@ -1642,7 +1673,10 @@ mod tests {
     /// is dialled and nothing accepts.
     fn with_daemon(state: &mut AppState, reachable: bool, not_running: bool) {
         *state.daemon_attention.lock().unwrap() = crate::fleet::attention::DaemonAttention {
+            by_session_id: std::collections::HashMap::new(),
             by_cwd: std::collections::HashMap::new(),
+            by_cwd_without_session_id: std::collections::HashMap::new(),
+            all: std::collections::HashMap::new(),
             reachable,
             error: (!reachable).then(|| "connect /x/hangar.sock: refused".to_string()),
             not_running,
@@ -2031,6 +2065,25 @@ mod tests {
                  are too: {rendered}"
             );
         }
+    }
+
+    #[test]
+    fn selected_footer_shows_observed_model_effort_and_direct_children() {
+        let mut state = state_with(Vec::new(), true);
+        let id = state.workspaces[0].sessions[0].id;
+        state.fleet_metadata.insert(
+            id,
+            crate::app::state::SessionFleetMetadata {
+                model: Some("gpt-5.6".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                direct_child_count: 2,
+                lifecycle: None,
+            },
+        );
+        let rendered = footer_text(&state, SessionTab::Preview, false);
+        assert!(rendered.contains("model gpt-5.6"), "{rendered}");
+        assert!(rendered.contains("effort high"), "{rendered}");
+        assert!(rendered.contains("2 direct children"), "{rendered}");
     }
 
     #[test]

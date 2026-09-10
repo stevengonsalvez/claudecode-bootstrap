@@ -258,7 +258,9 @@ pub fn classify_attention(raw_event: &str, subtype: Option<&str>) -> Option<Aler
             AlertKind::WaitingOnUser
         }
         // Turn ended — informational.
-        "Stop" | "agentStop" | "agent-turn-complete" | "task_complete" => AlertKind::Finished,
+        "Stop" | "SessionEnd" | "agentStop" | "agent-turn-complete" | "task_complete" => {
+            AlertKind::Finished
+        }
         // Telemetry / lifecycle (PreToolUse, PostToolUse, UserPromptSubmit, …).
         _ => return None,
     })
@@ -307,7 +309,7 @@ pub fn render_title(env: &Envelope) -> String {
         other => other,
     };
     match head {
-        "Stop" | "agentStop" | "agent-turn-complete" | "task_complete" => {
+        "Stop" | "SessionEnd" | "agentStop" | "agent-turn-complete" | "task_complete" => {
             format!("{agent} session finished")
         }
         "Notification" | "notification" | "request_user_input" | "wait_for_user" => {
@@ -730,7 +732,13 @@ mod tests {
             );
         }
         // Turn ended → Finished.
-        for e in ["Stop", "agentStop", "agent-turn-complete", "task_complete"] {
+        for e in [
+            "Stop",
+            "SessionEnd",
+            "agentStop",
+            "agent-turn-complete",
+            "task_complete",
+        ] {
             assert_eq!(
                 classify_attention(e, None),
                 Some(AlertKind::Finished),

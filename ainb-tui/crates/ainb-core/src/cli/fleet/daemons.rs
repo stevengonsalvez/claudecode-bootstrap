@@ -29,11 +29,11 @@ pub async fn execute(_matches: &clap::ArgMatches, format: OutputFormat) -> Resul
 }
 
 /// Fixed widths of the leading (non-HEALTH) columns, in render order:
-/// DAEMON, STATE, PID, UPTIME, VERSION, LAST ACTIVITY, ERRORS. The HEALTH column is the
+/// DAEMON, TYPE, STATE, PID, UPTIME, VERSION, LAST ACTIVITY, ERRORS. The HEALTH column is the
 /// free-width remainder. The row format string below MUST keep these widths in
 /// sync — see [`SEPARATOR_WIDTH`], which is derived from them so the `-` rule can
 /// never drift from the header.
-const COLUMN_WIDTHS: [usize; 7] = [14, 9, 8, 10, 17, 12, 7];
+const COLUMN_WIDTHS: [usize; 8] = [14, 7, 9, 8, 10, 17, 12, 7];
 
 /// A nominal display width for the trailing free-form HEALTH column, used only to
 /// size the header underline rule. (The actual HEALTH text is unbounded; this is
@@ -50,8 +50,8 @@ const SEPARATOR_WIDTH: usize = {
         sum += COLUMN_WIDTHS[i];
         i += 1;
     }
-    // 8 columns ⇒ 7 inter-column spaces, + the HEALTH rule width.
-    sum + 7 + HEALTH_RULE_WIDTH
+    // 9 columns ⇒ 8 inter-column spaces, + the HEALTH rule width.
+    sum + 8 + HEALTH_RULE_WIDTH
 };
 
 /// Render the daemon rows as a fixed-width text table. `now_ms` is the clock the
@@ -61,8 +61,8 @@ const SEPARATOR_WIDTH: usize = {
 pub fn render_text(rows: &[DaemonStatus], now_ms: i64) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "{:<14} {:<9} {:<8} {:<10} {:<17} {:<12} {:<7} {}\n",
-        "DAEMON", "STATE", "PID", "UPTIME", "VERSION", "LAST ACTIVITY", "ERRORS", "HEALTH"
+        "{:<14} {:<7} {:<9} {:<8} {:<10} {:<17} {:<12} {:<7} {}\n",
+        "DAEMON", "TYPE", "STATE", "PID", "UPTIME", "VERSION", "LAST ACTIVITY", "ERRORS", "HEALTH"
     ));
     out.push_str(&format!("{}\n", "-".repeat(SEPARATOR_WIDTH)));
     for r in rows {
@@ -74,8 +74,9 @@ pub fn render_text(rows: &[DaemonStatus], now_ms: i64) -> String {
         let version = version_summary(r);
         let health = health_summary(r);
         out.push_str(&format!(
-            "{:<14} {:<9} {:<8} {:<10} {:<17} {:<12} {:<7} {}\n",
+            "{:<14} {:<7} {:<9} {:<8} {:<10} {:<17} {:<12} {:<7} {}\n",
             r.kind.display_name(),
+            r.kind.runtime_type(),
             state,
             pid,
             uptime,
@@ -214,6 +215,7 @@ mod tests {
         ];
         let txt = render_text(&rows, now);
         assert!(txt.contains("DAEMON"));
+        assert!(txt.contains("TYPE"));
         assert!(txt.contains("STATE"));
         assert!(txt.contains("phone bridge"));
         assert!(txt.contains("notifyd"));
@@ -223,6 +225,28 @@ mod tests {
         assert!(txt.contains("○ stopped"));
         // Exactly header(2 lines) + 2 data rows.
         assert_eq!(txt.lines().count(), 4);
+    }
+
+    #[test]
+    fn render_text_labels_derived_rows_even_when_process_rows_lack_a_pid() {
+        let mut atc = row(DaemonKind::Atc, DaemonState::Running, true, Some("timer"));
+        atc.pid = None;
+        let mut hangar = row(DaemonKind::HangarDaemon, DaemonState::Stopped, false, None);
+        hangar.pid = None;
+
+        let txt = render_text(&[atc, hangar], 1_000_000);
+        let atc_line = txt.lines().find(|line| line.starts_with("ATC")).expect("ATC row");
+        let hangar_line =
+            txt.lines().find(|line| line.starts_with("hangar daemon")).expect("hangar row");
+
+        assert!(
+            atc_line.contains("derived"),
+            "ATC must say derived: {atc_line}"
+        );
+        assert!(
+            hangar_line.contains("process"),
+            "hangar must say process: {hangar_line}"
+        );
     }
 
     #[test]
