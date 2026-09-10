@@ -1,13 +1,13 @@
-//! The fleet copilot's MCP tool server (part-2 plan, phase A1).
+//! The fleet Pal's MCP tool server (part-2 plan, phase A1).
 //!
-//! The copilot is an ACP session that receives this process through
+//! Pal is an ACP session that receives this process through
 //! `session/new mcpServers`. Its tools call BACK into the hangar daemon over
-//! `hangar.sock`, so a copilot action is the same `fleet/message_send` or
+//! `hangar.sock`, so a Pal action is the same `fleet/message_send` or
 //! `attention/answer` a human client issues, with the same receipts, ordering
 //! and idempotency. Nothing here drives tmux or a provider directly.
 //!
 //! ```text
-//!   copilot ACP session
+//!   Pal ACP session
 //!        │ MCP stdio
 //!        ▼
 //!   ┌──────────────────────┐   gate first, always
@@ -30,7 +30,7 @@
 //! 3. The classifier RUNS in the daemon, not here. [`guardrail`] is pure and
 //!    lives here because it is this crate's contract (its tool table and its
 //!    argument shapes), but this process never calls it: a second live copy of
-//!    the rules, running downstream of every transcript the copilot has read,
+//!    the rules, running downstream of every transcript Pal has read,
 //!    is a second thing to keep in step and the easier one to soften.
 //!
 //! The crate is independently testable: [`fleet::FleetTools`] talks to whatever

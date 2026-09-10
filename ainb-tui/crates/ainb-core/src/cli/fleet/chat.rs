@@ -1,5 +1,5 @@
-// ABOUTME: `ainb fleet channel|copilot|confirm|activity`, the CLI half of the
-// part-2 chat surface (channels, copilot config, guardrail confirm cards, the
+// ABOUTME: `ainb fleet channel|pal|confirm|activity`, the CLI half of the
+// part-2 chat surface (channels, Pal's config, guardrail confirm cards, the
 // activity feed).
 //
 // Same contract as `ainb fleet msg`: `--format json` prints JSON on stdout,
@@ -12,8 +12,8 @@ use ainb_hangar_proto::fleet::{
     FLEET_ACTIVITY_LIST_MAX, FleetActivityListParams, FleetActivityListResult, FleetChannel,
     FleetChannelCreateParams, FleetChannelCreateResult, FleetChannelKind, FleetChannelListResult,
     FleetConfirm, FleetConfirmAnswer, FleetConfirmAnswerParams, FleetConfirmAnswerResult,
-    FleetConfirmListParams, FleetConfirmListResult, FleetCopilotConfigureParams,
-    FleetCopilotConfigureResult, FleetCopilotMode,
+    FleetConfirmListParams, FleetConfirmListResult, FleetPalConfigureParams,
+    FleetPalConfigureResult, FleetPalMode,
 };
 use ainb_hangar_proto::methods;
 use anyhow::Result;
@@ -58,7 +58,8 @@ pub async fn execute_channel(matches: &clap::ArgMatches, format: OutputFormat) -
 
 async fn channel_create(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> {
     let kind = match matches.get_one::<String>("kind").map(String::as_str) {
-        Some("copilot") => FleetChannelKind::Copilot,
+        // `copilot` is the pre-rename spelling of the same kind, still accepted.
+        Some("pal" | "copilot") => FleetChannelKind::Pal,
         _ => FleetChannelKind::Broadcast,
     };
     let recipients: Vec<String> = matches
@@ -191,7 +192,7 @@ fn render_channel(channel: &FleetChannel) -> String {
         "{} [{}] {} -> {}",
         escape_control(&channel.scope_key),
         match channel.kind {
-            FleetChannelKind::Copilot => "copilot",
+            FleetChannelKind::Pal => "pal",
             FleetChannelKind::Broadcast => "broadcast",
         },
         escape_control(&channel.name),
@@ -208,17 +209,17 @@ fn render_channel(channel: &FleetChannel) -> String {
     )
 }
 
-// -------------------------------------------------------------- fleet copilot
+// ------------------------------------------------------------------ fleet pal
 
-pub async fn execute_copilot(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> {
-    reject_tabular(format, "copilot");
+pub async fn execute_pal(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> {
+    reject_tabular(format, "pal");
     match matches.subcommand() {
-        Some(("configure", sub)) => copilot_configure(sub, format).await,
-        _ => CliFailure::bad_input("unknown `ainb fleet copilot` verb: try --help").exit(),
+        Some(("configure", sub)) => pal_configure(sub, format).await,
+        _ => CliFailure::bad_input("unknown `ainb fleet pal` verb: try --help").exit(),
     }
 }
 
-async fn copilot_configure(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> {
+async fn pal_configure(matches: &clap::ArgMatches, format: OutputFormat) -> Result<()> {
     // Passed through UNVALIDATED on purpose: the adapter registry lives in the
     // daemon's config, so a list baked in here would refuse an adapter the
     // daemon can already spawn, and would go stale the moment one is added.
@@ -228,9 +229,7 @@ async fn copilot_configure(matches: &clap::ArgMatches, format: OutputFormat) -> 
         CliFailure::bad_input("--provider is required; `ainb fleet adapter list` names them")
             .exit();
     };
-    let copilot_mode = matches
-        .get_one::<String>("copilot-mode")
-        .and_then(|raw| FleetCopilotMode::parse(raw));
+    let pal_mode = matches.get_one::<String>("pal-mode").and_then(|raw| FleetPalMode::parse(raw));
     // The persona is a FILE, never an inline flag: it is a system prompt for an
     // agent holding destructive tools, and a multi-line one on a command line
     // ends up in shell history verbatim.
@@ -243,11 +242,11 @@ async fn copilot_configure(matches: &clap::ArgMatches, format: OutputFormat) -> 
         },
         None => None,
     };
-    let result: FleetCopilotConfigureResult = call(
-        methods::FLEET_COPILOT_CONFIGURE,
-        &FleetCopilotConfigureParams {
+    let result: FleetPalConfigureResult = call(
+        methods::FLEET_PAL_CONFIGURE,
+        &FleetPalConfigureParams {
             provider,
-            copilot_mode,
+            copilot_mode: pal_mode,
             model: matches.get_one::<String>("model").cloned(),
             reasoning_effort: matches.get_one::<String>("reasoning-effort").cloned(),
             persona,

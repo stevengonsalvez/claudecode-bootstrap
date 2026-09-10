@@ -22,8 +22,8 @@ use ainb_hangar_proto::fleet::{
     FleetActivityClass, FleetActivityEventParams, FleetActivityListParams, FleetActivityListResult,
     FleetActivityOutcome, FleetChannelCreateParams, FleetChannelCreateResult, FleetChannelKind,
     FleetChannelListResult, FleetConfirmAnswer, FleetConfirmAnswerParams, FleetConfirmAnswerResult,
-    FleetConfirmEventParams, FleetConfirmListResult, FleetConfirmState,
-    FleetCopilotConfigureParams, FleetCopilotConfigureResult, FleetCopilotMode, FleetScope,
+    FleetConfirmEventParams, FleetConfirmListResult, FleetConfirmState, FleetPalConfigureParams,
+    FleetPalConfigureResult, FleetPalMode, FleetScope,
 };
 
 /// Fixture directory, shared with the Swift contract suite.
@@ -66,10 +66,10 @@ fn channel_frames_round_trip_and_mint_a_channel_scope() {
     );
 
     let listed: FleetChannelListResult = round_trip("channel_list_result.json");
-    assert_eq!(listed.channels[0].kind, FleetChannelKind::Copilot);
+    assert_eq!(listed.channels[0].kind, FleetChannelKind::Pal);
     assert!(
         listed.channels[0].recipients.is_empty(),
-        "a copilot channel has no recipient set; it IS the ACP session's scope"
+        "a Pal channel has no recipient set; it IS the ACP session's scope"
     );
     for channel in &listed.channels {
         assert!(
@@ -84,16 +84,16 @@ fn channel_frames_round_trip_and_mint_a_channel_scope() {
 }
 
 #[test]
-fn copilot_configure_frames_round_trip_and_carry_no_permission_mode() {
-    let params: FleetCopilotConfigureParams = round_trip("copilot_configure_params.json");
+fn pal_configure_frames_round_trip_and_carry_no_permission_mode() {
+    let params: FleetPalConfigureParams = round_trip("pal_configure_params.json");
     // The registry KEY, not an enum token: `claude` would not name an adapter.
     assert_eq!(params.provider, "claude-agent-acp");
-    assert_eq!(params.copilot_mode, Some(FleetCopilotMode::Guarded));
+    assert_eq!(params.copilot_mode, Some(FleetPalMode::Guarded));
     assert!(params.persona.is_some());
 
     // The absence is the contract: a settable permission mode would be a
     // remote off-switch for the guardrails, so the wire must not carry one.
-    let raw = read("copilot_configure_params.json");
+    let raw = read("pal_configure_params.json");
     for forbidden in ["permission_mode", "permissionMode", "mode"] {
         assert!(
             raw.get(forbidden).is_none(),
@@ -101,16 +101,16 @@ fn copilot_configure_frames_round_trip_and_carry_no_permission_mode() {
         );
     }
 
-    let result: FleetCopilotConfigureResult = round_trip("copilot_configure_result.json");
+    let result: FleetPalConfigureResult = round_trip("pal_configure_result.json");
     assert_eq!(result.provider, "claude-agent-acp");
-    assert_eq!(result.copilot_mode, FleetCopilotMode::Guarded);
+    assert_eq!(result.copilot_mode, FleetPalMode::Guarded);
     assert!(!result.session_replaced);
     assert!(
         result.persona_set,
         "the result reports the persona, never echoes it"
     );
     assert!(
-        read("copilot_configure_result.json").get("persona").is_none(),
+        read("pal_configure_result.json").get("persona").is_none(),
         "the privileged persona blob must not be read back"
     );
 }
@@ -185,8 +185,8 @@ fn every_fixture_is_claimed_by_a_type() {
         "channel_create_params.json",
         "channel_create_result.json",
         "channel_list_result.json",
-        "copilot_configure_params.json",
-        "copilot_configure_result.json",
+        "pal_configure_params.json",
+        "pal_configure_result.json",
         "confirm_list_result.json",
         "confirm_answer_approve_params.json",
         "confirm_answer_edit_params.json",

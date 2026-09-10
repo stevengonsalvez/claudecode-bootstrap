@@ -182,7 +182,7 @@ actor FleetConnection {
         return try await request("fleet/runtime_status", params: FleetRuntimeStatusParams(), result: FleetRuntimeStatusResult.self)
     }
 
-    // MARK: - Fleet chat, copilot and guardrails (buzz-port part 2)
+    // MARK: - Fleet chat, Pal and guardrails (buzz-port part 2)
     //
     // Every capability id below is the one its DAEMON ARM checks, not a
     // plausible-looking neighbour: `fleet/message_*` is gated by
@@ -249,9 +249,9 @@ actor FleetConnection {
     /// Every adapter this daemon's registry can spawn.
     ///
     /// Gated by `fleet.chat.read`, which is what `handle_fleet_adapter_list`
-    /// checks. Its NEIGHBOUR on this surface, `copilotConfigure`, checks a
+    /// checks. Its NEIGHBOUR on this surface, `palConfigure`, checks a
     /// different and stronger id, so the two are gated SEPARATELY: a daemon can
-    /// serve the registry to a caller it will not let reconfigure the copilot,
+    /// serve the registry to a caller it will not let reconfigure Pal,
     /// and one combined gate would either hide the engine list or offer a
     /// picker whose every choice answers -32601.
     func adapterList() async throws -> FleetAdapterListResult {
@@ -259,7 +259,7 @@ actor FleetConnection {
         return try await request("fleet/adapter_list", params: FleetAdapterListParams(), result: FleetAdapterListResult.self)
     }
 
-    /// Set the copilot session's adapter, guardrail dial and model.
+    /// Set the Pal session's adapter, guardrail dial and model.
     ///
     /// Gated by `fleet.copilot.configure`, its OWN id and not the
     /// `fleet.chat.write` its channel neighbour uses: the daemon holds this
@@ -267,11 +267,11 @@ actor FleetConnection {
     /// system prompt for an agent holding destructive tools.
     ///
     /// A result whose `sessionReplaced` is true means the caller's previous
-    /// copilot session key is DEAD: a provider swap retires the old session and
+    /// Pal session key is DEAD: a provider swap retires the old session and
     /// mints a new one on the same channel scope.
-    func copilotConfigure(_ params: FleetCopilotConfigureParams) async throws -> FleetCopilotConfigureResult {
+    func palConfigure(_ params: FleetPalConfigureParams) async throws -> FleetPalConfigureResult {
         try requireWriteCapability("fleet.copilot.configure")
-        return try await request("fleet/copilot_configure", params: params, result: FleetCopilotConfigureResult.self)
+        return try await request("fleet/copilot_configure", params: params, result: FleetPalConfigureResult.self)
     }
 
     func confirmAnswer(_ params: FleetConfirmAnswerParams) async throws -> FleetConfirmAnswerResult {
@@ -363,7 +363,7 @@ actor FleetConnection {
     /// NEGATIVE tests.
     ///
     /// The proofs it exists for are ones this client's own types cannot express
-    /// by design: `FleetCopilotConfigureParams` deliberately has no
+    /// by design: `FleetPalConfigureParams` deliberately has no
     /// permission-mode field, because a settable one would be a remote
     /// off-switch for the guardrails, and the test that the daemon's door is
     /// shut has to knock on it. Debug-only and unused by the app, so the shape

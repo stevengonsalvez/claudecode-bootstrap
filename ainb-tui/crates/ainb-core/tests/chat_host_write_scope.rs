@@ -7,10 +7,10 @@
 //! produced.
 //!
 //! The trap being pinned: every write in `chat_host` ends by paging, and the
-//! copilot page RESOLVES its channel when it is handed no scope. Resolution is
+//! Pal page RESOLVES its channel when it is handed no scope. Resolution is
 //! newest-wins (matching the daemon's own `newest_of_kind`), so a page with no
-//! scope lands on whatever copilot channel is newest, not on the one the
-//! operator is reading. A second copilot channel is a thing the CLI mints on
+//! scope lands on whatever Pal channel is newest, not on the one the
+//! operator is reading. A second Pal channel is a thing the CLI mints on
 //! demand and a race mints by accident, and when one exists a confirm answer or
 //! a turn cancel would swap the pane's whole conversation out underneath it.
 //!
@@ -78,11 +78,11 @@ fn fixture(prefix: &str) -> Fixture {
     }
 }
 
-/// Mint one copilot channel directly in the store, at an exact `created_at`.
+/// Mint one Pal channel directly in the store, at an exact `created_at`.
 ///
 /// Written through the repo rather than the RPC because the ORDER of the two
 /// channels is the whole point and `fleet/channel_create` stamps its own clock.
-fn seed_copilot_channel(hangar: &FleetHangar, id: &str, created_at: i64) -> String {
+fn seed_pal_channel(hangar: &FleetHangar, id: &str, created_at: i64) -> String {
     let scope = format!("channel:{id}");
     hangar.block_on(async {
         FleetChannelRepo::insert(
@@ -93,14 +93,14 @@ fn seed_copilot_channel(hangar: &FleetHangar, id: &str, created_at: i64) -> Stri
                 name: "copilot".to_string(),
                 scope_key: scope.clone(),
                 recipients: Vec::new(),
-                copilot_mode: ainb_hangar_proto::fleet::FleetCopilotMode::default()
+                copilot_mode: ainb_hangar_proto::fleet::FleetPalMode::default()
                     .as_str()
                     .to_string(),
                 created_at,
             },
         )
         .await
-        .expect("seed copilot channel");
+        .expect("seed Pal channel");
     });
     scope
 }
@@ -144,9 +144,9 @@ fn tick_until(host: &mut ChatHost, what: &str, settled: impl Fn(&ChatHost) -> bo
     }
 }
 
-/// Open the copilot surface for real and leave it on the only channel there is.
+/// Open the Pal surface for real and leave it on the only channel there is.
 fn open_on(hangar: &FleetHangar, scope: &str) -> ChatHost {
-    let mut host = ChatHost::copilot();
+    let mut host = ChatHost::pal();
     tick_until(&mut host, "the cold open", |host| {
         host.state().scope_key() == Some(scope)
     });
@@ -169,7 +169,7 @@ fn assert_write_stays_on_scope(prefix: &str, intent_for: impl Fn(&FleetHangar) -
     let fixture = fixture(prefix);
     let hangar = &fixture.hangar;
 
-    let reading = seed_copilot_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
+    let reading = seed_pal_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
     seed_message(
         hangar,
         &reading,
@@ -180,13 +180,13 @@ fn assert_write_stays_on_scope(prefix: &str, intent_for: impl Fn(&FleetHangar) -
 
     let mut host = open_on(hangar, &reading);
 
-    // The second copilot channel, minted AFTER the surface resolved its own and
-    // therefore newer. `ainb fleet chat --kind copilot` mints one on demand, and
+    // The second Pal channel, minted AFTER the surface resolved its own and
+    // therefore newer. `ainb fleet chat --kind Pal` mints one on demand, and
     // `chat_page_blocking` documents a race minting one by accident. Left EMPTY
     // so the two outcomes are told apart by row count alone: a page of the
     // channel the operator is reading has two rows, a page of this one has none,
     // and "still one" is a page that has not landed yet.
-    seed_copilot_channel(hangar, "01J0CHANNELNEWER", 1_700_000_100_000);
+    seed_pal_channel(hangar, "01J0CHANNELNEWER", 1_700_000_100_000);
     seed_message(
         hangar,
         &reading,
@@ -281,7 +281,7 @@ fn a_refused_cancel_reads_as_a_failed_cancel_and_keeps_the_sends_legs() {
     let fixture = fixture("chat-host-cancel-refused-");
     let hangar = &fixture.hangar;
 
-    let scope = seed_copilot_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
+    let scope = seed_pal_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
     seed_message(
         hangar,
         &scope,
@@ -349,7 +349,7 @@ fn a_refused_confirm_answer_reads_as_a_failed_answer_and_keeps_the_sends_legs() 
     let fixture = fixture("chat-host-answer-refused-");
     let hangar = &fixture.hangar;
 
-    let scope = seed_copilot_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
+    let scope = seed_pal_channel(hangar, "01J0CHANNELREADING", 1_700_000_000_000);
     seed_message(
         hangar,
         &scope,

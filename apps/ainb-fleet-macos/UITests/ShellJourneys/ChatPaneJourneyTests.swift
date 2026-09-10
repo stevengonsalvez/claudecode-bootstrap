@@ -1,6 +1,6 @@
 import XCTest
 
-/// The copilot conversation, driven through the real app against the real
+/// The Pal conversation, driven through the real app against the real
 /// daemon fixture.
 ///
 /// Nothing had ever opened this pane. Every other proof of it is a unit test
@@ -24,11 +24,11 @@ final class ChatPaneJourneyTests: FleetUITestCase {
             app.otherElements["fleet.chat.unavailable"].exists,
             "the fixture daemon serves chat, so the pane must not be in its unavailable state. \(app.debugDescription)"
         )
-        // The daemon's refusal caption. Present only when the copilot session
+        // The daemon's refusal caption. Present only when the Pal session
         // could NOT be resolved, which is exactly the dead-Send state.
         XCTAssertFalse(
             app.staticTexts["fleet.chat.session-detail"].exists,
-            "the copilot session was refused: \(app.staticTexts["fleet.chat.session-detail"].label)"
+            "the Pal session was refused: \(app.staticTexts["fleet.chat.session-detail"].label)"
         )
 
         let composer = chatComposer()
@@ -48,7 +48,7 @@ final class ChatPaneJourneyTests: FleetUITestCase {
     /// refreshed by hand.
     ///
     /// The whole of PR B, observed from outside the app. The writer is a second
-    /// connection on the same socket, standing in for the copilot, the terminal
+    /// connection on the same socket, standing in for Pal, the terminal
     /// UI or another window, and Refresh is never clicked.
     ///
     /// The clock is the load-bearing part. The pane's own safety-net page runs
@@ -67,7 +67,7 @@ final class ChatPaneJourneyTests: FleetUITestCase {
         let pagedAt = Date()
 
         let client = try FleetChatClient(home: fixture.home)
-        let messageID = try client.sendToCopilotChannel(text: "pushed without a poll")
+        let messageID = try client.sendToPalChannel(text: "pushed without a poll")
 
         let row = app.descendants(matching: .any)["fleet.chat.message.\(messageID)"]
         XCTAssertTrue(

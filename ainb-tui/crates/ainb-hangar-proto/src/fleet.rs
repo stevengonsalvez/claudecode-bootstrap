@@ -71,28 +71,38 @@ pub const FLEET_CAPABILITY_CHAT_WRITE: &str = "fleet.chat.write";
 ///
 /// Defined-but-unadvertised, per [`FLEET_CAPABILITY_CHAT_WRITE`].
 pub const FLEET_CAPABILITY_CHAT_READ: &str = "fleet.chat.read";
-/// Negotiated capability required for `fleet/copilot_configure`.
+/// Negotiated capability required for `fleet/pal_configure`.
 ///
 /// Defined-but-unadvertised, per [`FLEET_CAPABILITY_CHAT_WRITE`]. Gates a
 /// PRIVILEGED surface: the persona it carries is a system prompt for an agent
 /// holding destructive tools.
-pub const FLEET_CAPABILITY_COPILOT_CONFIGURE: &str = "fleet.copilot.configure";
+///
+/// The wire spelling stays `fleet.copilot.configure`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const FLEET_CAPABILITY_PAL_CONFIGURE: &str = "fleet.copilot.configure";
 /// Negotiated capability required to answer a guardrail confirm card.
 ///
 /// Defined-but-unadvertised, per [`FLEET_CAPABILITY_CHAT_WRITE`]. Distinct
 /// from `fleet.action.execute`: ACP permission requests stay part 1's
 /// attention rows answered through `fleet/action`.
 pub const FLEET_CAPABILITY_CONFIRM_ANSWER: &str = "fleet.confirm.answer";
-/// Negotiated capability required to run one copilot tool call through the
+/// Negotiated capability required to run one Pal tool call through the
 /// guardrail (`fleet/copilot_gate`).
 ///
-/// The copilot's MCP tool server is a separate process, so the classify-park-
+/// Pal's MCP tool server is a separate process, so the classify-park-
 /// resolve decision has to cross a socket to reach the daemon that owns it.
 /// This is the ONLY caller-visible name for that crossing, and it is separate
 /// from [`FLEET_CAPABILITY_CONFIRM_ANSWER`] on purpose: minting a card and
 /// answering one are opposite ends of the same dialog, held by different
 /// processes.
-pub const FLEET_CAPABILITY_COPILOT_GATE: &str = "fleet.copilot.gate";
+///
+/// The wire spelling stays `fleet.copilot.gate`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const FLEET_CAPABILITY_PAL_GATE: &str = "fleet.copilot.gate";
 
 /// Fleet capability identifiers advertised during protocol negotiation.
 ///
@@ -102,13 +112,13 @@ pub const FLEET_CAPABILITY_COPILOT_GATE: &str = "fleet.copilot.gate";
 pub const FLEET_PROTOCOL_CAPABILITY_IDS: &[&str] = &[
     FLEET_CAPABILITY_ACP_SPAWN,
     FLEET_CAPABILITY_ACTION_EXECUTE,
-    // Part 2 phase A2 landed the six chat/copilot dispatch arms, so their
+    // Part 2 phase A2 landed the six chat/Pal dispatch arms, so their
     // capabilities are advertised in the SAME change, per the rule below.
     FLEET_CAPABILITY_CHAT_READ,
     FLEET_CAPABILITY_CHAT_WRITE,
     FLEET_CAPABILITY_CONFIRM_ANSWER,
-    FLEET_CAPABILITY_COPILOT_CONFIGURE,
-    FLEET_CAPABILITY_COPILOT_GATE,
+    FLEET_CAPABILITY_PAL_CONFIGURE,
+    FLEET_CAPABILITY_PAL_GATE,
     FLEET_CAPABILITY_ATC_READ,
     FLEET_CAPABILITY_BROADCAST_EXECUTE,
     FLEET_CAPABILITY_MESSAGE_READ,
@@ -1540,9 +1550,9 @@ pub struct FleetMessageSendParams {
     ///
     /// Not a permission and not a claim the daemon trusts for authorisation —
     /// the socket token already authenticated the caller. It exists so a
-    /// copilot-authored send is DISTINGUISHABLE from a human one at the two
+    /// Pal-authored send is DISTINGUISHABLE from a human one at the two
     /// surfaces that matter (the receiving agent's corpus and the chat UIs);
-    /// without it a copilot steered by a prompt injection asks another agent to
+    /// without it a Pal steered by a prompt injection asks another agent to
     /// act while wearing the operator's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
@@ -1822,12 +1832,12 @@ impl<'a> FleetScope<'a> {
 pub const FLEET_CHANNEL_RECIPIENTS_MAX: usize = FLEET_MESSAGE_TARGETS_MAX;
 /// Maximum channel name length, in bytes.
 pub const FLEET_CHANNEL_NAME_MAX: usize = 128;
-/// Maximum copilot persona length, in bytes.
+/// Maximum Pal persona length, in bytes.
 ///
 /// The persona is a system prompt for an agent holding destructive tools, so
 /// it is bounded like any other operator-supplied blob that is replayed into
 /// every session start.
-pub const FLEET_COPILOT_PERSONA_MAX: usize = 8 * 1024;
+pub const FLEET_PAL_PERSONA_MAX: usize = 8 * 1024;
 /// Maximum rows one `fleet/activity_list` page may return.
 pub const FLEET_ACTIVITY_LIST_MAX: u32 = 200;
 
@@ -1835,8 +1845,14 @@ pub const FLEET_ACTIVITY_LIST_MAX: u32 = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetChannelKind {
-    /// The standing copilot channel: an ACP session whose scope IS the channel.
-    Copilot,
+    /// Pal's standing channel: an ACP session whose scope IS the channel.
+    ///
+    /// The wire and stored spelling stays `copilot`, deliberately. Only the
+    /// surface was renamed to Pal; changing this token would orphan every
+    /// `fleet_channel` row already written and break every daemon-client
+    /// pairing across the rename.
+    #[serde(rename = "copilot")]
+    Pal,
     /// A named fan-out channel over an explicit recipient set.
     Broadcast,
 }
@@ -1852,7 +1868,7 @@ pub struct FleetChannel {
     pub name: String,
     /// The minted scope, always `channel:<id>`.
     pub scope_key: String,
-    /// Member session keys; empty for a copilot channel.
+    /// Member session keys; empty for a Pal channel.
     pub recipients: Vec<String>,
     /// Creation time in epoch milliseconds.
     pub created_at: i64,
@@ -1893,7 +1909,7 @@ pub struct FleetChannelListResult {
 /// The registry is `[acp.adapters.*]` in the host config plus the built-in
 /// floor, so this list grows by editing config, not by shipping a new enum
 /// variant. That is why `provider` is a validated STRING everywhere it appears
-/// on the copilot wire: a two-variant enum could not name a third adapter an
+/// on the Pal wire: a two-variant enum could not name a third adapter an
 /// operator had already installed and configured.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FleetAdapter {
@@ -1926,27 +1942,27 @@ pub struct FleetAdapterListResult {
     pub adapters: Vec<FleetAdapter>,
 }
 
-/// The copilot channel's guardrail dial.
+/// The Pal channel's guardrail dial.
 ///
 /// Distinct from, and no relation to, an adapter's `permission_mode`. This one
-/// moves the DAEMON-SIDE fleet-tool classifier: which of the copilot's own
+/// moves the DAEMON-SIDE fleet-tool classifier: which of Pal's own
 /// tools fire, which take a confirm card, and which are not offered at all. The
 /// adapter's permission mode stays pinned at `session/new` under every value
 /// here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FleetCopilotMode {
+pub enum FleetPalMode {
     /// Read tools only; writes are refused, not confirmed.
     Help,
     /// The default: auto-writes fire, destructive tools take a card.
     #[default]
     Guarded,
     /// Destructive tools fire without a card, except `kill`. Reset to
-    /// [`FleetCopilotMode::Guarded`] at every daemon start.
+    /// [`FleetPalMode::Guarded`] at every daemon start.
     Yolo,
 }
 
-impl FleetCopilotMode {
+impl FleetPalMode {
     /// The stored and wire spelling.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -1979,19 +1995,19 @@ impl FleetCopilotMode {
     }
 }
 
-/// Parameters for `fleet/copilot_configure`.
+/// Parameters for `fleet/pal_configure`.
 ///
 /// There is deliberately NO permission-mode field. Part 1 pins the mode at
 /// `session/new` and re-asserts it after load precisely because an ambient
 /// `bypassPermissions` disables the whole permission surface; a settable mode
 /// here would be a remote off-switch for the guardrails, reachable by anyone
-/// holding [`FLEET_CAPABILITY_COPILOT_CONFIGURE`].
+/// holding [`FLEET_CAPABILITY_PAL_CONFIGURE`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FleetCopilotConfigureParams {
+pub struct FleetPalConfigureParams {
     /// An adapter name from `fleet/adapter_list`. A name the registry does not
     /// know is refused, so this string is never a free-form spawn request.
     ///
-    /// Changing it RETIRES the running copilot session and mints a new one on
+    /// Changing it RETIRES the running Pal session and mints a new one on
     /// the SAME channel: a different adapter is a different process and a
     /// different agent, and writing the new token onto the old row would leave
     /// a session whose stored provider and running adapter disagree.
@@ -2003,31 +2019,31 @@ pub struct FleetCopilotConfigureParams {
     /// plausibly try to send under that name is the adapter permission mode
     /// this type's doc comment explains is not settable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub copilot_mode: Option<FleetCopilotMode>,
+    pub copilot_mode: Option<FleetPalMode>,
     /// Adapter model id; `None` leaves the daemon's static config in place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Adapter reasoning effort token; `None` leaves the static config alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
-    /// System prompt, at most [`FLEET_COPILOT_PERSONA_MAX`] bytes.
+    /// System prompt, at most [`FLEET_PAL_PERSONA_MAX`] bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona: Option<String>,
 }
 
-/// Result for `fleet/copilot_configure`.
+/// Result for `fleet/pal_configure`.
 ///
 /// The persona is NOT echoed: it is a privileged blob, and a read-back is a
 /// second place it can leak from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FleetCopilotConfigureResult {
-    /// The copilot session the config was written to. A DIFFERENT key than the
+pub struct FleetPalConfigureResult {
+    /// The Pal session the config was written to. A DIFFERENT key than the
     /// caller's last one means the provider changed and this is the new session.
     pub session_key: String,
     /// Adapter now in force.
     pub provider: String,
     /// The channel's guardrail dial now in force.
-    pub copilot_mode: FleetCopilotMode,
+    pub copilot_mode: FleetPalMode,
     /// Whether this call retired the previous session to swap the adapter.
     pub session_replaced: bool,
     /// Model override now in force, when one is.
@@ -2044,7 +2060,7 @@ pub struct FleetCopilotConfigureResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetConfirmState {
-    /// Awaiting an operator; the copilot's tool result is suspended.
+    /// Awaiting an operator; Pal's tool result is suspended.
     Open,
     /// Answered approve (possibly with edited arguments).
     Approved,
@@ -2054,7 +2070,7 @@ pub enum FleetConfirmState {
     Expired,
 }
 
-/// One guardrail confirm card: a copilot tool call held for an operator.
+/// One guardrail confirm card: a Pal tool call held for an operator.
 ///
 /// NOT an ACP permission request. Those stay part 1's attention rows answered
 /// through `fleet/action` with fingerprint staleness.
@@ -2062,9 +2078,9 @@ pub enum FleetConfirmState {
 pub struct FleetConfirm {
     /// Daemon-minted stable card identity.
     pub confirm_id: String,
-    /// Scope the card belongs to, normally the copilot `channel:<id>`.
+    /// Scope the card belongs to, normally Pal `channel:<id>`.
     pub scope_key: String,
-    /// The MCP tool the copilot asked to run.
+    /// The MCP tool Pal asked to run.
     pub tool: String,
     /// The tool arguments, PROJECTED to the keys the tool's schema declares.
     ///
@@ -2156,10 +2172,10 @@ pub struct FleetConfirmEventParams {
 /// Here rather than in the daemon because BOTH ends of `fleet/copilot_gate`
 /// have to agree on it: the daemon expires the card at this age, and the tool
 /// server's client bound has to sit outside it, or a live card would come back
-/// to the copilot as a transport timeout and be retried into a second card.
+/// to Pal as a transport timeout and be retried into a second card.
 ///
 /// Strictly shorter than part 1's 30-minute per-turn deadline, which is its
-/// whole justification: the card holds the copilot's ACP turn open, so a card
+/// whole justification: the card holds Pal's ACP turn open, so a card
 /// that outlived the deadline would have the deadline converge the turn out
 /// from under a dialog the operator is still looking at.
 pub const FLEET_CONFIRM_TTL_MS: u64 = 10 * 60 * 1000;
@@ -2167,13 +2183,13 @@ pub const FLEET_CONFIRM_TTL_MS: u64 = 10 * 60 * 1000;
 /// Parameters for `fleet/copilot_gate`: one tool call offered to the guardrail.
 ///
 /// Deliberately carries NO scope, NO named-session set and NO class hint. The
-/// caller is the copilot's MCP tool server, which is downstream of every
-/// transcript the copilot has read, so anything it could put on this wire is
-/// model-reachable. The daemon resolves the scope from its own copilot channel
+/// caller is Pal's MCP tool server, which is downstream of every
+/// transcript Pal has read, so anything it could put on this wire is
+/// model-reachable. The daemon resolves the scope from its own Pal channel
 /// and pins the turn state itself; all the caller gets to say is which tool the
 /// model asked for and with what arguments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FleetCopilotGateParams {
+pub struct FleetPalGateParams {
     /// The MCP tool name the model invoked.
     pub tool: String,
     /// The arguments the model supplied, verbatim and unprojected.
@@ -2188,7 +2204,7 @@ pub struct FleetCopilotGateParams {
 /// What the guardrail decided about one tool call.
 ///
 /// The three non-`run` variants are all "do not execute", kept distinct because
-/// the copilot should be able to tell "a human said no" from "nobody looked"
+/// Pal should be able to tell "a human said no" from "nobody looked"
 /// from "that call was never executable", and an operator reading the activity
 /// feed should too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2206,7 +2222,7 @@ pub enum FleetGateVerdict {
 
 /// Result for `fleet/copilot_gate`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FleetCopilotGateResult {
+pub struct FleetPalGateResult {
     /// The verdict.
     pub verdict: FleetGateVerdict,
     /// The arguments to execute with, only meaningful for
@@ -2223,7 +2239,7 @@ pub struct FleetCopilotGateResult {
     pub detail: Option<String>,
 }
 
-/// Guardrail class of one copilot tool invocation.
+/// Guardrail class of one Pal tool invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetActivityClass {
@@ -2235,7 +2251,7 @@ pub enum FleetActivityClass {
     Destructive,
 }
 
-/// How one copilot tool invocation ended.
+/// How one Pal tool invocation ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetActivityOutcome {
@@ -2249,7 +2265,7 @@ pub enum FleetActivityOutcome {
     Error,
 }
 
-/// One append-only copilot activity row.
+/// One append-only Pal activity row.
 ///
 /// `seq` is the commit-ordered cursor SQLite assigns inside the write
 /// transaction, exactly as `fleet_message.seq` is; `id` is stable external
@@ -2526,11 +2542,11 @@ mod tests {
         for id in [
             FLEET_CAPABILITY_CHAT_WRITE,
             FLEET_CAPABILITY_CHAT_READ,
-            FLEET_CAPABILITY_COPILOT_CONFIGURE,
+            FLEET_CAPABILITY_PAL_CONFIGURE,
             FLEET_CAPABILITY_CONFIRM_ANSWER,
             // The producer arm, landed with the tool server's live gate. Same
             // rule: advertised WITH its handler, never before it.
-            FLEET_CAPABILITY_COPILOT_GATE,
+            FLEET_CAPABILITY_PAL_GATE,
         ] {
             assert!(
                 FLEET_PROTOCOL_CAPABILITY_IDS.contains(&id),
@@ -2805,7 +2821,7 @@ mod tests {
                 repo: Some("owner/repo".to_string()),
                 bucket: FleetUsageBucket::default(),
             }],
-            detail: Some("copilot shutdown metrics unavailable".to_string()),
+            detail: Some("Pal shutdown metrics unavailable".to_string()),
         });
         round_trip(&FleetQuotaSummaryResult {
             state: FleetUsageSummaryState::Partial,

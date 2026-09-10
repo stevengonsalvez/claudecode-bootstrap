@@ -18,21 +18,21 @@ final class FleetChatPresentationTests: XCTestCase {
     // MARK: - Attribution
 
     /// The guarantee the wire's `actor` exists to provide, at the last inch: a
-    /// copilot row and an operator row must be TELLABLE APART on screen.
-    func testCopilotAndOperatorRowsAreDistinguishable() throws {
+    /// Pal row and an operator row must be TELLABLE APART on screen.
+    func testPalAndOperatorRowsAreDistinguishable() throws {
         let human = FleetChatMessageRow(message: try Self.message(sender: "operator", body: "restart sess-a"))
-        let copilot = FleetChatMessageRow(message: try Self.message(sender: "copilot", body: "restart sess-a"))
+        let pal = FleetChatMessageRow(message: try Self.message(sender: "copilot", body: "restart sess-a"))
 
-        XCTAssertNotEqual(human.actor, copilot.actor)
-        XCTAssertNotEqual(human.actor.label, copilot.actor.label)
-        XCTAssertNotEqual(human.actor.accessibilityLabel, copilot.actor.accessibilityLabel)
-        XCTAssertNotEqual(human.actor.identifier, copilot.actor.identifier)
+        XCTAssertNotEqual(human.actor, pal.actor)
+        XCTAssertNotEqual(human.actor.label, pal.actor.label)
+        XCTAssertNotEqual(human.actor.accessibilityLabel, pal.actor.accessibilityLabel)
+        XCTAssertNotEqual(human.actor.identifier, pal.actor.identifier)
         // Side is the glanceable half. Only a human's own writing is mine.
         XCTAssertTrue(human.actor.isOperator)
-        XCTAssertFalse(copilot.actor.isOperator)
+        XCTAssertFalse(pal.actor.isOperator)
         // Identical BODIES: attribution cannot come from the text, because the
-        // text is the one thing a prompt-injected copilot fully controls.
-        XCTAssertEqual(human.body, copilot.body)
+        // text is the one thing a prompt-injected Pal fully controls.
+        XCTAssertEqual(human.body, pal.body)
     }
 
     /// A blank sender must never read as the operator. The daemon refuses one,
@@ -48,12 +48,12 @@ final class FleetChatPresentationTests: XCTestCase {
 
     /// Every actor renders a distinct, non-empty label. Exhaustive on purpose.
     func testEveryActorRendersADistinctLabel() {
-        let actors: [FleetChatActor] = [.operatorHuman, .copilot, .session("tmux:sess-a"), .unattributed]
+        let actors: [FleetChatActor] = [.operatorHuman, .pal, .session("tmux:sess-a"), .unattributed]
         // Wildcard-free: a new actor kind is a compile error here.
         func isNamedHuman(_ actor: FleetChatActor) -> Bool {
             switch actor {
             case .operatorHuman: true
-            case .copilot, .session, .unattributed: false
+            case .pal, .session, .unattributed: false
             }
         }
         XCTAssertEqual(actors.filter(isNamedHuman).count, 1, "exactly one actor may read as the human")
@@ -112,7 +112,7 @@ final class FleetChatPresentationTests: XCTestCase {
     func testEveryChannelKindRendersALabel() {
         assertLabelsAreDistinctAndNamed(FleetChannelKind.allCases, FleetChatLabels.channelKind) { kind in
             switch kind {
-            case .copilot, .broadcast: true
+            case .pal, .broadcast: true
             case .unknown: false
             }
         }
@@ -121,14 +121,14 @@ final class FleetChatPresentationTests: XCTestCase {
     /// The provider is a registry name, so it renders verbatim — an operator
     /// reading it here and in `ainb fleet adapter list` reads one vocabulary.
     /// Only the empty string, which names no adapter, is called out.
-    func testACopilotProviderRendersItsRegistryName() {
-        XCTAssertEqual(FleetChatLabels.copilotProvider("claude-agent-acp"), "claude-agent-acp")
-        XCTAssertEqual(FleetChatLabels.copilotProvider("some-vendor-acp"), "some-vendor-acp")
-        XCTAssertEqual(FleetChatLabels.copilotProvider(""), "Unrecognised provider")
+    func testAPalProviderRendersItsRegistryName() {
+        XCTAssertEqual(FleetChatLabels.palProvider("claude-agent-acp"), "claude-agent-acp")
+        XCTAssertEqual(FleetChatLabels.palProvider("some-vendor-acp"), "some-vendor-acp")
+        XCTAssertEqual(FleetChatLabels.palProvider(""), "Unrecognised provider")
     }
 
-    func testEveryCopilotModeRendersALabel() {
-        assertLabelsAreDistinctAndNamed(FleetCopilotMode.allCases, FleetChatLabels.copilotMode) { mode in
+    func testEveryPalModeRendersALabel() {
+        assertLabelsAreDistinctAndNamed(FleetPalMode.allCases, FleetChatLabels.palMode) { mode in
             switch mode {
             case .help, .guarded, .yolo: true
             case .unknown: false
@@ -340,15 +340,15 @@ final class FleetChatPresentationTests: XCTestCase {
         XCTAssertEqual(fleetActivityListMax, 200, "FLEET_ACTIVITY_LIST_MAX")
     }
 
-    /// The adapter token the copilot scope is bound to. The daemon binds a
+    /// The adapter token Pal scope is bound to. The daemon binds a
     /// scope to whatever the FIRST `fleet/acp_session_create` names, so a
     /// mismatch with the TUI means whoever opened the chat first wins and the
     /// other client is refused forever.
-    func testCopilotProviderMatchesTheTUI() {
-        XCTAssertEqual(copilotDefaultProvider, "claude-agent-acp")
+    func testPalProviderMatchesTheTUI() {
+        XCTAssertEqual(palDefaultProvider, "claude-agent-acp")
     }
 
-    // MARK: - The copilot engine dial
+    // MARK: - The Pal engine dial
 
     /// An adapter that declares no models decodes, and declares none.
     ///
@@ -381,35 +381,35 @@ final class FleetChatPresentationTests: XCTestCase {
     /// the registry's first entry or with `guarded` would print a guess in the
     /// place an operator checks before turning `yolo` on.
     func testAnUntoldDialReadsAsNotReportedRatherThanADefault() {
-        var dial = FleetCopilotDial()
+        var dial = FleetPalDial()
         dial.adapters = [
             FleetAdapter(name: "claude-agent-acp", command: "/bin/claude", permissionMode: "default", builtIn: true, models: ["opus"]),
         ]
         dial.adaptersListed = true
 
-        XCTAssertEqual(FleetChatLabels.copilotEngine(dial), "not reported")
-        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "not reported")
-        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.palEngine(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.palMode(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.palModel(dial), "not reported")
         XCTAssertEqual(dial.models, [], "no engine means no adapter whose models these are")
     }
 
     /// Once told, each slot reads what it was told, and a known engine with no
     /// model override reads as the adapter's own default rather than a gap.
     func testAToldDialReadsTheSettingsAndNamesTheAdapterDefault() {
-        var dial = FleetCopilotDial()
+        var dial = FleetPalDial()
         dial.adapters = [
             FleetAdapter(name: "claude-agent-acp", command: "/bin/claude", permissionMode: "default", builtIn: true, models: ["opus", "sonnet"]),
         ]
         dial.engine = "claude-agent-acp"
         dial.mode = .yolo
 
-        XCTAssertEqual(FleetChatLabels.copilotEngine(dial), "claude-agent-acp")
-        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "yolo")
-        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "adapter default")
+        XCTAssertEqual(FleetChatLabels.palEngine(dial), "claude-agent-acp")
+        XCTAssertEqual(FleetChatLabels.palMode(dial), "yolo")
+        XCTAssertEqual(FleetChatLabels.palModel(dial), "adapter default")
         XCTAssertEqual(dial.models, ["opus", "sonnet"])
 
         dial.model = "sonnet"
-        XCTAssertEqual(FleetChatLabels.copilotModel(dial), "sonnet")
+        XCTAssertEqual(FleetChatLabels.palModel(dial), "sonnet")
     }
 
     /// A guardrail value this build cannot name is a DIFFERENT fact from never
@@ -420,15 +420,15 @@ final class FleetChatPresentationTests: XCTestCase {
     /// would hide a real answer, and rendering it as one of the three would
     /// claim a guardrail nobody set.
     func testAnUnrecognisedGuardrailIsNotTheSameAsAnUnreadOne() {
-        var dial = FleetCopilotDial()
+        var dial = FleetPalDial()
         dial.mode = .unknown
-        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "unrecognised mode")
+        XCTAssertEqual(FleetChatLabels.palMode(dial), "unrecognised mode")
 
         dial.mode = nil
-        XCTAssertEqual(FleetChatLabels.copilotMode(dial), "not reported")
+        XCTAssertEqual(FleetChatLabels.palMode(dial), "not reported")
     }
 
-    // MARK: - Copilot mint ladder
+    // MARK: - Pal mint ladder
 
     /// The refusals a REAL daemon sends, verbatim.
     ///
@@ -451,13 +451,13 @@ final class FleetChatPresentationTests: XCTestCase {
     /// Rung 1 is what a modern daemon gets, and it names NOTHING.
     ///
     /// Naming either half is how this client was refused on every poll: the
-    /// live copilot scope is held by a session opened from a worktree, and an
+    /// live Pal scope is held by a session opened from a worktree, and an
     /// app that names the operator's home directory is told the scope is held
     /// with a different cwd, forever.
     @MainActor
     func testTheFirstRungNamesNeitherProviderNorCwd() async throws {
         let recorder = MintRecorder()
-        let created = try await FleetStore.mintCopilotSession(
+        let created = try await FleetStore.mintPalSession(
             scopeKey: "channel:c1",
             home: "/Users/operator",
             create: recorder.answer
@@ -482,7 +482,7 @@ final class FleetChatPresentationTests: XCTestCase {
     func testACwdIsNamedOnlyWhenTheDaemonAsksForOne() async throws {
         for refusal in [Self.legacyMissingCwd, Self.cwdRequired] {
             let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
-            _ = try await FleetStore.mintCopilotSession(
+            _ = try await FleetStore.mintPalSession(
                 scopeKey: "channel:c1",
                 home: "/Users/operator",
                 create: recorder.answer
@@ -505,7 +505,7 @@ final class FleetChatPresentationTests: XCTestCase {
     func testTheLegacyRungNamesBothFieldsForADaemonThatRequiresThem() async throws {
         for refusal in [Self.legacyMissingProvider, Self.cwdEraDaemonMissingProvider] {
             let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
-            _ = try await FleetStore.mintCopilotSession(
+            _ = try await FleetStore.mintPalSession(
                 scopeKey: "channel:c1",
                 home: "/Users/operator",
                 create: recorder.answer
@@ -516,7 +516,7 @@ final class FleetChatPresentationTests: XCTestCase {
                 "\(refusal): a refusal naming provider must skip the cwd rung, not spend it"
             )
             let named = try XCTUnwrap(recorder.sent.last)
-            XCTAssertEqual(named.provider, copilotDefaultProvider, "\(refusal)")
+            XCTAssertEqual(named.provider, palDefaultProvider, "\(refusal)")
             XCTAssertEqual(named.cwd, "/Users/operator", "\(refusal)")
         }
     }
@@ -532,7 +532,7 @@ final class FleetChatPresentationTests: XCTestCase {
     func testAProviderRefusalIsNeverAnsweredByNamingADirectoryAlone() async throws {
         for refusal in [Self.legacyMissingProvider, Self.cwdEraDaemonMissingProvider] {
             let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
-            _ = try await FleetStore.mintCopilotSession(
+            _ = try await FleetStore.mintPalSession(
                 scopeKey: "channel:c1",
                 home: "/Users/operator",
                 create: recorder.answer
@@ -553,7 +553,7 @@ final class FleetChatPresentationTests: XCTestCase {
     func testACwdRefusalIsNeverAnsweredByNamingAnAdapter() async throws {
         for refusal in [Self.legacyMissingCwd, Self.cwdRequired] {
             let recorder = MintRecorder(refuseUntilAttempt: 2, message: refusal)
-            _ = try await FleetStore.mintCopilotSession(
+            _ = try await FleetStore.mintPalSession(
                 scopeKey: "channel:c1",
                 home: "/Users/operator",
                 create: recorder.answer
@@ -579,7 +579,7 @@ final class FleetChatPresentationTests: XCTestCase {
         )
 
         do {
-            _ = try await FleetStore.mintCopilotSession(
+            _ = try await FleetStore.mintPalSession(
                 scopeKey: "channel:c1",
                 home: "/Users/operator",
                 create: recorder.answer
@@ -692,7 +692,7 @@ final class FleetChatPresentationTests: XCTestCase {
     ///
     /// This is the whole reason the fold reads the scope: the daemon's message
     /// forwarder is fleet-wide, so a broadcast channel's traffic and every
-    /// other copilot conversation arrive on the same socket. A pane that
+    /// other Pal conversation arrive on the same socket. A pane that
     /// rendered them would attribute another conversation's message to this one
     /// and offer the operator a reply that goes somewhere else.
     func testALiveMessageForAnotherScopeIsDropped() throws {
@@ -707,7 +707,7 @@ final class FleetChatPresentationTests: XCTestCase {
     /// The daemon's forwarder replays from a cursor, so a message can arrive
     /// live and again in the page that follows. Appending both would show the
     /// operator their own message twice with no way to tell which one the
-    /// copilot answered.
+    /// Pal answered.
     func testALiveMessageThatAlreadyExistsReplacesRatherThanDuplicates() throws {
         var surface = try Self.shownSurface()
         surface.apply(.message(try Self.liveMessage(id: "01J0A", body: "edited")))

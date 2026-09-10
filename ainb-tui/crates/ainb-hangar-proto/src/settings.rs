@@ -163,7 +163,7 @@ pub struct DaemonHealthSnapshot {
 
 /// The ACP agent pool's live shape (`hangar/daemon_health`).
 ///
-/// "Why is the copilot stuck?" must be answerable from ONE pane: queue depth,
+/// "Why is Pal stuck?" must be answerable from ONE pane: queue depth,
 /// oldest in-flight turn age, and breaker state are all here, and the remedy
 /// (`fleet/action Interrupt`) keys on the `session_key` this carries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

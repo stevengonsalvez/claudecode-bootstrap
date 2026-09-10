@@ -705,7 +705,7 @@ enum FleetMode {
     Broadcast(BroadcastState),
     /// Naming a broadcast channel and ticking its members, opened with `N`.
     ChannelCreate(ChannelCreateState),
-    /// The copilot chat surface (`screen::fleet_chat`), opened with `m`.
+    /// The Pal chat surface (`screen::fleet_chat`), opened with `m`.
     Chat(Box<ChatState>),
     Confirm {
         session_key: String,
@@ -854,7 +854,7 @@ impl FleetPaneState {
         !matches!(self.mode, FleetMode::Browse)
     }
 
-    /// Whether the copilot chat is the open mode.
+    /// Whether the Pal chat is the open mode.
     ///
     /// The host needs this separately from [`Self::is_modal_open`]: the chat is
     /// the one mode that must repaint without input, because it polls on the
@@ -1023,7 +1023,7 @@ pub enum FleetEvent {
     BroadcastFailed {
         detail: String,
     },
-    /// One fetched page of the copilot channel (host answered `ChatIntent::Refresh`).
+    /// One fetched page of the Pal channel (host answered `ChatIntent::Refresh`).
     ChatSnapshot(ChatSnapshot),
     /// The chat fetch could not be served.
     ChatFailed {
@@ -1052,7 +1052,7 @@ pub enum FleetEvent {
     },
     /// Every channel the daemon has, as `fleet/channel_list` answered
     /// ([`ChatIntent::ListChannels`]). The reducer keeps only the broadcast
-    /// ones: the copilot channel has its own key (`m`) and no recipient list,
+    /// ones: the Pal channel has its own key (`m`) and no recipient list,
     /// and offering it here would open a second door onto the same
     /// conversation with the wrong send targets.
     ChannelsListed(Vec<ainb_hangar_proto::fleet::FleetChannel>),
@@ -1083,7 +1083,7 @@ pub enum FleetIntent {
         max_parallel: usize,
         retry_failures_only: bool,
     },
-    /// A copilot-chat effect: page the channel, post a message, or answer a
+    /// A Pal-chat effect: page the channel, post a message, or answer a
     /// guardrail confirm card. The chat surface owns the shape
     /// ([`super::fleet_chat::ChatIntent`]); the host owns the socket.
     Chat(ChatIntent),
@@ -1344,7 +1344,7 @@ pub(crate) fn reduce_browse_key(state: &mut FleetPaneState, key: FleetKey) -> Op
         // Broadcast is `b` only: the uppercase alias was dead (the hangar router
         // claims bare `B` as the Boards tab) (#450).
         FleetKey::Char('b') => state.mode = FleetMode::Broadcast(BroadcastState::default()),
-        // `m` for messages: the copilot chat surface. Lowercase for the same
+        // `m` for messages: the Pal chat surface. Lowercase for the same
         // reason `b` is: the reserved-key invariant test refuses a browse
         // binding on a char the router or host swallows first (#450).
         FleetKey::Char('m') => state.mode = FleetMode::Chat(Box::new(ChatState::opening())),
@@ -2431,7 +2431,7 @@ fn apply_channel_created(
 
 /// Fill the picker with the broadcast channels the daemon already has.
 ///
-/// Copilot channels are dropped, not rendered greyed out: the copilot has its
+/// Pal channels are dropped, not rendered greyed out: Pal has its
 /// own key and no recipient list, so a row here could only open it with an
 /// empty target set, i.e. a composer that sends nowhere.
 fn apply_channels_listed(
@@ -2447,7 +2447,7 @@ fn apply_channels_listed(
         .into_iter()
         .filter(|channel| match channel.kind {
             FleetChannelKind::Broadcast => true,
-            FleetChannelKind::Copilot => false,
+            FleetChannelKind::Pal => false,
         })
         .collect();
     form.listed = true;
@@ -6079,7 +6079,7 @@ mod tests {
     ///
     /// The scope is never composed here: the intent carries a name and a
     /// membership, and the surface only learns `channel:<ulid>` when the daemon
-    /// answers. That is the same rule the copilot channel's scope follows, and
+    /// answers. That is the same rule the Pal channel's scope follows, and
     /// the reason a literal `channel:...` never appears in this file.
     #[test]
     fn the_channel_form_names_members_and_asks_the_daemon_to_mint_the_scope() {
@@ -6174,12 +6174,12 @@ mod tests {
                     recipients: vec!["claude:ask".into(), "codex:run".into()],
                     created_at: 1,
                 },
-                // The copilot channel has its own key and no recipient list; a
+                // The Pal channel has its own key and no recipient list; a
                 // row here could only open it with an empty target set, i.e. a
                 // composer that sends nowhere.
                 FleetChannel {
                     id: "01J0COPILOT".into(),
-                    kind: FleetChannelKind::Copilot,
+                    kind: FleetChannelKind::Pal,
                     name: "copilot".into(),
                     scope_key: "channel:01J0COPILOT".into(),
                     recipients: Vec::new(),
@@ -6199,7 +6199,7 @@ mod tests {
         );
         assert!(
             !painted.iter().any(|row| row.contains("copilot")),
-            "the copilot channel is addressable from the broadcast picker:\n{}",
+            "the Pal channel is addressable from the broadcast picker:\n{}",
             painted.join("\n")
         );
 

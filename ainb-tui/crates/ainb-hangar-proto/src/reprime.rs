@@ -2,12 +2,12 @@
 //!
 //! Lives in the pure proto crate because it has TWO callers now: `ainb-acp`
 //! (which re-exports it at its original path) renders it as the resume prelude,
-//! and `ainb-fleet-tools` wraps every read-tool result in it before the copilot
+//! and `ainb-fleet-tools` wraps every read-tool result in it before Pal
 //! sees agent-authored text. One renderer, no second dialect of the fence.
 //!
 //! When an adapter cannot `session/load`, the daemon rebuilds context by
 //! prepending this prelude to the next prompt. Message bodies are UNTRUSTED
-//! text (including agent-authored replies, and part 2 hands the copilot
+//! text (including agent-authored replies, and part 2 hands Pal
 //! destructive tools), so the encoding must make three things impossible:
 //!
 //! 1. **Terminating the fence.** Every body is emitted as a JSON string, which

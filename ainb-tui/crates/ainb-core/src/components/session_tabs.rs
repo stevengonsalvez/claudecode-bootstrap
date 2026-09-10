@@ -3,7 +3,7 @@
 //
 // Six tabs over one rect: `preview` (the tmux mirror that was always there),
 // `ask` (answer what is blocking), `err` (what failed, and why), `thread` (this
-// session's chat), `copilot` (the ainb assistant) and `log` (this session's
+// session's chat), `pal` (the fleet's own assistant) and `log` (this session's
 // notification history).
 //
 // The strip is the reason `Enter` stops being ambiguous. `Enter` used to mean
@@ -41,8 +41,8 @@ pub enum SessionTab {
     Err,
     /// This session's own chat thread, scope `session:<key>`.
     Thread,
-    /// The general ainb assistant, plus its channels.
-    Copilot,
+    /// Pal, the fleet's own assistant, plus its channels.
+    Pal,
     /// This session's notification history.
     Log,
 }
@@ -53,11 +53,11 @@ pub const ALL_TABS: [SessionTab; 6] = [
     SessionTab::Ask,
     SessionTab::Err,
     SessionTab::Thread,
-    SessionTab::Copilot,
+    SessionTab::Pal,
     SessionTab::Log,
 ];
 
-/// What `Enter` does while the copilot pane is offering to start the daemon.
+/// What `Enter` does while the Pal pane is offering to start the daemon.
 ///
 /// One constant, read by the footer, the offer's own key line and the key
 /// handler's test, so the three cannot advertise different things.
@@ -94,7 +94,7 @@ impl SessionTab {
             Self::Ask => "ask",
             Self::Err => "err",
             Self::Thread => "thread",
-            Self::Copilot => "copilot",
+            Self::Pal => "pal",
             Self::Log => "log",
         }
     }
@@ -112,7 +112,7 @@ impl SessionTab {
         // has nothing to send to, so this is the only verb the key has. Armed,
         // not merely shown — focus elsewhere, or a start already out, and the
         // key does nothing here, so neither may this say otherwise.
-        if self == Self::Copilot && state.copilot_daemon_cta_armed() {
+        if self == Self::Pal && state.pal_daemon_cta_armed() {
             return std::borrow::Cow::Borrowed(START_DAEMON_VERB);
         }
         // A pane that cannot act advertises NO verb. The footer is the last
@@ -134,7 +134,7 @@ impl SessionTab {
     ///
     /// ONE place, exhaustive over the tabs, rather than a branch per surface
     /// that discovered the problem for itself. `ask` learned it from a native
-    /// picker it cannot answer and `thread`/`copilot` from a chat host with
+    /// picker it cannot answer and `thread`/`pal` from a chat host with
     /// nothing to send to, and those are the same rule wearing two faces: a
     /// footer must never advertise a verb the pane will decline. Two adjacent
     /// special cases invite a third, and the third is the one that gets
@@ -161,7 +161,7 @@ impl SessionTab {
             // The LIVE conversation's answer, not an inference from the tab.
             // `send_block` already yields to a broadcast, whose composer is not
             // the chat host's and is never blocked by it.
-            Self::Thread | Self::Copilot => state.session_tab_send_block(self),
+            Self::Thread | Self::Pal => state.session_tab_send_block(self),
         }
     }
 
@@ -172,7 +172,7 @@ impl SessionTab {
         match self {
             Self::Preview => "attach",
             Self::Ask => "send answer",
-            Self::Thread | Self::Copilot => "send message",
+            Self::Thread | Self::Pal => "send message",
             // Neither pane takes an answer: one is a history, the other a
             // post-mortem. An advertised verb that did nothing is the surprise
             // the scoping exists to remove.
@@ -191,7 +191,7 @@ impl SessionTab {
         match self {
             // Always available: the mirror needs no selection to say there is
             // none, and the assistant is not about any one session.
-            Self::Preview | Self::Copilot => None,
+            Self::Preview | Self::Pal => None,
             Self::Ask => {
                 if !has_session {
                     Some("select a session first")
@@ -904,14 +904,14 @@ fn wire_color(color: Option<ainb_plugin_protocol::wire_buffer::Color>) -> Color 
     color.map_or(Color::Reset, |color| Color::Rgb(color.r, color.g, color.b))
 }
 
-/// Render the copilot pane: the engine / model / mode header, then the
+/// Render the Pal pane: the engine / model / mode header, then the
 /// conversation under it.
 ///
-/// The header is drawn even when the conversation cannot be — a copilot with no
+/// The header is drawn even when the conversation cannot be, and a Pal with no
 /// live session still has an engine to pick and a registry to read, and the
 /// engine picker is how an operator RECOVERS from an adapter that will not
 /// spawn. Hiding it behind a working chat would put the fix behind the failure.
-pub fn render_copilot(
+pub fn render_pal(
     frame: &mut Frame,
     area: Rect,
     header: Vec<Line<'static>>,
@@ -973,7 +973,7 @@ pub fn render_copilot(
     match host {
         Some(host) => render_chat(frame, rest, host),
         None => frame.render_widget(
-            ratatui::widgets::Paragraph::new("opening the copilot channel\u{2026}")
+            ratatui::widgets::Paragraph::new("opening the Pal channel\u{2026}")
                 .style(Style::default().fg(MUTED_GRAY)),
             rest,
         ),
@@ -1014,7 +1014,7 @@ fn wrapped_rows(line: &Line<'static>, width: u16) -> u16 {
     rows
 }
 
-/// The copilot pane's offer to start the hangar daemon, as the lines that will
+/// The Pal pane's offer to start the hangar daemon, as the lines that will
 /// FIT in `max_rows` at `width`.
 ///
 /// Built rather than painted so the caller can size the block against what is
@@ -1044,7 +1044,7 @@ fn daemon_offer_lines(
         (
             2,
             Line::styled(
-                " copilot needs the hangar daemon, which is not running.",
+                " Pal needs the hangar daemon, which is not running.",
                 Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
             ),
         ),
@@ -1141,8 +1141,8 @@ fn dial_row(label: &str, value: String, key: char, dim: bool) -> Line<'static> {
 }
 
 #[must_use]
-pub fn copilot_header(dial: &crate::fleet::copilot_dial::CopilotDial) -> Vec<Line<'static>> {
-    use crate::fleet::copilot_dial::DialStatus;
+pub fn pal_header(dial: &crate::fleet::pal_dial::PalDial) -> Vec<Line<'static>> {
+    use crate::fleet::pal_dial::DialStatus;
 
     let mut lines = vec![
         dial_row(
@@ -1183,7 +1183,7 @@ pub fn copilot_header(dial: &crate::fleet::copilot_dial::CopilotDial) -> Vec<Lin
     // `yolo` fires destructive fleet tools with no card. It gets a banner
     // because the whole point of the mode is that nothing else will stop and
     // ask, so the pane itself has to be the reminder.
-    if dial.mode() == ainb_hangar_proto::fleet::FleetCopilotMode::Yolo {
+    if dial.mode() == ainb_hangar_proto::fleet::FleetPalMode::Yolo {
         lines.push(Line::from(Span::styled(
             " yolo: writes fire with no confirm card (kill still asks)",
             Style::default().fg(ALERT_RED).add_modifier(Modifier::BOLD),
@@ -1362,11 +1362,11 @@ pub fn render_chat(frame: &mut Frame, area: Rect, host: &crate::fleet::chat_host
 }
 
 #[cfg(test)]
-mod copilot_header_tests {
-    use ainb_hangar_proto::fleet::{FleetAdapter, FleetCopilotMode};
+mod pal_header_tests {
+    use ainb_hangar_proto::fleet::{FleetAdapter, FleetPalMode};
 
     use super::*;
-    use crate::fleet::copilot_dial::{CopilotDial, DialOutcome};
+    use crate::fleet::pal_dial::{DialOutcome, PalDial};
 
     fn text(lines: &[Line<'static>]) -> String {
         lines
@@ -1376,8 +1376,8 @@ mod copilot_header_tests {
             .join("\n")
     }
 
-    fn dial(outcomes: Vec<DialOutcome>) -> CopilotDial {
-        let mut dial = CopilotDial::new();
+    fn dial(outcomes: Vec<DialOutcome>) -> PalDial {
+        let mut dial = PalDial::new();
         dial.seed_for_test(outcomes);
         dial
     }
@@ -1396,7 +1396,7 @@ mod copilot_header_tests {
     /// whose bindings live in a footer legend is three things to remember.
     #[test]
     fn each_setting_carries_its_own_key() {
-        let rendered = text(&copilot_header(&dial(vec![DialOutcome::Adapters(vec![
+        let rendered = text(&pal_header(&dial(vec![DialOutcome::Adapters(vec![
             adapter("claude-agent-acp", &["sonnet-5"]),
         ])])));
         for (label, key) in [("engine", "e"), ("model", "o"), ("mode", "g")] {
@@ -1419,7 +1419,7 @@ mod copilot_header_tests {
     /// a blank value, which reads as a failed read.
     #[test]
     fn a_modelless_adapter_says_it_runs_its_own_default() {
-        let rendered = text(&copilot_header(&dial(vec![DialOutcome::Adapters(vec![
+        let rendered = text(&pal_header(&dial(vec![DialOutcome::Adapters(vec![
             adapter("codex-acp", &[]),
         ])])));
         assert!(rendered.contains("adapter default"), "{rendered}");
@@ -1429,11 +1429,11 @@ mod copilot_header_tests {
     /// has to be the reminder — and it must still say `kill` is exempt.
     #[test]
     fn yolo_carries_its_banner_and_names_the_exemption() {
-        let rendered = text(&copilot_header(&dial(vec![
+        let rendered = text(&pal_header(&dial(vec![
             DialOutcome::Adapters(vec![adapter("claude-agent-acp", &[])]),
             DialOutcome::Applied {
                 provider: "claude-agent-acp".to_string(),
-                mode: FleetCopilotMode::Yolo,
+                mode: FleetPalMode::Yolo,
                 model: None,
                 replaced: false,
             },
@@ -1442,7 +1442,7 @@ mod copilot_header_tests {
         assert!(rendered.contains("no confirm card"), "{rendered}");
         assert!(rendered.contains("kill still asks"), "{rendered}");
 
-        let guarded = text(&copilot_header(&dial(vec![DialOutcome::Adapters(vec![
+        let guarded = text(&pal_header(&dial(vec![DialOutcome::Adapters(vec![
             adapter("claude-agent-acp", &[]),
         ])])));
         assert!(
@@ -1455,14 +1455,14 @@ mod copilot_header_tests {
     /// mid-conversation has to be told, or the empty timeline reads as a bug.
     #[test]
     fn a_replaced_session_is_announced() {
-        let rendered = text(&copilot_header(&dial(vec![
+        let rendered = text(&pal_header(&dial(vec![
             DialOutcome::Adapters(vec![
                 adapter("claude-agent-acp", &[]),
                 adapter("codex-acp", &[]),
             ]),
             DialOutcome::Applied {
                 provider: "codex-acp".to_string(),
-                mode: FleetCopilotMode::Guarded,
+                mode: FleetPalMode::Guarded,
                 model: None,
                 replaced: true,
             },
@@ -1475,7 +1475,7 @@ mod copilot_header_tests {
     /// retry is the symptom this pane replaces.
     #[test]
     fn a_failure_names_the_call_and_the_retry_key() {
-        let rendered = text(&copilot_header(&dial(vec![DialOutcome::Failed {
+        let rendered = text(&pal_header(&dial(vec![DialOutcome::Failed {
             call: "fleet/adapter_list".to_string(),
             detail: "daemon is not running".to_string(),
         }])));
@@ -1639,9 +1639,9 @@ mod tests {
             .collect()
     }
 
-    /// Render the copilot pane into a rect of exactly `w`x`h` and return its
+    /// Render the Pal pane into a rect of exactly `w`x`h` and return its
     /// rows, so a test can ask what a SHORT pane actually painted.
-    fn copilot_rows(
+    fn pal_rows(
         offer: Option<&crate::fleet::daemon_cta::DaemonStartCta>,
         w: u16,
         h: u16,
@@ -1650,7 +1650,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).expect("test terminal");
         terminal
             .draw(|frame| {
-                render_copilot(
+                render_pal(
                     frame,
                     frame.area(),
                     vec![Line::raw(" engine   claude-agent-acp  \u{25c0} \u{2325}e")],
@@ -1658,7 +1658,7 @@ mod tests {
                     None,
                 );
             })
-            .expect("draw the copilot pane");
+            .expect("draw the Pal pane");
         let buffer = terminal.backend().buffer().clone();
         (0..h)
             .map(|y| {
@@ -1689,14 +1689,14 @@ mod tests {
     #[test]
     fn a_pane_offering_a_daemon_advertises_that_and_not_a_send() {
         let mut state = state_with(Vec::new(), true);
-        state.session_tab = SessionTab::Copilot;
+        state.session_tab = SessionTab::Pal;
         state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         with_daemon(&mut state, false, true);
 
-        assert!(state.copilot_daemon_cta_open());
-        assert!(state.copilot_daemon_cta_armed());
-        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), START_DAEMON_VERB);
-        let footer = footer_text(&state, SessionTab::Copilot, false);
+        assert!(state.pal_daemon_cta_open());
+        assert!(state.pal_daemon_cta_armed());
+        assert_eq!(SessionTab::Pal.enter_verb_in(&state), START_DAEMON_VERB);
+        let footer = footer_text(&state, SessionTab::Pal, false);
         assert!(
             footer.contains(START_DAEMON_VERB),
             "the footer must name the verb Enter fires: {footer}"
@@ -1714,39 +1714,39 @@ mod tests {
     #[test]
     fn an_unreachable_daemon_that_is_still_running_is_not_offered_a_start() {
         let mut state = state_with(Vec::new(), true);
-        state.session_tab = SessionTab::Copilot;
+        state.session_tab = SessionTab::Pal;
         state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         with_daemon(&mut state, false, false);
 
         assert!(!state.hangar_daemon_not_running());
-        assert!(!state.copilot_daemon_cta_open());
-        assert_ne!(SessionTab::Copilot.enter_verb_in(&state), START_DAEMON_VERB);
+        assert!(!state.pal_daemon_cta_open());
+        assert_ne!(SessionTab::Pal.enter_verb_in(&state), START_DAEMON_VERB);
 
         // And with the daemon up, nothing about this offer is on screen.
         with_daemon(&mut state, true, false);
-        assert!(!state.copilot_daemon_cta_open());
+        assert!(!state.pal_daemon_cta_open());
     }
 
-    /// The footer asks the LIVE pane whether it can send. A copilot that opened
+    /// The footer asks the LIVE pane whether it can send. A Pal that opened
     /// against a daemon which never minted its channel says it cannot, and the
     /// footer must not promise otherwise — that is the exact pairing an
     /// operator saw: `⊘ nothing to send to` under `Enter send message`.
     #[test]
     fn a_pane_that_cannot_send_advertises_no_verb_at_all() {
         let mut state = state_with(Vec::new(), true);
-        state.session_tab = SessionTab::Copilot;
+        state.session_tab = SessionTab::Pal;
         state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         // Daemon UP: this is not the offer's case, it is the one where the
         // conversation opened and its scope never resolved.
         with_daemon(&mut state, true, false);
-        state.copilot_chat = Some(crate::fleet::chat_host::ChatHost::copilot());
+        state.pal_chat = Some(crate::fleet::chat_host::ChatHost::pal());
 
         assert!(
-            state.session_tab_send_block(SessionTab::Copilot).is_some(),
-            "a copilot with no minted scope has nothing to send to"
+            state.session_tab_send_block(SessionTab::Pal).is_some(),
+            "a Pal with no minted scope has nothing to send to"
         );
-        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), "");
-        let footer = footer_text(&state, SessionTab::Copilot, true);
+        assert_eq!(SessionTab::Pal.enter_verb_in(&state), "");
+        let footer = footer_text(&state, SessionTab::Pal, true);
         assert!(
             !footer.contains("Enter"),
             "a footer with no verb must not print a bare Enter either: {footer}"
@@ -1767,7 +1767,7 @@ mod tests {
         // 6 rows: 1 header + 5 left, of which the chat floor claims 4. One row
         // for the offer, and it has to be the one that says what to press.
         for height in [6, 7, 8, 12] {
-            let rows = copilot_rows(Some(&cta), 90, height);
+            let rows = pal_rows(Some(&cta), 90, height);
             let painted = rows.join("\n");
             assert!(
                 painted.contains(START_DAEMON_VERB) && painted.contains('\u{23ce}'),
@@ -1777,7 +1777,7 @@ mod tests {
 
         // And at a WIDTH that wraps the headline onto a second row, so the
         // block is sized by rows painted rather than by lines built.
-        let narrow = copilot_rows(Some(&cta), 30, 8).join("\n");
+        let narrow = pal_rows(Some(&cta), 30, 8).join("\n");
         assert!(
             narrow.contains("start the hangar") && narrow.contains('\u{23ce}'),
             "a wrapped headline pushed the key off the block:\n{narrow}"
@@ -1790,15 +1790,15 @@ mod tests {
     #[test]
     fn a_tall_pane_gives_the_offer_its_padding_and_the_chat_its_floor() {
         let cta = crate::fleet::daemon_cta::DaemonStartCta::default();
-        let rows = copilot_rows(Some(&cta), 90, 20);
+        let rows = pal_rows(Some(&cta), 90, 20);
         let painted = rows.join("\n");
         assert!(painted.contains(START_DAEMON_VERB));
         assert!(
-            painted.contains("copilot needs the hangar daemon"),
+            painted.contains("Pal needs the hangar daemon"),
             "a pane with room must still lead with the reason:\n{painted}"
         );
         assert!(
-            painted.contains("opening the copilot channel"),
+            painted.contains("opening the Pal channel"),
             "the conversation below must keep its rows:\n{painted}"
         );
     }
@@ -1808,19 +1808,19 @@ mod tests {
     #[test]
     fn the_offer_neither_claims_enter_nor_advertises_it_from_the_session_list() {
         let mut state = state_with(Vec::new(), true);
-        state.session_tab = SessionTab::Copilot;
+        state.session_tab = SessionTab::Pal;
         state.focused_pane = crate::app::state::FocusedPane::Sessions;
         with_daemon(&mut state, false, true);
 
         assert!(
-            state.copilot_daemon_cta_open(),
+            state.pal_daemon_cta_open(),
             "the offer is still on screen beside the list"
         );
         assert!(
-            !state.copilot_daemon_cta_armed(),
+            !state.pal_daemon_cta_armed(),
             "but Enter belongs to the list, so starting a daemon is not on it"
         );
-        let footer = footer_text(&state, SessionTab::Copilot, false);
+        let footer = footer_text(&state, SessionTab::Pal, false);
         assert!(
             !footer.contains(START_DAEMON_VERB),
             "and the footer must not promise a key that goes elsewhere: {footer}"
@@ -1832,14 +1832,14 @@ mod tests {
     #[test]
     fn a_start_in_flight_disarms_the_key_and_the_verb() {
         let mut state = state_with(Vec::new(), true);
-        state.session_tab = SessionTab::Copilot;
+        state.session_tab = SessionTab::Pal;
         state.focused_pane = crate::app::state::FocusedPane::LiveLogs;
         with_daemon(&mut state, false, true);
-        assert!(state.copilot_daemon_cta_armed());
+        assert!(state.pal_daemon_cta_armed());
 
         state.daemon_start_cta.start();
-        assert!(!state.copilot_daemon_cta_armed());
-        assert!(!footer_text(&state, SessionTab::Copilot, true).contains(START_DAEMON_VERB));
+        assert!(!state.pal_daemon_cta_armed());
+        assert!(!footer_text(&state, SessionTab::Pal, true).contains(START_DAEMON_VERB));
     }
 
     /// The tab the pane TICKS and the tab it PAINTS resolve to the same host.
@@ -1847,7 +1847,7 @@ mod tests {
     /// The render path ticks through `chat_host_for` (which needs `&mut`) and
     /// then paints through `chat_host`, because the two borrows cannot be held
     /// at once. That is only safe while the two resolve identically, so it is
-    /// pinned rather than assumed — reaching for `copilot_chat` at the render
+    /// pinned rather than assumed — reaching for `pal_chat` at the render
     /// site was the same fact written twice.
     #[test]
     fn ticking_a_tabs_host_and_painting_it_resolve_to_the_same_conversation() {
@@ -1888,15 +1888,15 @@ mod tests {
         );
         assert_eq!(SessionTab::Ask.enter_verb_in(&state), "");
 
-        // The chat case: a copilot whose scope the daemon never minted.
-        state.session_tab = SessionTab::Copilot;
-        state.copilot_chat = Some(crate::fleet::chat_host::ChatHost::copilot());
+        // The chat case: a Pal whose scope the daemon never minted.
+        state.session_tab = SessionTab::Pal;
+        state.pal_chat = Some(crate::fleet::chat_host::ChatHost::pal());
         with_daemon(&mut state, true, false);
         assert!(
-            SessionTab::Copilot.enter_refusal(&state).is_some(),
-            "a copilot with no scope has nothing to send to"
+            SessionTab::Pal.enter_refusal(&state).is_some(),
+            "a Pal with no scope has nothing to send to"
         );
-        assert_eq!(SessionTab::Copilot.enter_verb_in(&state), "");
+        assert_eq!(SessionTab::Pal.enter_verb_in(&state), "");
 
         // And the tabs with nothing to refuse say so rather than defaulting.
         // `err` is one of them: it shows what already failed, so there is no
@@ -1907,10 +1907,10 @@ mod tests {
     }
 
     #[test]
-    fn preview_and_copilot_are_never_disabled() {
+    fn preview_and_pal_are_never_disabled() {
         let state = state_with(Vec::new(), false);
         assert!(SessionTab::Preview.enabled(&state));
-        assert!(SessionTab::Copilot.enabled(&state));
+        assert!(SessionTab::Pal.enabled(&state));
     }
 
     #[test]
@@ -1965,20 +1965,11 @@ mod tests {
 
     #[test]
     fn cycling_skips_the_dimmed_tabs() {
-        // Nothing selected: only preview and copilot are live.
+        // Nothing selected: only preview and pal are live.
         let state = state_with(Vec::new(), false);
-        assert_eq!(
-            cycle(&state, SessionTab::Preview, true),
-            SessionTab::Copilot
-        );
-        assert_eq!(
-            cycle(&state, SessionTab::Copilot, true),
-            SessionTab::Preview
-        );
-        assert_eq!(
-            cycle(&state, SessionTab::Preview, false),
-            SessionTab::Copilot
-        );
+        assert_eq!(cycle(&state, SessionTab::Preview, true), SessionTab::Pal);
+        assert_eq!(cycle(&state, SessionTab::Pal, true), SessionTab::Preview);
+        assert_eq!(cycle(&state, SessionTab::Preview, false), SessionTab::Pal);
     }
 
     #[test]
@@ -2020,7 +2011,7 @@ mod tests {
         // is what stops the rendered strip and the key that walks it drifting.
         assert_eq!(
             ALL_TABS.iter().map(|tab| tab.label()).collect::<Vec<_>>(),
-            vec!["preview", "ask", "err", "thread", "copilot", "log"],
+            vec!["preview", "ask", "err", "thread", "pal", "log"],
         );
         // Dimmed, never hidden — otherwise the strip reflows under the cursor
         // every time a session answers a question.

@@ -417,7 +417,7 @@ fn a_stale_err_leaves_the_row_and_the_err_pane_says_why() {
     );
 
     // The strip carries the new pane without losing the old ones.
-    for label in ["preview", "ask", "err", "thread", "copilot", "log"] {
+    for label in ["preview", "ask", "err", "thread", "pal", "log"] {
         assert!(
             listed.contains(label),
             "the strip must show every tab, dimmed rather than hidden — `{label}` \

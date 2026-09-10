@@ -421,6 +421,41 @@ impl FleetAcpSessionRepo {
         rows.iter().map(row_from).collect()
     }
 
+    /// Retire every session still claiming to be live: `ACTIVE`/`IDLE` becomes
+    /// `DEAD`. Answers how many rows moved.
+    ///
+    /// FOR BOOT ONLY. The pool runs each adapter as a CHILD of the daemon, so
+    /// no adapter session outlives the process that spawned it and every row
+    /// still in a live state at boot is describing something that is gone. The
+    /// dirty-session scan ([`Self::list_dirty`]) cannot cover this: a session
+    /// that was cleanly `IDLE` when the daemon died has no open turn and no
+    /// `PENDING` leg, so nothing visits it and it keeps the scope forever.
+    ///
+    /// That stranded row is not inert. `fleet_session.lifecycle_state` for the
+    /// same session goes `EXITED` on its own (the stale-session reaper), while
+    /// [`Self::get_live_by_scope`] keeps handing the row back to every mint, so
+    /// a client re-mints onto the corpse and its every prompt is refused as
+    /// `target_not_running`. Two tables disagreeing, with no path back.
+    ///
+    /// `DEAD`, not a new state: it takes the row out of `get_live_by_scope`,
+    /// which frees the scope for a fresh mint (the live-scope unique index is
+    /// partial to `ACTIVE`/`IDLE`), and the pool's submit door already refuses
+    /// a `DEAD` row rather than spawning against it.
+    ///
+    /// Runs AFTER the dirty convergence, never before: convergence is what
+    /// turns an open turn into an `INTERRUPTED` marker and resolves the stuck
+    /// delivery legs, and it only visits sessions it can still read as dirty.
+    pub async fn retire_live_sessions(pool: &SqlitePool, now: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE fleet_acp_session SET state = 'DEAD', last_active_at = ? \
+             WHERE state IN ('ACTIVE','IDLE')",
+        )
+        .bind(now)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Sessions whose open turn started at or before `cutoff_ms` (the turn
     /// deadline sweep: caller computes `now - deadline` and cancels each hit).
     pub async fn list_open_turns_older_than(
@@ -780,6 +815,61 @@ mod tests {
             dirty.iter().map(|s| s.session_key.as_str()).collect::<Vec<_>>(),
             vec!["acp:pending", "acp:turn"],
             "open turn OR pending delivery; the clean session stays out"
+        );
+    }
+
+    #[tokio::test]
+    async fn boot_retire_moves_only_the_live_states() {
+        let (_dir, store) = store().await;
+        for (key, state) in [
+            ("acp:active", "ACTIVE"),
+            ("acp:idle", "IDLE"),
+            ("acp:evicted", "EVICTED"),
+            ("acp:dead", "DEAD"),
+        ] {
+            let mut seed = session(key, &format!("session:{key}"));
+            seed.state = state.to_string();
+            FleetAcpSessionRepo::insert(store.pool(), &seed).await.unwrap();
+        }
+
+        let retired = FleetAcpSessionRepo::retire_live_sessions(store.pool(), 900).await.unwrap();
+        assert_eq!(retired, 2, "only ACTIVE and IDLE are live");
+
+        for key in ["acp:active", "acp:idle"] {
+            let row = FleetAcpSessionRepo::get(store.pool(), key).await.unwrap().unwrap();
+            assert_eq!(row.state, "DEAD", "{key} claimed a live adapter at boot");
+            assert_eq!(row.last_active_at, 900, "{key} is stamped with the retire");
+        }
+        // Already terminal: untouched, down to `last_active_at`, so a second
+        // boot writes nothing and no timestamp drifts forward.
+        for (key, state) in [("acp:evicted", "EVICTED"), ("acp:dead", "DEAD")] {
+            let row = FleetAcpSessionRepo::get(store.pool(), key).await.unwrap().unwrap();
+            assert_eq!(row.state, state, "{key} was already terminal");
+            assert_eq!(row.last_active_at, 100, "{key} keeps its own timestamp");
+        }
+
+        assert_eq!(
+            FleetAcpSessionRepo::retire_live_sessions(store.pool(), 1_000).await.unwrap(),
+            0,
+            "idempotent: the second boot finds nothing live"
+        );
+
+        // The scope is FREE again: the retired row no longer answers the mint's
+        // live lookup, and the partial unique index no longer covers it.
+        assert!(
+            FleetAcpSessionRepo::get_live_by_scope(store.pool(), "session:acp:idle")
+                .await
+                .unwrap()
+                .is_none(),
+            "a retired session must not be handed back to the next mint"
+        );
+        let fresh =
+            FleetAcpSessionRepo::insert(store.pool(), &session("acp:fresh", "session:acp:idle"))
+                .await
+                .unwrap();
+        assert_eq!(
+            fresh.session_key, "acp:fresh",
+            "the scope takes a NEW session rather than replaying onto the retired one"
         );
     }
 

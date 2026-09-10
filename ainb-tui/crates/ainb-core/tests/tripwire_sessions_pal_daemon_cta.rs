@@ -1,11 +1,11 @@
-//! Tripwire: the copilot pane names the daemon it needs, offers to start it,
+//! Tripwire: the Pal pane names the daemon it needs, offers to start it,
 //! and stops advertising a send it cannot perform.
 //!
 //! Three claims, and only a real screen with a real STOPPED daemon settles any
 //! of them:
 //!
-//! 1. **The cause is the headline, not a suffix.** The reason the copilot did
-//!    not open used to arrive tacked onto an unrelated sentence ("no copilot
+//! 1. **The cause is the headline, not a suffix.** The reason Pal did
+//!    not open used to arrive tacked onto an unrelated sentence ("no Pal
 //!    session yet, nothing to send to · daemon timed out after 5s"), leaving an
 //!    operator to already know that "daemon" meant the hangar daemon, that it
 //!    can be started, and where.
@@ -29,7 +29,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// The pane's headline, as `session_tabs::daemon_offer_lines` writes it.
-const CTA_HEADLINE: &str = "copilot needs the hangar daemon, which is not running.";
+const CTA_HEADLINE: &str = "Pal needs the hangar daemon, which is not running.";
 /// The verb the footer and the pane's key line must agree on
 /// (`session_tabs::START_DAEMON_VERB`).
 const START_VERB: &str = "start the hangar daemon";
@@ -256,7 +256,7 @@ fn seed_session_registry(home: &Path, tmux_name: &str, worktree: &Path) {
 }
 
 #[test]
-fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
+fn the_pal_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
     if !tmux_available() {
         eprintln!("SKIP: tmux not available");
         return;
@@ -318,21 +318,21 @@ fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
             // The STRIP, not the bare word: the home screen's Recent line
             // carries the workspace name, so a loose match can fire before `s`
             // is ever pressed.
-            |c| c.contains("preview") && c.contains("copilot"),
+            |c| c.contains("preview") && c.contains("pal"),
         )
         .is_some(),
         "the sessions screen never rendered:\n{}",
         capture_pane(&tui_tmux)
     );
 
-    // Walk to the copilot tab. Matched on the offer's own headline, because
+    // Walk to the Pal tab. Matched on the offer's own headline, because
     // that is the whole claim: this pane must name the hangar daemon, on its
     // own line, rather than trailing it off the end of a sentence about having
     // nothing to send to.
     let offered = press_until(&tui_tmux, "Tab", 8, |c| c.contains(CTA_HEADLINE)).unwrap_or_else(
         |seen| {
             panic!(
-                "Tab never reached a copilot pane naming the daemon. Panes visited:\n  {}\n---\n{}\n---",
+                "Tab never reached a Pal pane naming the daemon. Panes visited:\n  {}\n---\n{}\n---",
                 seen.iter()
                     .filter_map(|cap| cap.lines().nth(4))
                     .map(str::trim)
@@ -344,7 +344,7 @@ fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
     );
 
     // ADDITIVE, and this is the half CI caught when it was not: the offer is
-    // INSERTED. The dial header a daemon-down copilot pane already had is still
+    // INSERTED. The dial header a daemon-down Pal pane already had is still
     // there, with the keys that turn it — those dials are how an operator
     // recovers from an adapter that will not spawn, and replacing them with one
     // sentence takes a working surface away to add another.
@@ -377,7 +377,7 @@ fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
 
     // THE remedy: one key, answered in place. The proof is the offer going
     // away — the pane only shows it while the poller reports a socket with
-    // nothing behind it, so a copilot header appearing here means a daemon
+    // nothing behind it, so a Pal header appearing here means a daemon
     // really came up and really answered.
     send_key(&tui_tmux, "Enter");
     let settled = poll(&tui_tmux, Instant::now() + Duration::from_secs(90), |c| {
@@ -394,14 +394,14 @@ fn the_copilot_pane_offers_to_start_the_daemon_it_needs_and_starts_it() {
         "Enter must actually start the daemon, not merely report that it \
          tried:\n{settled}"
     );
-    // And what replaces it is the copilot pane proper, dials and all, rather
+    // And what replaces it is the Pal pane proper, dials and all, rather
     // than a blank box.
     let opened = poll(&tui_tmux, Instant::now() + Duration::from_secs(60), |c| {
         c.contains("\u{25c0} \u{2325}e") && c.contains("\u{25c0} \u{2325}g")
     });
     assert!(
         opened.is_some(),
-        "the started daemon must hand the operator the real copilot pane:\n{}",
+        "the started daemon must hand the operator the real Pal pane:\n{}",
         capture_pane(&tui_tmux)
     );
 

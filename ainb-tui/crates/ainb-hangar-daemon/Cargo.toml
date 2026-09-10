@@ -68,7 +68,7 @@ ainb-hangar-proto = { path = "../ainb-hangar-proto" }
 # (plan Phase 4). The pool lives HERE, not there, because only the daemon owns
 # the EventBroker and the SQLite handle; `ainb-acp` stays a pure library.
 ainb-acp = { path = "../ainb-acp" }
-# The copilot's MCP tool server, for its two PURE halves only: the guardrail
+# Pal's MCP tool server, for its two PURE halves only: the guardrail
 # classifier and `project_arguments`. The daemon mints the confirm cards, so the
 # daemon must classify and project with the SAME code the tool server does — a
 # second copy of either would be a second guardrail, and the one that drifts is
@@ -209,7 +209,7 @@ tokio-util = { workspace = true }
 # This lets the integration suite consume the one canonical fake-bd source of
 # truth instead of duplicating the script writer (P2.2 REFACTOR intent).
 ainb-hangar-daemon = { path = ".", features = ["test-support", "test-clock"] }
-# `copilot_gate_live` drives the copilot's REAL MCP tool server against a REAL
+# `pal_gate_live` drives Pal's REAL MCP tool server against a REAL
 # daemon over a real socket, so it needs the same client the tool server binary
 # builds in production. Dev-only: the daemon never dials itself.
 ainb-hangar-client = { path = "../ainb-hangar-client" }

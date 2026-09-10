@@ -42,41 +42,41 @@ use sqlx::SqlitePool;
 /// The daemon used to have exactly ONE credential, so every authenticated
 /// connection was the operator by definition. That stopped being true the
 /// moment a MODEL's tool call could mint a confirm card a human is supposed to
-/// be the only one who can answer: the copilot's tool server is a process the
+/// be the only one who can answer: Pal's tool server is a process the
 /// operator's agent steers, and handing it the operator's own token would let
 /// it answer its own cards, forge `fleet/message_send {actor: "operator"}`, and
 /// call `attention/answer` around the gate entirely.
 ///
-/// So the copilot gets its OWN token, minted per channel scope, and the
+/// So Pal gets its OWN token, minted per channel scope, and the
 /// connection carries what that token means for as long as it lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
     /// An operator surface (the TUI plugin, the CLI, the macOS client): the
     /// daemon's own `0600` token.
     Operator,
-    /// The copilot's MCP tool server, on a token minted for ONE channel scope.
-    Copilot {
-        /// The copilot channel the token was minted against. The gate files its
+    /// Pal's MCP tool server, on a token minted for ONE channel scope.
+    Pal {
+        /// The Pal channel the token was minted against. The gate files its
         /// cards here, so a card's `scope_key` names the conversation the call
         /// actually came from.
         scope_key: String,
     },
 }
 
-/// Every method a copilot connection may call, and nothing else.
+/// Every method a Pal connection may call, and nothing else.
 ///
 /// The read tools, the gate, and the two writes the tool table can reach after
 /// the gate said run. Deliberately absent: `fleet/confirm_answer` (answering its
-/// own cards), `fleet/copilot_configure` (rewriting its own persona),
+/// own cards), `fleet/pal_configure` (rewriting its own persona),
 /// `fleet/acp_session_create`, and every `hangar/*` method.
 ///
 /// `attention/answer` IS here, because `answer_need` is a real tool. Binding it
 /// to the gate verdict that approved it needs a per-call capability the gate
 /// would have to issue; until then the confirm card is what stands between an
 /// injected transcript and that call.
-const COPILOT_METHODS: &[&str] = &[
+const PAL_METHODS: &[&str] = &[
     methods::PING,
-    methods::FLEET_COPILOT_GATE,
+    methods::FLEET_PAL_GATE,
     methods::FLEET_SNAPSHOT,
     methods::ATTENTION_LIST,
     methods::ATTENTION_ANSWER,
@@ -93,62 +93,62 @@ impl Caller {
     ///
     /// # Errors
     ///
-    /// [`UNAUTHORIZED`] when a copilot connection asks for a method outside
-    /// [`COPILOT_METHODS`].
+    /// [`UNAUTHORIZED`] when a Pal connection asks for a method outside
+    /// [`PAL_METHODS`].
     pub fn authorize(&self, method: &str) -> Result<(), RpcError> {
         match self {
             Self::Operator => Ok(()),
-            Self::Copilot { .. } if COPILOT_METHODS.contains(&method) => Ok(()),
-            Self::Copilot { .. } => Err(RpcError {
+            Self::Pal { .. } if PAL_METHODS.contains(&method) => Ok(()),
+            Self::Pal { .. } => Err(RpcError {
                 code: UNAUTHORIZED,
-                message: format!("the copilot credential may not call {method}"),
+                message: format!("the Pal credential may not call {method}"),
                 data: None,
             }),
         }
     }
 
-    /// The copilot channel scope this connection is bound to, if any.
+    /// The Pal channel scope this connection is bound to, if any.
     #[must_use]
-    pub fn copilot_scope(&self) -> Option<&str> {
+    pub fn pal_scope(&self) -> Option<&str> {
         match self {
             Self::Operator => None,
-            Self::Copilot { scope_key } => Some(scope_key),
+            Self::Pal { scope_key } => Some(scope_key),
         }
     }
 }
 
-/// Live copilot credentials: `sha256(plaintext) -> scope_key`.
+/// Live Pal credentials: `sha256(plaintext) -> scope_key`.
 ///
-/// ponytail: process-memory, not a table. A copilot token is only useful to the
+/// ponytail: process-memory, not a table. A Pal token is only useful to the
 /// tool-server process the daemon spawned through an ACP adapter it owns, and
 /// that process dies with the daemon — so a credential that does not survive a
 /// restart cannot strand anything. Move it into the store if the tool server
 /// ever outlives its daemon.
-static COPILOT_TOKENS: LazyLock<Mutex<HashMap<String, String>>> =
+static PAL_TOKENS: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn copilot_tokens() -> MutexGuard<'static, HashMap<String, String>> {
-    COPILOT_TOKENS.lock().unwrap_or_else(PoisonError::into_inner)
+fn pal_tokens() -> MutexGuard<'static, HashMap<String, String>> {
+    PAL_TOKENS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Mint the credential the copilot's tool server presents, bound to `scope_key`.
+/// Mint the credential Pal's tool server presents, bound to `scope_key`.
 ///
 /// Returns the PLAINTEXT, which the caller writes to a `0600` file and nowhere
 /// else. Any previous credential for the same scope is revoked here: a session
 /// is re-configured on `session/load`, and the adapter holding the old token is
 /// already gone.
 #[must_use]
-pub fn mint_copilot_token(scope_key: &str) -> String {
+pub fn mint_pal_token(scope_key: &str) -> String {
     let minted = mint(TokenKind::Daemon, &mut rand::rngs::OsRng);
-    let mut tokens = copilot_tokens();
+    let mut tokens = pal_tokens();
     tokens.retain(|_, bound| bound != scope_key);
     tokens.insert(minted.sha256_hex, scope_key.to_string());
     minted.plaintext
 }
 
-/// The scope a presented token is bound to, when it is a copilot credential.
-fn copilot_scope_for(token: &str) -> Option<String> {
-    copilot_tokens().get(&sha256_hex(token)).cloned()
+/// The scope a presented token is bound to, when it is a Pal credential.
+fn pal_scope_for(token: &str) -> Option<String> {
+    pal_tokens().get(&sha256_hex(token)).cloned()
 }
 
 /// Ensure a valid socket-auth credential exists, returning the token file path.
@@ -273,7 +273,7 @@ pub fn classify_peer(stream: &tokio::net::UnixStream) -> PeerGate {
 }
 
 /// Validate a connection's first frame: it must be a well-formed `auth/hello`
-/// whose token verifies against the stored digest, or against a live copilot
+/// whose token verifies against the stored digest, or against a live Pal
 /// credential.
 ///
 /// Returns `Ok((ack, caller))` — the `{}` success envelope to write back plus
@@ -298,10 +298,10 @@ pub async fn authenticate_first_frame(
     let Ok(params) = serde_json::from_value::<HelloParams>(req.params.clone()) else {
         return Err(unauthorized(req.id, "auth/hello params must be { token }"));
     };
-    // The copilot credential FIRST, and it is never the daemon token: a scoped
+    // The Pal credential FIRST, and it is never the daemon token: a scoped
     // credential that also verified as the operator's would be no scope at all.
-    if let Some(scope_key) = copilot_scope_for(&params.token) {
-        return Ok((ack(req.id), Caller::Copilot { scope_key }));
+    if let Some(scope_key) = pal_scope_for(&params.token) {
+        return Ok((ack(req.id), Caller::Pal { scope_key }));
     }
     match SocketTokenRepo::verify(pool, &params.token).await {
         Ok(true) => Ok((ack(req.id), Caller::Operator)),
@@ -439,19 +439,19 @@ mod tests {
         );
     }
 
-    /// A copilot credential authenticates as the COPILOT, bound to its scope,
+    /// A Pal credential authenticates as the Pal, bound to its scope,
     /// and the daemon's own token still authenticates as the operator.
     #[tokio::test]
-    async fn a_copilot_token_authenticates_as_the_copilot_and_not_the_operator() {
+    async fn a_pal_token_authenticates_as_pal_and_not_the_operator() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_in(dir.path()).await.unwrap();
         let path = ensure_socket_token(store.pool(), dir.path()).await.unwrap();
         let daemon = std::fs::read_to_string(&path).unwrap().trim().to_string();
 
-        let copilot = mint_copilot_token("channel:01J0COPILOT");
+        let pal = mint_pal_token("channel:01J0COPILOT");
         assert_ne!(
-            copilot, daemon,
-            "the copilot must not be handed the daemon's credential"
+            pal, daemon,
+            "Pal must not be handed the daemon's credential"
         );
 
         let hello = |token: &str| {
@@ -461,12 +461,12 @@ mod tests {
             }))
             .unwrap()
         };
-        let (_, caller) = authenticate_first_frame(store.pool(), &hello(&copilot))
+        let (_, caller) = authenticate_first_frame(store.pool(), &hello(&pal))
             .await
-            .expect("the copilot credential must authenticate");
+            .expect("the Pal credential must authenticate");
         assert_eq!(
             caller,
-            Caller::Copilot {
+            Caller::Pal {
                 scope_key: "channel:01J0COPILOT".to_string()
             }
         );
@@ -477,36 +477,36 @@ mod tests {
 
         // A re-mint for the same scope REVOKES the previous credential: the
         // adapter holding it is already gone.
-        let replacement = mint_copilot_token("channel:01J0COPILOT");
-        assert_ne!(replacement, copilot);
+        let replacement = mint_pal_token("channel:01J0COPILOT");
+        assert_ne!(replacement, pal);
         assert!(
-            authenticate_first_frame(store.pool(), &hello(&copilot)).await.is_err(),
-            "a revoked copilot credential still authenticated"
+            authenticate_first_frame(store.pool(), &hello(&pal)).await.is_err(),
+            "a revoked Pal credential still authenticated"
         );
     }
 
-    /// The copilot's allowed method set is exactly the tool table's reach.
+    /// Pal's allowed method set is exactly the tool table's reach.
     /// Everything a card's own answer flows through is refused.
     #[test]
-    fn a_copilot_connection_cannot_answer_its_own_cards() {
-        let copilot = Caller::Copilot {
+    fn a_pal_connection_cannot_answer_its_own_cards() {
+        let pal = Caller::Pal {
             scope_key: "channel:01J0COPILOT".to_string(),
         };
-        for allowed in COPILOT_METHODS {
+        for allowed in PAL_METHODS {
             assert!(
-                copilot.authorize(allowed).is_ok(),
+                pal.authorize(allowed).is_ok(),
                 "{allowed} must be reachable"
             );
         }
         for refused in [
             methods::FLEET_CONFIRM_ANSWER,
             methods::FLEET_CONFIRM_LIST,
-            methods::FLEET_COPILOT_CONFIGURE,
+            methods::FLEET_PAL_CONFIGURE,
             methods::FLEET_ACP_SESSION_CREATE,
             methods::FLEET_CHANNEL_CREATE,
             methods::FLEET_ACTION,
         ] {
-            let error = copilot.authorize(refused).expect_err("{refused} must be refused");
+            let error = pal.authorize(refused).expect_err("{refused} must be refused");
             assert_eq!(error.code, UNAUTHORIZED, "{refused}: {error:?}");
             // The operator's own surfaces are unaffected.
             assert!(Caller::Operator.authorize(refused).is_ok());

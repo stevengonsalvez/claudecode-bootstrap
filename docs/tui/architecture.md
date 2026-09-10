@@ -67,7 +67,7 @@ Seven crates behind the managed-agents control plane.
 | Crate | Role |
 |---|---|
 | `ainb-fleet-core` | Session discovery, needs classification, verified tmux delivery. |
-| `ainb-fleet-tools` | The fleet copilot's MCP tool server. |
+| `ainb-fleet-tools` | Pal's MCP tool server. |
 | `ainb-acp` | Agent Client Protocol client, transcript reducer, store writer. |
 | `ainb-skill-core` | Manifest-driven install, sync and removal of skills and agents. |
 | `ainb-adapters-source` | Where units come from: git, local, marketplace. |

@@ -42,7 +42,7 @@ use serde_json::{Value, json};
 use crate::fleet::{FleetTools, ToolFailure, ToolOutcome};
 use crate::guardrail::{Refusal, require_text, require_texts};
 
-/// The copilot's tool server.
+/// Pal's tool server.
 #[derive(Debug, Clone)]
 pub struct FleetToolServer {
     tools: FleetTools,
@@ -224,7 +224,7 @@ fn tool(name: &'static str, description: &'static str, input: Value) -> Tool {
 
 /// The advertised tool table, in the plan's order.
 ///
-/// The descriptions state the guardrail class, because the copilot planning a
+/// The descriptions state the guardrail class, because Pal planning a
 /// destructive action should know a human will see a card before it happens.
 #[must_use]
 pub fn tool_table() -> Vec<Tool> {

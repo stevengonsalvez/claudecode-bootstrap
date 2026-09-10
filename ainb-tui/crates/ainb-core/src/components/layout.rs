@@ -359,15 +359,15 @@ impl LayoutComponent {
                 );
                 session_tabs::render_log(frame, inner, &log);
             }
-            // The copilot carries a HEADER the thread does not: its engine,
+            // Pal carries a HEADER the thread does not: its engine,
             // model and guardrail dial. The conversation under it is the same
             // state machine either way, so the two cannot drift in what they
             // render or which failures they report.
-            SessionTab::Copilot => {
+            SessionTab::Pal => {
                 // The dial ticks with the pane, so the registry read and any
                 // in-flight configure land without the operator pressing
                 // anything, exactly like the chat host's own tick.
-                if state.copilot_dial.tick() {
+                if state.pal_dial.tick() {
                     state.ui_needs_refresh = true;
                 }
                 // The offer's own tick, for the same reason: the start runs on
@@ -379,7 +379,7 @@ impl LayoutComponent {
                 // Cloned rather than borrowed: `chat_host_for` needs `&mut
                 // state` to tick the conversation, and the header is three
                 // strings and a status.
-                let header = session_tabs::copilot_header(&state.copilot_dial);
+                let header = session_tabs::pal_header(&state.pal_dial);
                 // Ticked for its effect, then re-read through `chat_host`:
                 // `chat_host_for` borrows the whole state mutably and the offer
                 // beside it is another field of the same state, so the two
@@ -393,8 +393,8 @@ impl LayoutComponent {
                 // the daemon down — the dials an operator recovers an adapter
                 // with, and the call the chat could not make — and the offer is
                 // the one thing neither of them could say.
-                let offer = state.copilot_daemon_cta_open().then_some(&state.daemon_start_cta);
-                session_tabs::render_copilot(frame, inner, header, offer, state.chat_host(active));
+                let offer = state.pal_daemon_cta_open().then_some(&state.daemon_start_cta);
+                session_tabs::render_pal(frame, inner, header, offer, state.chat_host(active));
             }
             SessionTab::Thread => {
                 // Checked rows win over the cursor, the same rule `Enter` and

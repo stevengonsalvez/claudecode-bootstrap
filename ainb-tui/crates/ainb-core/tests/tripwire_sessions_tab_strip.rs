@@ -132,7 +132,7 @@ where
 /// Press `key` up to `attempts` times, stopping as soon as `ok` holds.
 ///
 /// Re-checks between presses rather than only after each one: a pane can take
-/// more than one repaint to settle (the copilot tab dials the daemon when it
+/// more than one repaint to settle (the Pal tab dials the daemon when it
 /// opens), and pressing again in that window walks straight past the pane the
 /// caller was waiting for.
 ///
@@ -383,7 +383,7 @@ fn the_tab_strip_opens_every_pane_and_enter_stops_meaning_attach() {
     // `err` included deliberately: it is dimmed on this fixture (nothing has
     // failed) and must still be VISIBLE, which is the rule this list exists to
     // hold. `tripwire_sessions_err_pane` is where it is opened.
-    for label in ["preview", "ask", "err", "thread", "copilot", "log"] {
+    for label in ["preview", "ask", "err", "thread", "pal", "log"] {
         assert!(
             strip.contains(label),
             "the strip must show every tab, dimmed rather than hidden — `{label}` \

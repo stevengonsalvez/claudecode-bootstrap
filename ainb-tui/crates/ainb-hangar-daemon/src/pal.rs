@@ -1,4 +1,4 @@
-//! The copilot service: the guardrail gate every copilot tool call passes
+//! The Pal service: the guardrail gate every Pal tool call passes
 //! through, and the confirm cards it parks on (buzz-port part 2, phase A2).
 //!
 //! ```text
@@ -21,7 +21,7 @@
 //!
 //! * **The park is BOUNDED.** A card nobody answers expires at
 //!   [`confirm_ttl`], which is deliberately far shorter than part 1's
-//!   30-minute per-turn deadline. A suspended tool result holds the copilot's
+//!   30-minute per-turn deadline. A suspended tool result holds Pal's
 //!   ACP turn open, and that turn holds its scope's FIFO queue, so an unbounded
 //!   park would wedge the channel behind one unanswered dialog. The expiry
 //!   resolves the tool as DENIED, which is the fail-closed direction.
@@ -34,8 +34,8 @@
 //! * **A card is single-use.** The store resolves under `WHERE state = 'open'`,
 //!   so an answer racing the expiry has exactly one winner and the loser gets a
 //!   typed error rather than a second execution.
-//! * **Every copilot action lands an activity row.** Including the refusals and
-//!   the expiries, because "zero unlogged copilot writes" is only checkable if
+//! * **Every Pal action lands an activity row.** Including the refusals and
+//!   the expiries, because "zero unlogged Pal writes" is only checkable if
 //!   the log covers the calls that did NOT happen too.
 
 use std::collections::HashMap;
@@ -60,14 +60,19 @@ use tokio::sync::oneshot;
 
 use crate::events::EventSink;
 
-/// The `sender` every copilot-authored chat row carries.
+/// The `sender` every Pal-authored chat row carries.
 ///
-/// NEVER `"operator"`. A copilot write wearing the operator's name is a
+/// NEVER `"operator"`. A Pal write wearing the operator's name is a
 /// privilege escalation by proxy: the receiving agent's re-prime header tells
-/// it the operator's message is the one to act on, so a copilot that can forge
+/// it the operator's message is the one to act on, so a Pal that can forge
 /// that name never needs the destructive tools at all — it can ask another
 /// agent to do the thing instead.
-pub const COPILOT_ACTOR: &str = "copilot";
+///
+/// The wire spelling stays `copilot`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const PAL_ACTOR: &str = "copilot";
 
 /// Default confirm-card lifetime.
 ///
@@ -79,7 +84,7 @@ pub const COPILOT_ACTOR: &str = "copilot";
 /// Read from the PROTO, not stated here, because the tool server on the far
 /// side of `fleet/copilot_gate` has to bound its own wait outside this value.
 /// Two independently written durations is how a live card comes back to the
-/// copilot as a transport timeout and gets retried into a second card.
+/// Pal as a transport timeout and gets retried into a second card.
 const CONFIRM_TTL_DEFAULT: Duration =
     Duration::from_millis(ainb_hangar_proto::fleet::FLEET_CONFIRM_TTL_MS);
 
@@ -104,7 +109,7 @@ pub fn set_confirm_ttl_for_test(ttl: Option<Duration>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = ttl;
 }
 
-/// The confirm-card lifetime a production copilot turn parks under.
+/// The confirm-card lifetime a production Pal turn parks under.
 ///
 /// A CONST rather than a config knob: the value's whole justification is its
 /// relationship to part 1's turn deadline, and a knob that can be turned past
@@ -176,7 +181,7 @@ pub enum ConfirmError {
 /// The parked tool calls awaiting an operator, keyed by `confirm_id`.
 ///
 /// Process-global because the two halves live on different tasks: the gate
-/// parks on a copilot turn, and `fleet/confirm_answer` arrives on some other
+/// parks on a Pal turn, and `fleet/confirm_answer` arrives on some other
 /// connection entirely. A `oneshot` per card, so a resolved card cannot be
 /// resumed twice even if the store guard were ever loosened.
 static WAITERS: LazyLock<Mutex<HashMap<String, oneshot::Sender<Answer>>>> =
@@ -198,7 +203,7 @@ enum Answer {
     Denied,
 }
 
-/// Classify one copilot tool call, park it if a human is required, and log it.
+/// Classify one Pal tool call, park it if a human is required, and log it.
 ///
 /// `guardrail` is the state the DAEMON pinned for this turn (the sessions the
 /// operator's message named, plus the operator's per-tool overrides). It is
@@ -299,7 +304,7 @@ async fn park(
         %confirm_id,
         tool,
         reason = confirm_reason_token(reason),
-        "copilot tool call parked on a confirm card"
+        "Pal tool call parked on a confirm card"
     );
     emit_confirm(events, &card, FleetConfirmState::Open);
 
@@ -471,10 +476,10 @@ pub const TOOL_SERVER_BIN_ENV: &str = "AINB_FLEET_TOOLS_BIN";
 
 /// The MCP servers one ACP session gets at `session/new` and `session/load`.
 ///
-/// EMPTY for every session except the copilot's. Adapter processes are pooled
+/// EMPTY for every session except Pal's. Adapter processes are pooled
 /// across sessions, so this is decided per session and never per adapter: the
 /// fleet's destructive tools belong to the one session an operator configured
-/// as their copilot, not to every agent that happens to share its adapter.
+/// as their Pal, not to every agent that happens to share its adapter.
 ///
 /// ```text
 ///   daemon ──spawn──▶ ACP adapter ──spawn──▶ ainb-fleet-tools
@@ -490,7 +495,7 @@ pub const TOOL_SERVER_BIN_ENV: &str = "AINB_FLEET_TOOLS_BIN";
 /// its environment or its argv.
 ///
 /// And it is not the DAEMON's token file either. The credential minted here is
-/// scoped to this copilot channel and, per
+/// scoped to this Pal channel and, per
 /// [`Caller`](crate::rpc::auth::Caller), reaches only the read methods, the
 /// gate, and the two writes the tool table can perform after the gate said run.
 /// It cannot answer its own confirm cards and it cannot write a chat row wearing
@@ -498,13 +503,13 @@ pub const TOOL_SERVER_BIN_ENV: &str = "AINB_FLEET_TOOLS_BIN";
 /// an unrelated child's environment; the SCOPE is what limits the agent the
 /// injection is steering.
 ///
-/// What this still does not survive: a copilot adapter configured with shell or
+/// What this still does not survive: a Pal adapter configured with shell or
 /// file tools of its own. Such an agent can read `~/.agents-in-a-box` as the
 /// operator, and the daemon token there is the operator's credential. The
-/// guardrail assumes the copilot's only reach into the fleet is this tool table.
+/// guardrail assumes Pal's only reach into the fleet is this tool table.
 ///
 /// Degrades to NO tools rather than to ungated ones: if the binary or the
-/// keyfile cannot be resolved, the copilot is a chat partner with no fleet
+/// keyfile cannot be resolved, Pal is a chat partner with no fleet
 /// access at all, which is the fail-closed direction.
 pub async fn session_mcp_servers(
     pool: &SqlitePool,
@@ -525,23 +530,23 @@ pub async fn session_mcp_servers(
     let Some(command) = tool_server_binary() else {
         tracing::error!(
             scope_key = %channel.scope_key,
-            "the copilot tool server binary is not next to this daemon and {TOOL_SERVER_BIN_ENV} \
-             is unset; the copilot session gets NO fleet tools"
+            "the Pal tool server binary is not next to this daemon and {TOOL_SERVER_BIN_ENV} \
+             is unset; the Pal session gets NO fleet tools"
         );
         return Vec::new();
     };
     let Some(home) = ainb_hangar_core::hangar_home() else {
-        tracing::error!("hangar home is unresolvable; the copilot session gets NO fleet tools");
+        tracing::error!("hangar home is unresolvable; the Pal session gets NO fleet tools");
         return Vec::new();
     };
     let socket = home.join("hangar.sock");
-    let token_file = match write_copilot_keyfile(&home, &channel.scope_key) {
+    let token_file = match write_pal_keyfile(&home, &channel.scope_key) {
         Ok(path) => path,
         Err(error) => {
             tracing::error!(
                 %error,
                 scope_key = %channel.scope_key,
-                "could not write the copilot credential; the copilot session gets NO fleet tools"
+                "could not write the Pal credential; the Pal session gets NO fleet tools"
             );
             return Vec::new();
         }
@@ -549,7 +554,7 @@ pub async fn session_mcp_servers(
     tracing::info!(
         scope_key = %channel.scope_key,
         command = %command.display(),
-        "attaching the fleet tool server to the copilot session"
+        "attaching the fleet tool server to the Pal session"
     );
     vec![McpServer::Stdio(
         McpServerStdio::new("ainb-fleet", command).env(vec![
@@ -559,13 +564,13 @@ pub async fn session_mcp_servers(
     )]
 }
 
-/// Mint this channel's copilot credential and write it where only the owner can
+/// Mint this channel's Pal credential and write it where only the owner can
 /// read it. Returns the PATH, which is the only thing that crosses to the child.
 ///
 /// One file per scope, rewritten on every `session/new` and `session/load`,
-/// because [`crate::rpc::auth::mint_copilot_token`] revokes the previous
+/// because [`crate::rpc::auth::mint_pal_token`] revokes the previous
 /// credential for the same scope at the same moment.
-fn write_copilot_keyfile(
+fn write_pal_keyfile(
     home: &std::path::Path,
     scope_key: &str,
 ) -> std::io::Result<std::path::PathBuf> {
@@ -579,8 +584,8 @@ fn write_copilot_keyfile(
             }
         })
         .collect();
-    let path = home.join("hangar").join(format!("copilot-{slug}.token"));
-    crate::rpc::auth::write_token_file(&path, &crate::rpc::auth::mint_copilot_token(scope_key))?;
+    let path = home.join("hangar").join(format!("pal-{slug}.token"));
+    crate::rpc::auth::write_token_file(&path, &crate::rpc::auth::mint_pal_token(scope_key))?;
     Ok(path)
 }
 
@@ -594,9 +599,9 @@ fn tool_server_binary() -> Option<std::path::PathBuf> {
     sibling.is_file().then_some(sibling)
 }
 
-/// Post one copilot-authored line into a channel timeline.
+/// Post one Pal-authored line into a channel timeline.
 ///
-/// The `sender` is [`COPILOT_ACTOR`] and never the operator: see that const.
+/// The `sender` is [`PAL_ACTOR`] and never the operator: see that const.
 pub async fn post_channel_message(
     pool: &SqlitePool,
     events: &EventSink,
@@ -611,7 +616,7 @@ pub async fn post_channel_message(
             request_fingerprint: None,
             scope_key: scope_key.to_string(),
             origin_message_id: None,
-            sender: COPILOT_ACTOR.to_string(),
+            sender: PAL_ACTOR.to_string(),
             kind: "agent".to_string(),
             body: body.to_string(),
             created_at: SystemClock.now_ms(),
@@ -626,11 +631,11 @@ pub async fn post_channel_message(
     Ok(row.id)
 }
 
-/// Log one `fleet/copilot_configure` write to the activity feed.
+/// Log one `fleet/pal_configure` write to the activity feed.
 ///
 /// The persona is a privileged field (a system prompt for an agent holding
 /// destructive tools), so every change to it is visible to anyone reviewing
-/// what the copilot has been doing. `detail` says WHETHER a persona is set,
+/// what Pal has been doing. `detail` says WHETHER a persona is set,
 /// never what it says: this feed is readable with `fleet.chat.read`, and the
 /// persona is gated behind `fleet.copilot.configure`.
 pub async fn record_configure(
@@ -651,7 +656,7 @@ pub async fn record_configure(
     .await;
 }
 
-/// Append one activity row and announce it. Best-effort: a copilot action is
+/// Append one activity row and announce it. Best-effort: a Pal action is
 /// never failed because its audit row could not be written, but the failure is
 /// logged loudly, because an unlogged write is exactly the thing this feed
 /// exists to make impossible.
@@ -686,7 +691,7 @@ async fn record_activity(
             );
         }
         Err(error) => {
-            tracing::error!(%error, tool, "could not persist a copilot activity row");
+            tracing::error!(%error, tool, "could not persist a Pal activity row");
         }
     }
 }

@@ -1,4 +1,4 @@
-//! The part-2 chat and copilot calls: channels, confirm cards, activity.
+//! The part-2 chat and Pal calls: channels, confirm cards, activity.
 //!
 //! A separate FILE, not more methods on the list in `lib.rs`, deliberately. Two
 //! agents landed part 2 in parallel (the daemon/CLI half and the TUI half) and
@@ -16,7 +16,7 @@ use ainb_hangar_proto::fleet::{
     FleetActivityListParams, FleetActivityListResult, FleetAdapterListResult,
     FleetChannelCreateParams, FleetChannelCreateResult, FleetChannelListResult,
     FleetConfirmAnswerParams, FleetConfirmAnswerResult, FleetConfirmListParams,
-    FleetConfirmListResult, FleetCopilotConfigureParams, FleetCopilotConfigureResult,
+    FleetConfirmListResult, FleetPalConfigureParams, FleetPalConfigureResult,
 };
 use ainb_hangar_proto::methods;
 use serde_json::json;
@@ -40,17 +40,17 @@ impl DaemonClient {
         serde_json::from_value(result).map_err(|error| DaemonError::Decode(error.to_string()))
     }
 
-    /// Set the copilot's adapter, guardrail dial, model, reasoning and persona.
+    /// Set Pal's adapter, guardrail dial, model, reasoning and persona.
     ///
     /// A changed `provider` RETIRES the running session and mints a new one on
     /// the same channel, so the result's `session_key` may differ from the one
     /// the caller was holding; `session_replaced` says when it did.
-    pub async fn copilot_configure(
+    pub async fn pal_configure(
         &self,
-        params: FleetCopilotConfigureParams,
-    ) -> Result<FleetCopilotConfigureResult, DaemonError> {
-        let value = serde_json::to_value(params).expect("FleetCopilotConfigureParams serializes");
-        let result = self.call(methods::FLEET_COPILOT_CONFIGURE, value).await?;
+        params: FleetPalConfigureParams,
+    ) -> Result<FleetPalConfigureResult, DaemonError> {
+        let value = serde_json::to_value(params).expect("FleetPalConfigureParams serializes");
+        let result = self.call(methods::FLEET_PAL_CONFIGURE, value).await?;
         serde_json::from_value(result).map_err(|error| DaemonError::Decode(error.to_string()))
     }
 
@@ -109,7 +109,7 @@ impl DaemonClient {
         serde_json::from_value(result).map_err(|error| DaemonError::Decode(error.to_string()))
     }
 
-    /// Page the copilot activity feed by its commit-ordered `seq`.
+    /// Page the Pal activity feed by its commit-ordered `seq`.
     pub async fn activity_list(
         &self,
         params: FleetActivityListParams,

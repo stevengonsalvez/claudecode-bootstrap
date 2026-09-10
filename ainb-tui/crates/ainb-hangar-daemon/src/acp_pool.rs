@@ -810,7 +810,7 @@ pub struct AcpPool {
     /// One spawn at a time per provider, held INSTEAD of the `providers` map
     /// lock: `AdapterProcess::spawn` runs initialize plus the mode assertion and
     /// is bounded only by the spawn timeout, and `health()` (the
-    /// `hangar/daemon_health` pane that answers "why is the copilot stuck")
+    /// `hangar/daemon_health` pane that answers "why is Pal stuck")
     /// takes the map lock.
     spawn_locks: StdMutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Providers with a spawn in flight, so health reports `spawning` rather
@@ -1170,7 +1170,7 @@ impl AcpPool {
     /// A 30 s spawn is exactly when someone is staring at this pane, and a dead
     /// process is dropped from the map by its supervisor, so without these the
     /// breaker that is refusing every prompt would be invisible in precisely
-    /// the incident it explains ("why is the copilot stuck" answers
+    /// the incident it explains ("why is Pal stuck" answers
     /// `breaker_open`, not "there is no such provider").
     fn processless_rows(&self, live: &[AcpProcessHealth]) -> Vec<AcpProcessHealth> {
         let spawning: Vec<String> = self
@@ -1460,7 +1460,7 @@ impl AcpPool {
     /// The `providers` map lock is NEVER held across the spawn. `spawn` runs
     /// initialize plus the mode assertion and is bounded only by the adapter's
     /// spawn timeout; `health()` takes the same lock and is the pane that
-    /// answers "why is the copilot stuck", so holding it here would blind the
+    /// answers "why is Pal stuck", so holding it here would blind the
     /// operator for exactly as long as the interesting failure lasts.
     /// Concurrent callers serialise on a PER-PROVIDER spawn lock instead, so
     /// they await the spawn rather than duplicating it.
@@ -1794,6 +1794,39 @@ pub async fn converge_dirty_sessions_at_boot(pool: &SqlitePool, events: &crate::
                 %error,
                 "acp boot convergence failed"
             );
+        }
+    }
+}
+
+/// The BOOT retire: every session a previous daemon left claiming to be live
+/// is `DEAD`, because its adapter cannot have survived.
+///
+/// The pool spawns each adapter as a CHILD of the daemon, so after a restart no
+/// adapter session is still running and any `ACTIVE`/`IDLE` row is stale by
+/// definition. [`converge_dirty_sessions_at_boot`] does not reach these: a
+/// session that was cleanly `IDLE` when the daemon died has no open turn and no
+/// `PENDING` leg, so it is not dirty and nothing ever revisits it.
+///
+/// Left alone, that row wedges its scope for good. The Fleet twin
+/// (`fleet_session.lifecycle_state`) is retired `EXITED` by the stale-session
+/// reaper while the ACP row stays `IDLE`, so the mint keeps handing the same
+/// dead session back and delivery keeps refusing it as `target_not_running`. A
+/// client cannot escape by re-minting, because the corpse still holds the
+/// scope.
+///
+/// MUST run after [`converge_dirty_sessions_at_boot`]: retiring first would
+/// take the dirty sessions out of that scan's reach and strand their open
+/// turns and pending legs unresolved.
+pub async fn retire_live_sessions_at_boot(pool: &SqlitePool) {
+    match FleetAcpSessionRepo::retire_live_sessions(pool, SystemClock.now_ms()).await {
+        Ok(0) => {}
+        Ok(retired) => tracing::info!(
+            sessions = retired,
+            "retired acp sessions left live by a previous daemon; \
+             their adapters died with it"
+        ),
+        Err(error) => {
+            tracing::error!(%error, "acp boot retire could not retire the live sessions");
         }
     }
 }
@@ -2783,10 +2816,10 @@ impl SessionActor {
         // replay for session/load resume").
         self.reducer.set_replaying(true);
         // Re-declared on load exactly like the static config options: adapter
-        // state does not survive a load, so a resumed copilot would otherwise
+        // state does not survive a load, so a resumed Pal would otherwise
         // come back with no fleet tools and no error saying so.
         let mcp_servers =
-            crate::copilot::session_mcp_servers(self.pool.store.pool(), &self.scope_key).await;
+            crate::pal::session_mcp_servers(self.pool.store.pool(), &self.scope_key).await;
         let loaded = process
             .process
             .load_session_with_mcp(
@@ -2841,10 +2874,10 @@ impl SessionActor {
         process: &Arc<ProviderProcess>,
         message_id: &str,
     ) -> Result<(), EnsureFailure> {
-        // The copilot's session is the only one that gets fleet tools; every
-        // other scope resolves to an empty list. See `copilot::session_mcp_servers`.
+        // Pal's session is the only one that gets fleet tools; every
+        // other scope resolves to an empty list. See `pal::session_mcp_servers`.
         let mcp_servers =
-            crate::copilot::session_mcp_servers(self.pool.store.pool(), &self.scope_key).await;
+            crate::pal::session_mcp_servers(self.pool.store.pool(), &self.scope_key).await;
         let acp_session_id = process
             .process
             .new_session_with_mcp(std::path::Path::new(&self.cwd), &mcp_servers)
