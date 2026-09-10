@@ -1,13 +1,13 @@
 ---
-title: "ATC plumbing — event-driven orchestration"
+title: "ATC plumbing: event-driven orchestration"
 ---
 
-# ATC plumbing — event-driven orchestration
+# ATC plumbing: event-driven orchestration
 
 The ATC plumbing upgrades **Air Traffic Control** from *poll-mode* (act on the
 next OS-timer heartbeat) to *event-driven* (act the instant a child session
 finishes). It is shared session-lifecycle infrastructure in `ainb-core`
-(`fleet::plumbing`) + the `ainb-hooks` shell shim — **not** inside `/ainb-fleet`;
+(`fleet::plumbing`) + the `ainb-hooks` shell shim: **not** inside `/ainb-fleet`;
 ATC merely consumes it. The phone bridge and ainb itself can consume it too.
 
 The mechanism mirrors agent-deck's chain:
@@ -21,7 +21,7 @@ lifecycle hooks ──▶ atomic status files
 When a child's turn ends, its `Stop` hook commits a completion to its **parent's**
 durable inbox. The parent's own `Stop` hook drains that inbox and returns
 `{"decision":"block","reason":<completions>}`, which Claude Code feeds back as the
-parent's next turn — so the parent (ATC) reacts immediately instead of waiting for
+parent's next turn: so the parent (ATC) reacts immediately instead of waiting for
 its heartbeat. Empty inbox ⇒ no block, no writes (every leaf session pays nothing).
 
 ---
@@ -103,7 +103,7 @@ not patched.
 ## Hook event set
 
 The full lifecycle set is installed into Claude Code's `~/.claude/settings.json`
-by `ainb fleet atc setup` (read-preserve-modify-write — see below). Each managed
+by `ainb fleet atc setup` (read-preserve-modify-write: see below). Each managed
 entry runs the shared `notify.sh` with `AINB_HOOK_EVENT=<event> AINB_MANAGED=atc`,
 which forwards to `ainb fleet atc hook`:
 
@@ -120,7 +120,7 @@ which forwards to `ainb fleet atc hook`:
 The merge into `settings.json` is **read-preserve-modify-write**: every ATC entry
 is tagged `"_ainb_atc_managed": true`, so a re-install replaces exactly the prior
 ATC entries and re-running is byte-idempotent. Crucially it **preserves all other
-hooks** on the same events — the reflect plugin's `Stop`/`PreCompact`/`SessionStart`/
+hooks** on the same events: the reflect plugin's `Stop`/`PreCompact`/`SessionStart`/
 `UserPromptSubmit`/`PostToolUse` hooks and the ainb-hooks/notifyd `Notification`/
 `Stop` hooks all survive untouched. Uninstall (on the last ATC teardown) strips
 exactly the ATC block back out.
@@ -141,7 +141,7 @@ On a parent's synchronous `Stop` hook:
 
 ## Parent linkage
 
-A child records its parent — the inbox routing key — two ways, resolved in this
+A child records its parent: the inbox routing key: two ways, resolved in this
 order by the Stop hook:
 
 1. `AINB_PARENT_SESSION` env var, seeded into the child's tmux session by
@@ -165,7 +165,7 @@ ATC session's own inbox first**: any child completions are prepended to the
 roster. A pending completion overrides idle-pause (a finished child wakes ATC even
 during a quiet window). The poll-mode `fleet needs` path remains the always-on
 fallback, so ATC behaves identically whether or not any child has the hooks
-installed — the plumbing is a pure drop-in enhancement.
+installed: the plumbing is a pure drop-in enhancement.
 
 ### Operator / debug verbs
 
