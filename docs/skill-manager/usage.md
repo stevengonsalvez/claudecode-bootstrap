@@ -5,14 +5,14 @@ description: How the skill manager records and surfaces per-unit usage.
 
 > Per-unit invocation counts + last-used timestamps surfaced in the
 > SkillManager Detail pane. Layers on top of v1 (manifest +
-> lockfile) — see `ainb-tui/plans/skill-manager/spec.md` for v1
+> lockfile): see `ainb-tui/plans/skill-manager/spec.md` for v1
 > mechanics, and `.agents/goals/ainb-skill-manager-v1.2-rollup-plan.md`
 > §B for the full v1.2 spec this document summarises.
 
 ## Why usage tracking exists
 
 Before v1.2 the Detail pane showed only the unit URI and its
-deployed paths — useful for verifying *what* is installed but
+deployed paths: useful for verifying *what* is installed but
 silent on *whether you actually use it*. v1.2 adds a lockfile-side
 counter that the SkillManager can render at a glance, so users can
 prune skills they have not invoked in months and recognise the ones
@@ -51,7 +51,7 @@ units:
       invocations: 12                          # u64, default 0
 ```
 
-Legacy v1 lockfiles without `usage` parse cleanly — the field is
+Legacy v1 lockfiles without `usage` parse cleanly: the field is
 `serde(default, skip_serializing_if = "UsageRecord::is_empty")`, so
 roundtrip byte-stability is preserved.
 
@@ -74,7 +74,7 @@ ainb skill usage --verbose        # print per-unit counts as they land
 For each targeted unit, the subcommand walks every tool the unit is
 deployed to, sums `detect_invocations` results (keeping the most
 recent timestamp across tools), and writes the aggregate to the
-lockfile. Idempotent — running twice on a quiet system produces the
+lockfile. Idempotent: running twice on a quiet system produces the
 same lockfile.
 
 ## Detail pane render (B.4)
@@ -88,7 +88,7 @@ Usage: 12 invocations · last used 3h ago
 ```
 
 The "time-ago" string is computed against `chrono::Utc::now()` (no
-chrono dep added at the `ainb-skill-core` crate boundary — the
+chrono dep added at the `ainb-skill-core` crate boundary: the
 timestamp is stored as a string and parsed at the render layer).
 Unparseable timestamps fall back to the raw value.
 
