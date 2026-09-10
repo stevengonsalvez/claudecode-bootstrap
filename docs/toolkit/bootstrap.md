@@ -66,5 +66,5 @@ Read-only. Checks every applicable manifest entry has its `SKILL.md` at the expe
 
 ## See also
 
-- [Toolkit overview](overview.md)
-- [Docs hub](../README.md)
+- [Toolkit overview](/toolkit/overview)
+- [Docs hub](/readme)
