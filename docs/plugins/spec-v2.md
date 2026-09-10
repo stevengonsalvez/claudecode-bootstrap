@@ -1,10 +1,10 @@
 ---
-title: "ainb plugin contract — v2 (subprocess)"
+title: "ainb plugin contract: v2 (subprocess)"
 ---
 
 **Status:** stable.
 **Host versions covered:** `2.x.y` (additive minor bumps stay in v2).
-**Successor:** tracked in [CHANGELOG.md](./changelog.md). A new contract version (`v3`) ships only when an existing signature changes incompatibly.
+**Successor:** tracked in [CHANGELOG.md](/plugins/changelog). A new contract version (`v3`) ships only when an existing signature changes incompatibly.
 
 A plugin **conforms to v2** if it satisfies every MUST clause below. The `ainb-plugin-cts-v2` crate is the executable form of this document; a plugin author runs it via `cargo test` to get a per-axis pass/fail report.
 
@@ -67,7 +67,7 @@ idle_reap_secs = 600         # 0 disables reaping
 - `version` parses as semver; `abi_version` is an integer
 - The manifest sits at `dist/plugins/<name>/manifest.toml` on disk
 
-**Capability semantics.** `CapabilityGrant` accepts two forms: `true|false` (boolean grant) and `["host1", "host2"]` (allow-list grant; e.g. `network = ["api.openai.com"]`). The host evaluates `is_granted()` at request dispatch — denied capabilities return JSON-RPC error code `-32001` (CAPABILITY_DENIED).
+**Capability semantics.** `CapabilityGrant` accepts two forms: `true|false` (boolean grant) and `["host1", "host2"]` (allow-list grant; e.g. `network = ["api.openai.com"]`). The host evaluates `is_granted()` at request dispatch: denied capabilities return JSON-RPC error code `-32001` (CAPABILITY_DENIED).
 
 **Subscriptions.** `[subscribes].snapshots` is the declarative subscription path: the runtime auto-pushes `plugin/handle_event` for every publish on listed topics, with no imperative subscribe call required at startup. Plugins may also call `host/snapshot/subscribe` at runtime for the same effect.
 
@@ -80,7 +80,7 @@ The wire is LSP-style Content-Length framing.
 ```text
 Content-Length: <decimal-bytes>\r\n
 \r\n
-<body bytes — exactly Content-Length>
+<body bytes: exactly Content-Length>
 ```
 
 Constraints (from `ainb-plugin-protocol::framing`):
@@ -93,14 +93,14 @@ The body is a single JSON-RPC 2.0 envelope.
 
 ## 3. JSON-RPC dialect
 
-Standard JSON-RPC 2.0 (`{"jsonrpc":"2.0", ...}`). Requests carry an `id`; notifications omit it. The plugin process is the server for `plugin/*` methods AND the client for `host/*` methods — it multiplexes both directions on its stdio.
+Standard JSON-RPC 2.0 (`{"jsonrpc":"2.0", ...}`). Requests carry an `id`; notifications omit it. The plugin process is the server for `plugin/*` methods AND the client for `host/*` methods: it multiplexes both directions on its stdio.
 
 **Error codes:**
 
 | Code | Constant | Meaning |
 |---|---|---|
-| `-32601` | `METHOD_NOT_FOUND` | JSON-RPC 2.0 — unknown method |
-| `-32602` | `INVALID_PARAMS` | JSON-RPC 2.0 — params couldn't be deserialised |
+| `-32601` | `METHOD_NOT_FOUND` | JSON-RPC 2.0: unknown method |
+| `-32602` | `INVALID_PARAMS` | JSON-RPC 2.0: params couldn't be deserialised |
 | `-32001` | `CAPABILITY_DENIED` | Plugin requested a host action its manifest doesn't grant |
 | `-32002` | `ACTION_TIMEOUT` | `host/action/invoke` exceeded caller-supplied timeout |
 | `-32003` | `MANIFEST_VALIDATION` | Manifest schema validation failed at init |
@@ -124,8 +124,8 @@ Wire shape:
 | `plugin/init` | Request | `PluginInitParams` | `PluginInitResult` |
 | `plugin/shutdown` | Request | `PluginShutdownParams` | `PluginShutdownResult` |
 | `plugin/render` | Request | `RenderParams` | `RenderResult` (contains `WireBuffer`) |
-| `plugin/handle_event` | Notification | `HandleEventParams` | — |
-| `plugin/handle_key` | Notification | `HandleKeyParams` | — |
+| `plugin/handle_event` | Notification | `HandleEventParams` |: |
+| `plugin/handle_key` | Notification | `HandleKeyParams` |: |
 | `plugin/cli_dispatch` | Request | `CliDispatchParams` | `CliDispatchResult` |
 
 `plugin/init` MUST be the first method called; the plugin MUST reply with its decoded manifest + its declared ABI version. `plugin/shutdown` is the last method; the plugin SHOULD exit within the host's shutdown grace window (currently 5 s).
@@ -152,10 +152,10 @@ plugin: exit 0
 | Method | Kind | Request | Response |
 |---|---|---|---|
 | `host/snapshot/get` | Request | `SnapshotGetParams` | `SnapshotGetResult` |
-| `host/snapshot/publish` | Notification | `SnapshotPublishParams` | — |
+| `host/snapshot/publish` | Notification | `SnapshotPublishParams` |: |
 | `host/snapshot/subscribe` | Request | `SnapshotSubscribeParams` | `SnapshotSubscribeResult` |
 | `host/action/invoke` | Request (with timeout) | `ActionInvokeParams` | `ActionInvokeResult` |
-| `host/log` | Notification | `LogParams` | — |
+| `host/log` | Notification | `LogParams` |: |
 | `host/fs/read_dir` | Request | `FsReadDirParams` | `FsReadDirResult` |
 | `host/fs/read_file` | Request | `FsReadFileParams` | `FsReadFileResult` |
 | `host/network/fetch` | Request | `NetworkFetchParams` | `NetworkFetchResult` |
@@ -248,7 +248,7 @@ Contract:
 - a single-chunk publish has `chunk_index = 0, is_final = true`
 - chunk size target is implementation-defined; current `session-reader` uses ~2 MiB msgpack so the encoded frame stays under ~2.7 MiB after base64 inflation
 
-Subscribers MUST drop a follow-on chunk (index > 0) for which they never observed a chunk 0 — partial data without aggregates is worse than no data. A subsequent chunk 0 discards any in-flight accumulator.
+Subscribers MUST drop a follow-on chunk (index > 0) for which they never observed a chunk 0: partial data without aggregates is worse than no data. A subsequent chunk 0 discards any in-flight accumulator.
 
 ## 7. Lifecycle states
 
@@ -282,7 +282,7 @@ The runtime's per-plugin task transitions:
 | `read_codex_logs` | `host/fs/*` under `~/.codex/sessions/**` |
 | `write_plugin_data` | Any write under `~/.agents-in-a-box/plugins/<name>/` |
 | `event_bus` | All `host/snapshot/*` methods |
-| `network` | `host/network/fetch` — boolean gate, optionally restricted to listed hostnames |
+| `network` | `host/network/fetch`: boolean gate, optionally restricted to listed hostnames |
 | `spawn_subprocess` | Any host action that exec's a child on the plugin's behalf |
 
 Denied capability → `RpcError { code: -32001, message: "capability denied: <cap>" }`.
@@ -293,7 +293,7 @@ Denied capability → `RpcError { code: -32001, message: "capability denied: <ca
 
 Plugins MUST pass every axis their manifest's capability + provides surface implies. Axes for surface a plugin doesn't expose are skipped.
 
-> **Author tooling.** Two crates back this: `ainb-plugin-cts-v2` is the subprocess conformance runner described above (canary plugins + host-side `tests/axes.rs`), and `ainb-plugin-testkit` is an in-process harness that drives a `Plugin` trait impl over a `tokio::io::DuplexStream` pair — exercising the full JSON-RPC + Content-Length framing path without spawning a subprocess or staging a binary on disk. Use `testkit` for fast unit-style assertions while authoring; use `cts-v2` for the authoritative per-axis pass/fail gate.
+> **Author tooling.** Two crates back this: `ainb-plugin-cts-v2` is the subprocess conformance runner described above (canary plugins + host-side `tests/axes.rs`), and `ainb-plugin-testkit` is an in-process harness that drives a `Plugin` trait impl over a `tokio::io::DuplexStream` pair: exercising the full JSON-RPC + Content-Length framing path without spawning a subprocess or staging a binary on disk. Use `testkit` for fast unit-style assertions while authoring; use `cts-v2` for the authoritative per-axis pass/fail gate.
 
 ## 11. Stability promise
 
