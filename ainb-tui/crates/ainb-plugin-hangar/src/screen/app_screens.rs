@@ -4062,7 +4062,7 @@ mod fleet_routing_tests {
             assert_eq!(states.fleet.filter(), filter, "Fleet lens key {digit}");
         }
 
-        // `m` left this list when it started opening the copilot chat surface:
+        // `m` left this list when it started opening Pal chat surface:
         // it still does not touch the lens, but it is no longer inert, and a
         // test that pressed it and carried on would leave the pane in chat mode
         // for every assertion after it.
@@ -4075,7 +4075,7 @@ mod fleet_routing_tests {
             );
         }
 
-        // `m` opens the copilot chat surface, which then swallows every key
+        // `m` opens Pal chat surface, which then swallows every key
         // until Esc: that is what makes it a modal rather than a lens.
         route_fleet(&mut states, &key(KeyCode::Char { ch: 'm' }));
         assert!(

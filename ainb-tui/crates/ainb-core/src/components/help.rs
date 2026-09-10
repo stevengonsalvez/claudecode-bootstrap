@@ -69,10 +69,7 @@ impl HelpComponent {
             // nothing is worse than an undocumented one, because the operator
             // presses it, nothing happens, and they stop trusting the page.
             // What replaced both is the sessions screen's own right pane.
-            row(
-                "Tab",
-                "Sessions: preview / ask / err / thread / copilot / log",
-            ),
+            row("Tab", "Sessions: preview / ask / err / thread / pal / log"),
             row("d", "Daemons: health, hooks, and repair (Esc closes)"),
             row("i", "Stats / usage analytics (Esc closes)"),
             row("w", "Witr process browser (quit witr to return)"),

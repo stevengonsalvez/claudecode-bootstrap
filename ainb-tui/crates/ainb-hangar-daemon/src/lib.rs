@@ -77,12 +77,6 @@ pub mod cancel;
 /// `~/.claude`, so the unsandboxed daemon resolves the token and injects it as
 /// ONE env var, for the `claude` backend only.
 pub mod claude_cred;
-/// The fleet copilot's guardrail gate and its confirm cards (buzz-port part 2).
-///
-/// The classifier and the argument projection are `ainb-fleet-tools`'; the
-/// parking, the expiry, the activity feed and the copilot's authorship live
-/// here, because only the daemon owns the store and the event broker.
-pub mod copilot;
 /// Fresh-home boot seed: lay down the default workspace + runtime + one starter
 /// agent so an empty `hangar.db` "just works" (a runtime shows in the Daemon
 /// pane and the Squad create gate is already cleared). Idempotent + non-clobbering.
@@ -190,6 +184,12 @@ pub mod notify;
 /// [`observability::install`] returns a `WorkerGuard` the daemon `main` holds
 /// for the process lifetime, and exposes an `otlp` seam for P8.2.
 pub mod observability;
+/// Pal's guardrail gate and its confirm cards (buzz-port part 2).
+///
+/// The classifier and the argument projection are `ainb-fleet-tools`'; the
+/// parking, the expiry, the activity feed and Pal's authorship live
+/// here, because only the daemon owns the store and the event broker.
+pub mod pal;
 /// `gh`-backed PR status fetch behind an injectable seam (e38.34).
 ///
 /// Fetches a captured PR's CI rollup + mergeability + merge state by shelling out
@@ -934,7 +934,7 @@ pub async fn boot(once: bool) -> anyhow::Result<()> {
         crate::acp_pool::retire_live_sessions_at_boot(store.pool()).await;
 
         // The confirm-card TTL, swept once at boot. The park's own bound is a
-        // `tokio` timer inside a copilot turn, and a timer dies with the process:
+        // `tokio` timer inside a Pal turn, and a timer dies with the process:
         // without this, a card left open by a SIGKILLed or upgraded daemon keeps
         // rendering as answerable on every client for as long as the row exists,
         // and approving it returns a success receipt for a destructive tool call
@@ -958,8 +958,8 @@ pub async fn boot(once: bool) -> anyhow::Result<()> {
         match ainb_hangar_store::repo::fleet_chat::FleetChannelRepo::reset_yolo(store.pool()).await
         {
             Ok(0) => {}
-            Ok(reset) => tracing::warn!(reset, "copilot channels left in yolo; reset to guarded"),
-            Err(error) => tracing::error!(%error, "could not reset the copilot guardrail at boot"),
+            Ok(reset) => tracing::warn!(reset, "Pal channels left in yolo; reset to guarded"),
+            Err(error) => tracing::error!(%error, "could not reset the Pal guardrail at boot"),
         }
 
         // The retry sweep's reserved `atc_instance`, registered before anything

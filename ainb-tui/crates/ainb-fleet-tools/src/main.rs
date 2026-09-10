@@ -1,4 +1,4 @@
-//! `ainb-fleet-tools`: serve the copilot's tool table over MCP stdio.
+//! `ainb-fleet-tools`: serve Pal's tool table over MCP stdio.
 //!
 //! Takes no arguments and no secrets in its environment (see
 //! [`ainb_fleet_tools::keyfile`]); the daemon token is read from a `0600` file.

@@ -1,4 +1,4 @@
-// ABOUTME: The copilot pane's offer to start the hangar daemon it needs, and
+// ABOUTME: The Pal pane's offer to start the hangar daemon it needs, and
 // what that start actually reported.
 //
 // The pane it sits on can only fail one way that an operator can fix from the

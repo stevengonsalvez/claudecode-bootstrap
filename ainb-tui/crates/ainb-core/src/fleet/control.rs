@@ -47,10 +47,10 @@ const RPC_METHOD_NOT_FOUND: i32 = -32601;
 
 /// Page ONE session's own chat thread on a worker thread.
 ///
-/// Three of the copilot page's four calls are absent on purpose: a session
+/// Three of the Pal page's four calls are absent on purpose: a session
 /// thread has no channel to resolve (part 1 mints `session:<key>` for it), no
-/// ACP session to create (it IS the session), and no guardrail cards or copilot
-/// activity (that machinery belongs to the copilot channel). What is left is
+/// ACP session to create (it IS the session), and no guardrail cards or Pal
+/// activity (that machinery belongs to the Pal channel). What is left is
 /// the timeline, in commit order.
 ///
 /// The scope comes from [`ChatTopic::scope_key`], the ONE place a topic is
@@ -128,7 +128,7 @@ impl ChatPageFailure {
     }
 }
 
-/// Page the copilot chat surface on a worker thread.
+/// Page Pal chat surface on a worker thread.
 ///
 /// One worker, four calls, because the surface needs all four to say anything
 /// true: the channel (to learn its MINTED `channel:<ulid>` scope), the
@@ -161,9 +161,9 @@ pub fn chat_page_blocking(
         let client = crate::fleet::bridge::daemon::DaemonClient::from_env()
             .map_err(|error| ChatPageFailure::new(ChatOpenStep::Connecting, error))?;
 
-        // Resolve the copilot channel. NEWEST wins, matching the daemon's own
-        // `newest_of_kind` resolution in `fleet/copilot_configure`, so the two
-        // never disagree about which channel is "the" copilot channel.
+        // Resolve the Pal channel. NEWEST wins, matching the daemon's own
+        // `newest_of_kind` resolution in `fleet/pal_configure`, so the two
+        // never disagree about which channel is "the" Pal channel.
         //
         // Each step is announced BEFORE its call, not after: the point of the
         // announcement is the time spent inside the call, and a fresh install
@@ -177,13 +177,13 @@ pub fn chat_page_blocking(
         let existing = channels
             .channels
             .into_iter()
-            .filter(|channel| channel.kind == FleetChannelKind::Copilot)
+            .filter(|channel| channel.kind == FleetChannelKind::Pal)
             .filter(|channel| scope_key.as_ref().is_none_or(|wanted| &channel.scope_key == wanted))
             .next_back();
         let channel = match existing {
             Some(channel) => channel,
             None => {
-                // Create-if-absent, on a read path, deliberately: the copilot
+                // Create-if-absent, on a read path, deliberately: the Pal
                 // channel is a singleton an operator expects to simply exist,
                 // and there is no other door to it in the TUI. A race creates a
                 // duplicate at worst, and newest-wins keeps every reader on the
@@ -191,7 +191,7 @@ pub fn chat_page_blocking(
                 progress(ChatOpenStep::CreatingChannel);
                 client
                     .channel_create(FleetChannelCreateParams {
-                        kind: FleetChannelKind::Copilot,
+                        kind: FleetChannelKind::Pal,
                         name: "copilot".to_string(),
                         recipients: None,
                     })
@@ -202,7 +202,7 @@ pub fn chat_page_blocking(
         };
         let scope = channel.scope_key.clone();
 
-        // A COPILOT channel carries no recipient list: `fleet/channel_create`
+        // A Pal channel carries no recipient list: `fleet/channel_create`
         // rejects one, because its membership is the ACP session that ANSWERS
         // on the scope. So the recipient is resolved the way the contract says
         // it is minted, by creating that session against this scope. The call
@@ -213,7 +213,7 @@ pub fn chat_page_blocking(
         // actionable thing an operator gets ("scope_key ... is already held by
         // a session whose cwd is X, not Y" is how a TUI launched from a
         // different directory than the one that first opened the chat reads).
-        // Dropping it leaves the screen saying "no copilot session yet" forever
+        // Dropping it leaves the screen saying "no Pal session yet" forever
         // with the explanation discarded.
         progress(ChatOpenStep::CreatingSession);
         let cwd = std::env::current_dir()
@@ -226,7 +226,7 @@ pub fn chat_page_blocking(
                 scope_key: Some(scope.clone()),
             })
         };
-        // Deliberately unnamed, BOTH halves: this call wants THE copilot
+        // Deliberately unnamed, BOTH halves: this call wants THE Pal
         // session, not a particular engine rooted at a particular directory.
         // Naming an adapter reverted one the operator had swapped, and naming a
         // cwd was refused outright the moment the scope was held by a session
@@ -242,7 +242,7 @@ pub fn chat_page_blocking(
         }
         // Rung 3: older still, `provider` is required too. That is the ordinary
         // upgrade-the-binary-keep-the-daemon window, and leaving it would make
-        // the copilot page unopenable across it. Named as the built-in adapter,
+        // the Pal page unopenable across it. Named as the built-in adapter,
         // which is what this call sent before the parameter became optional: no
         // worse than it was, against a daemon that cannot do better.
         if matches!(&created, Err(error) if names_missing_field(&error.to_string(), "provider")) {
@@ -398,10 +398,10 @@ pub fn chat_cancel_turns_blocking(session_keys: Vec<String>) -> Result<String, S
     })
 }
 
-/// Post one operator message into the copilot channel on a worker thread.
+/// Post one operator message into the Pal channel on a worker thread.
 ///
 /// No `actor` rides this: an operator send omits the key, which is exactly what
-/// the daemon defaults to. A copilot-authored write is the daemon's own MCP
+/// the daemon defaults to. A Pal-authored write is the daemon's own MCP
 /// path and never originates at a human's keyboard.
 pub fn chat_send_blocking(
     params: ainb_hangar_proto::fleet::FleetMessageSendParams,
@@ -651,7 +651,7 @@ pub fn answer_via_daemon_blocking(attention_id: String, answer: String) -> Resul
 
 /// The named BROADCAST channels, by name, in creation order.
 ///
-/// Copilot channels are filtered out: there is exactly one and the pane the
+/// Pal channels are filtered out: there is exactly one and the pane the
 /// operator is reading IS it, so listing it would offer them the conversation
 /// they are already in.
 pub fn broadcast_channels_blocking() -> Result<Vec<String>, String> {
@@ -730,14 +730,14 @@ pub fn adapter_list_blocking() -> Result<Vec<ainb_hangar_proto::fleet::FleetAdap
     })
 }
 
-/// Write the copilot's engine, guardrail dial, model and reasoning.
+/// Write Pal's engine, guardrail dial, model and reasoning.
 ///
 /// A changed provider retires the running session and mints a new one on the
 /// same channel, so the RESULT is what the header must believe, not the params:
 /// the daemon may answer with a different session key than the caller held.
-pub fn copilot_configure_blocking(
-    params: ainb_hangar_proto::fleet::FleetCopilotConfigureParams,
-) -> Result<ainb_hangar_proto::fleet::FleetCopilotConfigureResult, String> {
+pub fn pal_configure_blocking(
+    params: ainb_hangar_proto::fleet::FleetPalConfigureParams,
+) -> Result<ainb_hangar_proto::fleet::FleetPalConfigureResult, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -745,7 +745,7 @@ pub fn copilot_configure_blocking(
     runtime.block_on(async {
         let client = crate::fleet::bridge::daemon::DaemonClient::from_env()
             .map_err(|error| error.to_string())?;
-        client.copilot_configure(params).await.map_err(|error| error.to_string())
+        client.pal_configure(params).await.map_err(|error| error.to_string())
     })
 }
 

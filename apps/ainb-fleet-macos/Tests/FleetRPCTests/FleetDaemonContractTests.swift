@@ -223,8 +223,8 @@ final class FleetDaemonContractTests: XCTestCase {
         "channel_create_params.json",
         "channel_create_result.json",
         "channel_list_result.json",
-        "copilot_configure_params.json",
-        "copilot_configure_result.json",
+        "pal_configure_params.json",
+        "pal_configure_result.json",
         "confirm_list_result.json",
         "confirm_answer_approve_params.json",
         "confirm_answer_edit_params.json",
@@ -263,28 +263,28 @@ final class FleetDaemonContractTests: XCTestCase {
         XCTAssertEqual(created.channel.scopeKey, "channel:\(created.channel.id)")
 
         let listed = try assertFixtureRoundTrips("channel_list_result.json", as: FleetChannelListResult.self)
-        XCTAssertEqual(listed.channels.first?.kind, .copilot)
+        XCTAssertEqual(listed.channels.first?.kind, .pal)
         XCTAssertEqual(listed.channels.first?.recipients, [])
         XCTAssertTrue(listed.channels.allSatisfy { $0.scopeKey.hasPrefix("channel:") })
     }
 
-    func testCopilotConfigureFixturesCarryNoPermissionMode() throws {
-        let params = try assertFixtureRoundTrips("copilot_configure_params.json", as: FleetCopilotConfigureParams.self)
+    func testPalConfigureFixturesCarryNoPermissionMode() throws {
+        let params = try assertFixtureRoundTrips("pal_configure_params.json", as: FleetPalConfigureParams.self)
         // The registry KEY, not an enum token: `claude` would not name an adapter.
         XCTAssertEqual(params.provider, "claude-agent-acp")
-        XCTAssertEqual(params.copilotMode, .guarded)
+        XCTAssertEqual(params.palMode, .guarded)
         XCTAssertEqual(params.reasoningEffort, "medium")
 
         // The absence is the contract: a settable permission mode would be a
         // remote off-switch for the guardrails.
-        let raw = try JSONSerialization.jsonObject(with: try Self.chatFixture(named: "copilot_configure_params.json")) as? [String: Any]
+        let raw = try JSONSerialization.jsonObject(with: try Self.chatFixture(named: "pal_configure_params.json")) as? [String: Any]
         for forbidden in ["permission_mode", "permissionMode", "mode"] {
             XCTAssertNil(raw?[forbidden], "\(forbidden) must never appear on copilot_configure")
         }
 
-        let result = try assertFixtureRoundTrips("copilot_configure_result.json", as: FleetCopilotConfigureResult.self)
+        let result = try assertFixtureRoundTrips("pal_configure_result.json", as: FleetPalConfigureResult.self)
         XCTAssertEqual(result.provider, "claude-agent-acp")
-        XCTAssertEqual(result.copilotMode, .guarded)
+        XCTAssertEqual(result.palMode, .guarded)
         XCTAssertFalse(result.sessionReplaced)
         XCTAssertTrue(result.personaSet)
     }
@@ -335,11 +335,11 @@ final class FleetDaemonContractTests: XCTestCase {
         func decode<T: Decodable>(_ raw: String, as type: T.Type) throws -> T {
             try FleetWire.decoder().decode(T.self, from: Data("\"\(raw)\"".utf8))
         }
-        XCTAssertEqual(try decode("copilot", as: FleetChannelKind.self), .copilot)
+        XCTAssertEqual(try decode("copilot", as: FleetChannelKind.self), .pal)
         XCTAssertEqual(try decode("some-future-kind", as: FleetChannelKind.self), .unknown)
         // The provider is a registry STRING now, so there is no token to fall
         // back on; the dial is the enum that has to stay tolerant.
-        XCTAssertEqual(try decode("some-future-mode", as: FleetCopilotMode.self), .unknown)
+        XCTAssertEqual(try decode("some-future-mode", as: FleetPalMode.self), .unknown)
         XCTAssertEqual(try decode("some-future-state", as: FleetConfirmState.self), .unknown)
         XCTAssertEqual(try decode("some-future-class", as: FleetActivityClass.self), .unknown)
         XCTAssertEqual(try decode("some-future-outcome", as: FleetActivityOutcome.self), .unknown)
@@ -386,7 +386,7 @@ final class FleetDaemonContractTests: XCTestCase {
     ///
     /// The Swift-side unit tests prove which frame each rung builds; only this
     /// proves the daemon reads that frame the way this client means it. It is
-    /// the whole fix: the live copilot scope is held by a session opened from a
+    /// the whole fix: the live Pal scope is held by a session opened from a
     /// worktree, and a menu-bar app naming `$HOME` was refused `ScopeHeld` on
     /// every one-second poll, leaving the composer with nobody to send to.
     func testRealDaemonAttachesToAHeldScopeWhenNeitherHalfIsNamed() async throws {
@@ -396,11 +396,11 @@ final class FleetDaemonContractTests: XCTestCase {
         defer { Task { await connection.close() } }
 
         let channel = try await connection.channelCreate(
-            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+            FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
         ).channel
         // Held at a root no client could guess, which is the live shape.
         let opened = try await connection.acpSessionCreate(FleetAcpSessionCreateParams(
-            provider: copilotDefaultProvider,
+            provider: palDefaultProvider,
             cwd: "/work/worktree",
             scopeKey: channel.scopeKey
         ))
@@ -421,7 +421,7 @@ final class FleetDaemonContractTests: XCTestCase {
     /// This is rung 2's trigger. The wording is load-bearing: the client's
     /// ladder matches on the field name plus "required", so a daemon that
     /// reworded this to something that names neither would leave a fresh
-    /// copilot channel unopenable rather than retried with a directory.
+    /// Pal channel unopenable rather than retried with a directory.
     @MainActor
     func testRealDaemonRefusesAnOmittedCwdOnAScopeWithNoSession() async throws {
         let fixture = try FixtureDaemon()
@@ -430,7 +430,7 @@ final class FleetDaemonContractTests: XCTestCase {
         defer { Task { await connection.close() } }
 
         let channel = try await connection.channelCreate(
-            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+            FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
         ).channel
 
         do {
@@ -449,7 +449,7 @@ final class FleetDaemonContractTests: XCTestCase {
 
         // And the rung that answers it lands, which is what the ladder does
         // next: the same scope, now named.
-        let rooted = try await FleetStore.mintCopilotSession(
+        let rooted = try await FleetStore.mintPalSession(
             scopeKey: channel.scopeKey,
             home: "/work/fresh",
             create: { try await connection.acpSessionCreate($0) }
@@ -464,7 +464,7 @@ final class FleetDaemonContractTests: XCTestCase {
     ///
     /// Two connections, because one client sending to itself proves nothing
     /// about a push: the sender already holds the result. The second connection
-    /// is the copilot, the TUI, the CLI, or another window, and the assertion
+    /// is Pal, the TUI, the CLI, or another window, and the assertion
     /// is that this one hears about it.
     ///
     /// The ack alone is deliberately not the assertion. `head_id` says the
@@ -479,14 +479,14 @@ final class FleetDaemonContractTests: XCTestCase {
         let writer = try await fixture.authenticatedAndNegotiatedConnection()
         defer { Task { await writer.close() } }
 
-        // The copilot conversation, and the ACP session that IS its membership:
+        // The Pal conversation, and the ACP session that IS its membership:
         // a `channel:` scope only accepts a send addressed to one of its
-        // members, and a copilot channel's member is the session on its scope.
+        // members, and a Pal channel's member is the session on its scope.
         let channel = try await writer.channelCreate(
-            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+            FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
         ).channel
         let session = try await writer.acpSessionCreate(FleetAcpSessionCreateParams(
-            provider: copilotDefaultProvider,
+            provider: palDefaultProvider,
             cwd: "/work/worktree",
             scopeKey: channel.scopeKey
         ))
@@ -531,10 +531,10 @@ final class FleetDaemonContractTests: XCTestCase {
         defer { Task { await writer.close() } }
 
         let channel = try await writer.channelCreate(
-            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+            FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
         ).channel
         let session = try await writer.acpSessionCreate(FleetAcpSessionCreateParams(
-            provider: copilotDefaultProvider,
+            provider: palDefaultProvider,
             cwd: "/work/worktree",
             scopeKey: channel.scopeKey
         ))
@@ -707,7 +707,7 @@ final class FleetDaemonContractTests: XCTestCase {
         XCTAssertEqual(acknowledgement.headOrder, orders.last)
     }
 
-    // MARK: - Reconcile and the copilot dial (PRs D and E)
+    // MARK: - Reconcile and the Pal dial (PRs D and E)
 
     /// The reconcile frame reaches the daemon's own dispatch, against a real
     /// daemon, and is refused for a reason that is about the SESSION.
@@ -761,11 +761,11 @@ final class FleetDaemonContractTests: XCTestCase {
         let adapters = try await connection.adapterList().adapters
         XCTAssertFalse(
             adapters.isEmpty,
-            "a daemon with no spawnable adapter cannot open a copilot at all, so the registry must never be empty"
+            "a daemon with no spawnable adapter cannot open a Pal at all, so the registry must never be empty"
         )
         XCTAssertTrue(
-            adapters.contains { $0.name == copilotDefaultProvider },
-            "the adapter the copilot scope is minted with must be one the registry offers: \(adapters.map(\.name))"
+            adapters.contains { $0.name == palDefaultProvider },
+            "the adapter Pal scope is minted with must be one the registry offers: \(adapters.map(\.name))"
         )
         for adapter in adapters {
             XCTAssertFalse(adapter.name.isEmpty)
@@ -788,9 +788,9 @@ final class FleetDaemonContractTests: XCTestCase {
         defer { Task { await connection.close() } }
 
         do {
-            _ = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+            _ = try await connection.palConfigure(FleetPalConfigureParams(
                 provider: "not-an-adapter",
-                copilotMode: nil,
+                palMode: nil,
                 model: nil,
                 reasoningEffort: nil,
                 persona: nil
@@ -810,7 +810,7 @@ final class FleetDaemonContractTests: XCTestCase {
     /// the same channel scope, and a same-adapter one does not.
     ///
     /// This is the fact the client's invalidation hangs on. `session_replaced`
-    /// is the only signal that the copilot session key this client is holding
+    /// is the only signal that the Pal session key this client is holding
     /// is dead, and everything the store does with it, dropping the mint,
     /// disowning the in-flight page, refusing to carry the transcript, follows
     /// from believing it. A scripted socket can only prove the store reacts;
@@ -820,7 +820,7 @@ final class FleetDaemonContractTests: XCTestCase {
     /// replacement's key by re-minting, not from the configure result, so the
     /// assertion that matters is that an `acp_session_create` naming neither
     /// provider nor cwd now answers with the NEW session.
-    func testRealDaemonSwapsTheCopilotEngineAndReportsTheReplacedSession() async throws {
+    func testRealDaemonSwapsThePalEngineAndReportsTheReplacedSession() async throws {
         let fixture = try FixtureDaemon()
         defer { fixture.stop() }
         let connection = try await fixture.authenticatedAndNegotiatedConnection()
@@ -828,23 +828,23 @@ final class FleetDaemonContractTests: XCTestCase {
 
         let adapters = try await connection.adapterList().adapters
         let names = adapters.map(\.name)
-        guard let other = names.first(where: { $0 != copilotDefaultProvider }) else {
+        guard let other = names.first(where: { $0 != palDefaultProvider }) else {
             throw XCTSkip("this daemon's registry holds one adapter, so there is no swap to make: \(names)")
         }
 
         let channel = try await connection.channelCreate(
-            FleetChannelCreateParams(kind: .copilot, name: "copilot", recipients: nil)
+            FleetChannelCreateParams(kind: .pal, name: "copilot", recipients: nil)
         ).channel
         let opened = try await connection.acpSessionCreate(FleetAcpSessionCreateParams(
-            provider: copilotDefaultProvider,
+            provider: palDefaultProvider,
             cwd: "/work",
             scopeKey: channel.scopeKey
         ))
 
         // The same adapter is a settings change, not a swap.
-        let unchanged = try await connection.copilotConfigure(FleetCopilotConfigureParams(
-            provider: copilotDefaultProvider,
-            copilotMode: .help,
+        let unchanged = try await connection.palConfigure(FleetPalConfigureParams(
+            provider: palDefaultProvider,
+            palMode: .help,
             model: nil,
             reasoningEffort: nil,
             persona: nil
@@ -854,12 +854,12 @@ final class FleetDaemonContractTests: XCTestCase {
             "a configure that did not change the adapter must not retire the conversation"
         )
         XCTAssertEqual(unchanged.sessionKey, opened.sessionKey)
-        XCTAssertEqual(unchanged.copilotMode, .help)
+        XCTAssertEqual(unchanged.palMode, .help)
 
         // A different adapter is a different process, so the session goes.
-        let swapped = try await connection.copilotConfigure(FleetCopilotConfigureParams(
+        let swapped = try await connection.palConfigure(FleetPalConfigureParams(
             provider: other,
-            copilotMode: nil,
+            palMode: nil,
             model: nil,
             reasoningEffort: nil,
             persona: nil
@@ -871,7 +871,7 @@ final class FleetDaemonContractTests: XCTestCase {
         )
         XCTAssertEqual(swapped.provider, other)
         XCTAssertEqual(
-            swapped.copilotMode, .help,
+            swapped.palMode, .help,
             "an omitted copilot_mode leaves the guardrail where the last call put it"
         )
 
@@ -890,10 +890,10 @@ final class FleetDaemonContractTests: XCTestCase {
     ///
     /// A settable mode here is a remote off-switch for the whole permission
     /// surface, so this client must never grow a field for it. The assertion is
-    /// against a hand-built frame rather than `FleetCopilotConfigureParams`,
+    /// against a hand-built frame rather than `FleetPalConfigureParams`,
     /// because the type deliberately has no such property: the test that the
     /// door is shut has to knock on it.
-    func testRealDaemonRefusesAPermissionModeOnTheCopilotWire() async throws {
+    func testRealDaemonRefusesAPermissionModeOnThePalWire() async throws {
         let fixture = try FixtureDaemon()
         defer { fixture.stop() }
         let connection = try await fixture.authenticatedAndNegotiatedConnection()
@@ -903,10 +903,10 @@ final class FleetDaemonContractTests: XCTestCase {
             do {
                 _ = try await connection.requestForTesting(
                     "fleet/copilot_configure",
-                    params: ForbiddenModeParams(provider: copilotDefaultProvider, key: forbidden),
-                    result: FleetCopilotConfigureResult.self
+                    params: ForbiddenModeParams(provider: palDefaultProvider, key: forbidden),
+                    result: FleetPalConfigureResult.self
                 )
-                XCTFail("\(forbidden.rawValue) must be refused on the copilot wire")
+                XCTFail("\(forbidden.rawValue) must be refused on the Pal wire")
             } catch let FleetConnectionError.rpc(refusal) {
                 XCTAssertEqual(refusal.code, -32602, "\(forbidden.rawValue): \(refusal)")
                 XCTAssertTrue(

@@ -1,4 +1,4 @@
-//! Tripwire: the copilot's engine picker is the daemon's registry, and swapping
+//! Tripwire: Pal's engine picker is the daemon's registry, and swapping
 //! it keeps the channel.
 //!
 //! Two claims that only a real screen against a real daemon can settle:
@@ -133,7 +133,7 @@ where
 
 /// Press `key` up to `attempts` times, stopping as soon as `ok` holds.
 ///
-/// Re-checks between presses: the copilot pane dials the daemon when it opens,
+/// Re-checks between presses: the Pal pane dials the daemon when it opens,
 /// so it takes more than one repaint to settle, and pressing again in that
 /// window walks straight past it.
 fn press_until<F>(
@@ -266,7 +266,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
     }
 
     let home_tmp = tempfile::Builder::new()
-        .prefix("ainb-copilot-")
+        .prefix("ainb-pal-")
         .tempdir_in("/tmp")
         .expect("home tempdir");
     let home = home_tmp.path();
@@ -294,7 +294,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
     seed_session_registry(home, &agent_tmux, &worktree);
     let _pane = ExactTmuxSession::create(agent_tmux, &["sh", "-c", "sleep 900"]);
 
-    let tui_tmux = format!("tripwire-copilot-{pid}");
+    let tui_tmux = format!("tripwire-pal-{pid}");
     let tui = ExactTmuxSession::create(tui_tmux.clone(), &[]);
     let launch = format!(
         "HOME={home} AINB_HANGAR_HOME={hangar} AINB_DISABLE_PLUGINS=1 exec {bin} tui",
@@ -328,14 +328,14 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
             // The STRIP, not the bare word: the home screen's Recent line
             // carries the workspace name, so a loose match can fire before `s`
             // is ever pressed.
-            |c| c.contains("preview") && c.contains("copilot"),
+            |c| c.contains("preview") && c.contains("pal"),
         )
         .is_some(),
         "the sessions screen never rendered:\n{}",
         capture_pane(&tui_tmux)
     );
 
-    // Walk to the copilot tab. Its header is the thing under test, and it
+    // Walk to the Pal tab. Its header is the thing under test, and it
     // renders whether or not the conversation below it has opened: the engine
     // picker is how an operator RECOVERS from an adapter that will not spawn,
     // so hiding it behind a working chat would put the fix behind the failure.
@@ -346,7 +346,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
     })
     .unwrap_or_else(|seen| {
         panic!(
-            "Tab never reached the copilot header. Panes visited:\n  {}\n---\n{}\n---",
+            "Tab never reached the Pal header. Panes visited:\n  {}\n---\n{}\n---",
             seen.iter()
                 .filter_map(|cap| cap.lines().nth(4))
                 .map(str::trim)
@@ -431,7 +431,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
     });
     assert!(engine_row_has(&invented, INVENTED_ADAPTER), "{invented}");
 
-    // And the CHANNEL survived both swaps: one copilot channel throughout, with
+    // And the CHANNEL survived both swaps: one Pal channel throughout, with
     // its live ACP session now on the invented adapter. This is what the old
     // "a provider change needs a new session on a new channel" refusal cost.
     let (channels, live_provider) = hangar.block_on(async {
@@ -439,7 +439,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
             sqlx::query_scalar("SELECT COUNT(*) FROM fleet_channel WHERE kind = 'copilot'")
                 .fetch_one(hangar.pool())
                 .await
-                .expect("count copilot channels");
+                .expect("count Pal channels");
         let provider: String = sqlx::query_scalar(
             "SELECT s.provider FROM fleet_acp_session s \
              JOIN fleet_channel c ON c.scope_key = s.scope_key \
@@ -447,10 +447,10 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
         )
         .fetch_one(hangar.pool())
         .await
-        .expect("the copilot channel must have exactly one live session");
+        .expect("the Pal channel must have exactly one live session");
         (channels, provider)
     });
-    assert_eq!(channels, 1, "a swap must not mint a second copilot channel");
+    assert_eq!(channels, 1, "a swap must not mint a second Pal channel");
     assert_eq!(
         live_provider, INVENTED_ADAPTER,
         "the channel's live session must be on the swapped-to adapter"
@@ -524,7 +524,7 @@ fn the_engine_picker_reads_the_registry_and_a_swap_keeps_the_channel() {
 /// Deliberately does NOT set `HOME` in this process — it needs no registry, and
 /// the swap test above holds a `HOME` guard for its own run.
 #[test]
-fn with_no_daemon_the_copilot_header_names_the_failed_call() {
+fn with_no_daemon_the_pal_header_names_the_failed_call() {
     if !tmux_available() {
         eprintln!("SKIP: tmux not available");
         return;
@@ -584,7 +584,7 @@ fn with_no_daemon_the_copilot_header_names_the_failed_call() {
             "s",
             Instant::now() + Duration::from_secs(90),
             |c| c.contains("Workspaces ("),
-            |c| c.contains("preview") && c.contains("copilot"),
+            |c| c.contains("preview") && c.contains("pal"),
         )
         .is_some(),
         "the sessions screen never rendered:\n{}",
@@ -596,7 +596,7 @@ fn with_no_daemon_the_copilot_header_names_the_failed_call() {
     })
     .unwrap_or_else(|seen| {
         panic!(
-            "the copilot header never named the failed call. Panes visited:\n  {}\n---\n{}\n---",
+            "the Pal header never named the failed call. Panes visited:\n  {}\n---\n{}\n---",
             seen.iter()
                 .filter_map(|cap| cap.lines().nth(4))
                 .map(str::trim)

@@ -1,4 +1,4 @@
-// ABOUTME: The copilot pane's engine / model / mode header — what is in force,
+// ABOUTME: The Pal pane's engine / model / mode header — what is in force,
 // what it can be cycled to, and what happened the last time it was turned.
 //
 // Its own module rather than fields on `ChatHost` because the two answer
@@ -10,7 +10,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use ainb_hangar_proto::fleet::{FleetAdapter, FleetCopilotConfigureParams, FleetCopilotMode};
+use ainb_hangar_proto::fleet::{FleetAdapter, FleetPalConfigureParams, FleetPalMode};
 
 /// What the header is doing, and what it last failed at.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -22,7 +22,7 @@ pub enum DialStatus {
     Working(String),
     /// The last call failed. Carries the METHOD as well as the detail, because
     /// "which call failed" is the actionable half: `adapter_list` failing means
-    /// no engines, `copilot_configure` failing means the engine did not change.
+    /// no engines, `pal_configure` failing means the engine did not change.
     Failed { call: String, detail: String },
 }
 
@@ -36,7 +36,7 @@ pub enum DialOutcome {
     /// A configure landed; the settings are now these.
     Applied {
         provider: String,
-        mode: FleetCopilotMode,
+        mode: FleetPalMode,
         model: Option<String>,
         replaced: bool,
     },
@@ -44,9 +44,9 @@ pub enum DialOutcome {
     Failed { call: String, detail: String },
 }
 
-/// The copilot header's state and its in-flight effects.
+/// The Pal header's state and its in-flight effects.
 #[derive(Debug)]
-pub struct CopilotDial {
+pub struct PalDial {
     adapters: Vec<FleetAdapter>,
     /// The named broadcast channels, by name. A durable conversation an
     /// operator can come back to, which is the thing the checkbox broadcast is
@@ -54,7 +54,7 @@ pub struct CopilotDial {
     channels: Vec<String>,
     engine: Option<String>,
     model: Option<String>,
-    mode: FleetCopilotMode,
+    mode: FleetPalMode,
     status: DialStatus,
     /// True once the registry has been asked for, so a per-frame tick does not
     /// spawn a worker per repaint.
@@ -66,13 +66,13 @@ pub struct CopilotDial {
     inbox: Arc<Mutex<Vec<DialOutcome>>>,
 }
 
-impl Default for CopilotDial {
+impl Default for PalDial {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CopilotDial {
+impl PalDial {
     /// A header that has not yet read the registry.
     #[must_use]
     pub fn new() -> Self {
@@ -81,7 +81,7 @@ impl CopilotDial {
             channels: Vec::new(),
             engine: None,
             model: None,
-            mode: FleetCopilotMode::default(),
+            mode: FleetPalMode::default(),
             status: DialStatus::Idle,
             asked: false,
             replaced_notice: false,
@@ -104,7 +104,7 @@ impl CopilotDial {
 
     /// The guardrail dial in force.
     #[must_use]
-    pub const fn mode(&self) -> FleetCopilotMode {
+    pub const fn mode(&self) -> FleetPalMode {
         self.mode
     }
 
@@ -295,20 +295,14 @@ impl CopilotDial {
         self.adapters[index].name.clone()
     }
 
-    fn apply(
-        &mut self,
-        provider: String,
-        mode: FleetCopilotMode,
-        model: Option<String>,
-        verb: &str,
-    ) {
+    fn apply(&mut self, provider: String, mode: FleetPalMode, model: Option<String>, verb: &str) {
         self.status = DialStatus::Working(verb.to_string());
         self.replaced_notice = false;
         let inbox = Arc::clone(&self.inbox);
         // `model` is sent as-is: `None` means "leave the stored one alone", and
         // the daemon's config write treats it the same way, so a mode-only
         // change cannot clear a model the operator set.
-        let params = FleetCopilotConfigureParams {
+        let params = FleetPalConfigureParams {
             provider,
             copilot_mode: Some(mode),
             model,
@@ -317,7 +311,7 @@ impl CopilotDial {
         };
         Self::spawn(
             inbox,
-            move |publish| match crate::fleet::control::copilot_configure_blocking(params) {
+            move |publish| match crate::fleet::control::pal_configure_blocking(params) {
                 Ok(result) => publish(DialOutcome::Applied {
                     provider: result.provider,
                     mode: result.copilot_mode,
@@ -370,20 +364,19 @@ impl CopilotDial {
         F: FnOnce(&dyn Fn(DialOutcome)) + Send + 'static,
     {
         let publish_inbox = Arc::clone(&inbox);
-        let spawned =
-            std::thread::Builder::new().name("ainb-copilot-dial".into()).spawn(move || {
-                let publish = |outcome: DialOutcome| {
-                    if let Ok(mut inbox) = publish_inbox.lock() {
-                        inbox.push(outcome);
-                    }
-                };
-                work(&publish);
-            });
+        let spawned = std::thread::Builder::new().name("ainb-pal-dial".into()).spawn(move || {
+            let publish = |outcome: DialOutcome| {
+                if let Ok(mut inbox) = publish_inbox.lock() {
+                    inbox.push(outcome);
+                }
+            };
+            work(&publish);
+        });
         if let Err(error) = spawned {
             if let Ok(mut inbox) = inbox.lock() {
                 inbox.push(DialOutcome::Failed {
                     call: "worker".to_string(),
-                    detail: format!("the copilot dial worker did not start: {error}"),
+                    detail: format!("the Pal dial worker did not start: {error}"),
                 });
             }
         }
@@ -404,8 +397,8 @@ mod tests {
         }
     }
 
-    fn dial_with(adapters: Vec<FleetAdapter>) -> CopilotDial {
-        let mut dial = CopilotDial::new();
+    fn dial_with(adapters: Vec<FleetAdapter>) -> PalDial {
+        let mut dial = PalDial::new();
         dial.inbox.lock().unwrap().push(DialOutcome::Adapters(adapters));
         // `asked` first, so the tick folds the seeded registry in without also
         // spawning a real worker at a daemon this test does not have.
@@ -490,13 +483,13 @@ mod tests {
         ]);
         dial.inbox.lock().unwrap().push(DialOutcome::Applied {
             provider: "codex-acp".to_string(),
-            mode: FleetCopilotMode::Yolo,
+            mode: FleetPalMode::Yolo,
             model: Some("gpt-5".to_string()),
             replaced: true,
         });
         assert!(dial.tick());
         assert_eq!(dial.engine(), Some("codex-acp"));
-        assert_eq!(dial.mode(), FleetCopilotMode::Yolo);
+        assert_eq!(dial.mode(), FleetPalMode::Yolo);
         assert_eq!(dial.model(), Some("gpt-5"));
         assert!(dial.session_replaced());
         assert_eq!(dial.status(), &DialStatus::Idle);
@@ -512,7 +505,7 @@ mod tests {
         ]);
         dial.inbox.lock().unwrap().push(DialOutcome::Applied {
             provider: "codex-acp".to_string(),
-            mode: FleetCopilotMode::Guarded,
+            mode: FleetPalMode::Guarded,
             model: None,
             replaced: true,
         });

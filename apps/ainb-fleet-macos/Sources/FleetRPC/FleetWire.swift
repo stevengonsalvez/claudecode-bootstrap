@@ -828,7 +828,7 @@ struct FleetRuntimeStatusResult: Codable, Equatable {
     }
 }
 
-// MARK: - Fleet chat, copilot and guardrails (buzz-port part 2)
+// MARK: - Fleet chat, Pal and guardrails (buzz-port part 2)
 //
 // These frames are CAPABILITY-ONLY until the daemon advertises
 // fleet.chat.read / .write / fleet.copilot.configure / fleet.confirm.answer:
@@ -842,21 +842,27 @@ struct FleetRuntimeStatusResult: Codable, Equatable {
 // a confirm card means "not answerable" and for an activity class means "warn
 // louder", never the reverse.
 
-enum FleetChannelKind: String, Encodable, Equatable, CaseIterable { case copilot, broadcast, unknown }
+// `pal` keeps the raw value `copilot`: the surface was renamed, the wire was
+// not, so the daemon's stored channel kind still reads `copilot`.
+enum FleetChannelKind: String, Encodable, Equatable, CaseIterable {
+    case pal = "copilot"
+    case broadcast
+    case unknown
+}
 // A channel whose kind this build cannot name is still a channel with a
 // timeline, so it stays listed rather than vanishing from the sidebar.
 extension FleetChannelKind: TolerantWireEnum { static var wireFallback: Self { .unknown } }
 
-/// The copilot channel's guardrail dial.
+/// The Pal channel's guardrail dial.
 ///
 /// NOT the adapter's permission mode, and no relation to it. This one moves the
-/// daemon-side fleet-tool classifier: which of the copilot's own tools fire,
+/// daemon-side fleet-tool classifier: which of Pal's own tools fire,
 /// which take a confirm card, and which are not offered at all. The adapter's
 /// permission mode stays pinned at `session/new` under every value here.
-enum FleetCopilotMode: String, Encodable, Equatable, CaseIterable {
+enum FleetPalMode: String, Encodable, Equatable, CaseIterable {
     case help, guarded, yolo, unknown
 }
-extension FleetCopilotMode: TolerantWireEnum { static var wireFallback: Self { .unknown } }
+extension FleetPalMode: TolerantWireEnum { static var wireFallback: Self { .unknown } }
 
 enum FleetConfirmState: String, Encodable, Equatable, CaseIterable { case open, approved, denied, expired, unknown }
 // NOT `.open`: a card in a state this build cannot name must never render as
@@ -885,7 +891,7 @@ extension FleetMessageKind: TolerantWireEnum { static var wireFallback: Self { .
 /// One persisted chat message.
 ///
 /// `sender` is the daemon's record of WHO WROTE IT, taken from the send's
-/// `actor` and never from the body. It is the whole reason a copilot write
+/// `actor` and never from the body. It is the whole reason a Pal write
 /// cannot masquerade as a human's, so nothing in this client may synthesise or
 /// default it: see `FleetChatActor`, which maps it for display and refuses to
 /// read a blank one as the operator.
@@ -908,7 +914,7 @@ struct FleetMessage: Codable, Equatable {
 
 /// Params for `fleet/message_send`.
 ///
-/// There is deliberately NO `actor` field. The wire key exists so a copilot
+/// There is deliberately NO `actor` field. The wire key exists so a Pal
 /// write is distinguishable from a human one, and this client is a human
 /// surface: omitting the key is exactly what the daemon defaults to
 /// (`operator`). Modelling it as a settable property would hand every caller
@@ -1040,7 +1046,7 @@ struct FleetMessageEventParams: Codable, Equatable {
 /// names. The daemon binds a scope to the adapter the FIRST
 /// `fleet/acp_session_create` names, so naming a guess reverts an engine the
 /// operator swapped and is refused outright once the scope is held by another.
-let copilotDefaultProvider = "claude-agent-acp"
+let palDefaultProvider = "claude-agent-acp"
 
 /// Parameters for `fleet/acp_session_create`.
 ///
@@ -1118,7 +1124,7 @@ struct FleetChannelListResult: Codable, Equatable {
 ///
 /// The registry is `[acp.adapters.*]` in the host config plus the built-in
 /// floor, so it grows by editing config rather than by shipping a build. That
-/// is why `name` is a STRING everywhere it appears on the copilot wire and why
+/// is why `name` is a STRING everywhere it appears on the Pal wire and why
 /// the engine picker reads this list instead of a set compiled in here: an
 /// adapter an operator installed is selectable without a new client.
 struct FleetAdapter: Codable, Equatable, Identifiable {
@@ -1178,7 +1184,7 @@ struct FleetAdapterListResult: Codable, Equatable {
 ///
 /// There is deliberately no permission-mode field: the mode is daemon config
 /// and a settable one would be a remote off-switch for the guardrails.
-struct FleetCopilotConfigureParams: Codable, Equatable {
+struct FleetPalConfigureParams: Codable, Equatable {
     /// An adapter name from `fleet/adapter_list`.
     ///
     /// A STRING, not an enum: the registry is `[acp.adapters.*]` plus the
@@ -1190,22 +1196,22 @@ struct FleetCopilotConfigureParams: Codable, Equatable {
     /// Spelled `copilot_mode`, never `mode`: `mode` is one of the keys this
     /// method refuses outright, because the setting an operator would most
     /// plausibly send under that name is the adapter permission mode.
-    let copilotMode: FleetCopilotMode?
+    let palMode: FleetPalMode?
     let model: String?
     let reasoningEffort: String?
     let persona: String?
 
     private enum CodingKeys: String, CodingKey {
         case provider, model, persona
-        case copilotMode = "copilot_mode"
+        case palMode = "copilot_mode"
         case reasoningEffort = "reasoning_effort"
     }
 }
 
-struct FleetCopilotConfigureResult: Codable, Equatable {
+struct FleetPalConfigureResult: Codable, Equatable {
     let sessionKey: String
     let provider: String
-    let copilotMode: FleetCopilotMode
+    let palMode: FleetPalMode
     /// Whether this call retired the previous session to swap the adapter. A
     /// caller holding the old `sessionKey` is holding a dead session.
     let sessionReplaced: Bool
@@ -1216,14 +1222,14 @@ struct FleetCopilotConfigureResult: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case provider, model
         case sessionKey = "session_key"
-        case copilotMode = "copilot_mode"
+        case palMode = "copilot_mode"
         case sessionReplaced = "session_replaced"
         case reasoningEffort = "reasoning_effort"
         case personaSet = "persona_set"
     }
 }
 
-/// One guardrail confirm card: a copilot tool call held for an operator.
+/// One guardrail confirm card: a Pal tool call held for an operator.
 ///
 /// NOT an ACP permission request — those stay attention rows answered through
 /// `fleet/action`, and the two must not be merged in the UI.
@@ -1355,7 +1361,7 @@ struct FleetConfirmEventRawParams: Decodable, Equatable {
     let confirm: JSONValue
 }
 
-/// One append-only copilot activity row.
+/// One append-only Pal activity row.
 ///
 /// `seq` is the commit-ordered cursor and the ONLY paging key; `id` is stable
 /// identity and never an ordering key.

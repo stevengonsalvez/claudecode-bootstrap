@@ -18,7 +18,7 @@ final class FleetWireForwardCompatibilityTests: XCTestCase {
     func testUnknownProviderDecodesAsUnknownRatherThanThrowing() throws {
         XCTAssertEqual(try decode(FleetProvider.self, "gemini"), .unknown)
         XCTAssertEqual(try decode(FleetProvider.self, "claude"), .claude)
-        // copilot is a KNOWN provider now, so it must decode as itself.
+        // Pal is a KNOWN provider now, so it must decode as itself.
         XCTAssertEqual(try decode(FleetProvider.self, "copilot"), .copilot)
     }
 

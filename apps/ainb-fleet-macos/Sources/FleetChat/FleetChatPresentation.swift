@@ -17,15 +17,16 @@ import Foundation
 /// Who wrote one chat row.
 ///
 /// Derived from `FleetMessage.sender`, which the daemon records from the send's
-/// `actor` and never from the body. The wire carries it precisely so a copilot
+/// `actor` and never from the body. The wire carries it precisely so a Pal
 /// write cannot masquerade as a human's, and that guarantee dies at the last
 /// inch if the pane renders both the same, so the label is part of the
 /// contract, not decoration.
 enum FleetChatActor: Equatable {
     /// A human at a client: `sender == "operator"`.
     case operatorHuman
-    /// The fleet copilot writing through its MCP tools: `sender == "copilot"`.
-    case copilot
+    /// Pal writing through its MCP tools: `sender == "copilot"` on the wire,
+    /// which keeps the pre-rename spelling deliberately.
+    case pal
     /// An agent session replying in its own name: `sender` is a session key.
     case session(String)
     /// A row whose sender is blank.
@@ -40,7 +41,7 @@ enum FleetChatActor: Equatable {
         switch sender.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "": .unattributed
         case "operator": .operatorHuman
-        case "copilot": .copilot
+        case "copilot": .pal
         case let other: .session(other)
         }
     }
@@ -51,7 +52,7 @@ enum FleetChatActor: Equatable {
     var label: String {
         switch self {
         case .operatorHuman: "YOU"
-        case .copilot: "COPILOT"
+        case .pal: "PAL"
         case let .session(key): key
         case .unattributed: "UNATTRIBUTED"
         }
@@ -63,7 +64,7 @@ enum FleetChatActor: Equatable {
     var accessibilityLabel: String {
         switch self {
         case .operatorHuman: "From you"
-        case .copilot: "From the fleet copilot"
+        case .pal: "From Pal"
         case let .session(key): "From session \(key)"
         case .unattributed: "Sender unknown"
         }
@@ -71,23 +72,23 @@ enum FleetChatActor: Equatable {
 
     /// Whether the row is drawn on the operator's side of the timeline.
     ///
-    /// Only a human's own writing is; a copilot row is never mine. Side alone
+    /// Only a human's own writing is; a Pal row is never mine. Side alone
     /// is not the attribution (the label is), it is the second, glanceable
     /// signal that carries when a row scrolls past at speed.
     var isOperator: Bool {
         switch self {
         case .operatorHuman: true
-        case .copilot, .session, .unattributed: false
+        case .pal, .session, .unattributed: false
         }
     }
 
     /// A stable identifier for the accessibility tree and the UI tests, so a
-    /// journey can assert "this row is attributed to the copilot" rather than
+    /// journey can assert "this row is attributed to Pal" rather than
     /// matching a substring that could appear anywhere in the pane.
     var identifier: String {
         switch self {
         case .operatorHuman: "fleet.chat.actor.operator"
-        case .copilot: "fleet.chat.actor.copilot"
+        case .pal: "fleet.chat.actor.pal"
         case .session: "fleet.chat.actor.session"
         case .unattributed: "fleet.chat.actor.unattributed"
         }
@@ -148,7 +149,7 @@ enum FleetChatConfirmCard: Equatable, Identifiable {
         }
     }
 
-    /// The tool the copilot asked to run.
+    /// The tool Pal asked to run.
     var tool: String {
         switch self {
         case let .known(confirm): confirm.tool
@@ -225,7 +226,7 @@ enum FleetChatLabels {
     /// the running adapter and a plausible-looking guess in this slot is worse
     /// than a gap: an operator reading a wrong engine has no reason to look
     /// again, while one reading "not reported" knows to pick.
-    static func copilotEngine(_ dial: FleetCopilotDial) -> String {
+    static func palEngine(_ dial: FleetPalDial) -> String {
         dial.engine ?? "not reported"
     }
 
@@ -234,7 +235,7 @@ enum FleetChatLabels {
     /// `.unknown` is the tolerant decode's fallback, so it means the daemon
     /// named a mode this build cannot, which is a DIFFERENT fact from never
     /// having been told and reads differently.
-    static func copilotMode(_ dial: FleetCopilotDial) -> String {
+    static func palMode(_ dial: FleetPalDial) -> String {
         guard let mode = dial.mode else { return "not reported" }
         switch mode {
         case .help: return "help"
@@ -249,7 +250,7 @@ enum FleetChatLabels {
     /// Three states, not two. No engine means nothing can be said about a
     /// model; a known engine with no override is running the adapter's own
     /// default, which is a fact rather than an absence.
-    static func copilotModel(_ dial: FleetCopilotDial) -> String {
+    static func palModel(_ dial: FleetPalDial) -> String {
         if let model = dial.model, !model.isEmpty { return model }
         return dial.engine == nil ? "not reported" : "adapter default"
     }
@@ -296,7 +297,7 @@ enum FleetChatLabels {
 
     static func channelKind(_ kind: FleetChannelKind) -> String {
         switch kind {
-        case .copilot: "Copilot"
+        case .pal: "Pal"
         case .broadcast: "Broadcast"
         case .unknown: "Unrecognised channel"
         }
@@ -307,13 +308,13 @@ enum FleetChatLabels {
     /// Verbatim rather than prettified: the registry is config-driven, so there
     /// is no fixed set to map, and an operator reading `claude-agent-acp` here
     /// and in `ainb fleet adapter list` is reading one vocabulary.
-    static func copilotProvider(_ provider: String) -> String {
+    static func palProvider(_ provider: String) -> String {
         provider.isEmpty ? "Unrecognised provider" : provider
     }
 
     /// The guardrail dial, in words. Wildcard-free, so a new mode is a compile
     /// error here rather than a dial rendering as whichever arm was last.
-    static func copilotMode(_ mode: FleetCopilotMode) -> String {
+    static func palMode(_ mode: FleetPalMode) -> String {
         switch mode {
         case .help: "Help (reads only)"
         case .guarded: "Guarded (writes ask)"
@@ -372,7 +373,7 @@ enum FleetChatLabels {
     }
 }
 
-/// The copilot's engine, guardrail dial and model: what is in force, what it
+/// Pal's engine, guardrail dial and model: what is in force, what it
 /// can be moved to, and what the last move did.
 ///
 /// DELIBERATELY NOT A FIELD ON `FleetChatSurface`, and that placement is the
@@ -388,7 +389,7 @@ enum FleetChatLabels {
 /// It is also a different LIFETIME. The surface belongs to one conversation;
 /// this belongs to the channel behind it, and survives the session swap that
 /// replaces the conversation's target outright.
-struct FleetCopilotDial: Equatable {
+struct FleetPalDial: Equatable {
     /// Every adapter the daemon named, in the order it named them.
     var adapters: [FleetAdapter] = []
     /// Whether `fleet/adapter_list` has answered on THIS connection.
@@ -407,12 +408,12 @@ struct FleetCopilotDial: Equatable {
     ///
     /// `nil` is the state a freshly opened pane is in and it stays that way
     /// until an operator applies a configure, because the daemon serves no read
-    /// for it: `fleet/adapter_list` names what COULD be spawned, the copilot
+    /// for it: `fleet/adapter_list` names what COULD be spawned, the Pal
     /// channel's wire form carries no provider, and the roster files an ACP
     /// session under the token `acp` rather than its concrete adapter.
     ///
     /// The terminal client's dial defaults this to the registry's first entry.
-    /// That is a GUESS, and on a machine whose copilot is running the second
+    /// That is a GUESS, and on a machine whose Pal is running the second
     /// adapter it is a wrong one displayed as a fact. This surface reports the
     /// gap instead, because a header that says "not reported" sends an operator
     /// to the right question and a header naming the wrong engine does not.
@@ -422,7 +423,7 @@ struct FleetCopilotDial: Equatable {
     /// NEVER `.guarded` as a stand-in. `guarded` is the daemon's default, so
     /// showing it unasked would read as a fact about the running channel, and
     /// the one value it would be wrong about is `yolo`.
-    var mode: FleetCopilotMode? = nil
+    var mode: FleetPalMode? = nil
     /// The model override in force. `nil` means either untold or no override,
     /// which is why the header words it against `engine` rather than alone.
     var model: String? = nil
@@ -443,15 +444,15 @@ struct FleetCopilotDial: Equatable {
     }
 }
 
-/// Everything one page of the copilot conversation put on screen.
+/// Everything one page of the Pal conversation put on screen.
 ///
 /// A value type so the store can replace it atomically: a half-applied refresh
 /// that shows this poll's cards next to the last poll's timeline is a pane that
-/// lies about what the copilot just did.
+/// lies about what Pal just did.
 struct FleetChatSurface: Equatable {
     /// The channel scope being paged, once resolved.
     var scopeKey: String? = nil
-    /// The copilot session messages are delivered to. Without it there is
+    /// The Pal session messages are delivered to. Without it there is
     /// nobody to send to, and the composer says so rather than posting into a
     /// conversation no agent answers on.
     var targetSessionKey: String? = nil
@@ -493,7 +494,7 @@ struct FleetChatSurface: Equatable {
     /// as "no cards open" is telling the operator there is nothing to approve
     /// when it simply cannot see.
     var confirmsDetail: String? = nil
-    /// The daemon's own refusal wording when the copilot session could not be
+    /// The daemon's own refusal wording when the Pal session could not be
     /// resolved. Kept verbatim: it is the only actionable thing an operator
     /// gets, and it is usually "this scope is already held by a session whose
     /// cwd is X, not Y".

@@ -409,11 +409,11 @@ async fn double_send_is_idempotent_and_a_mismatched_replay_is_rejected() {
 }
 
 /// Attribution: `sender` is what the recipient's re-prime corpus attributes the
-/// message to and what every chat UI renders, so a copilot-authored send must
+/// message to and what every chat UI renders, so a Pal-authored send must
 /// not be indistinguishable from a human one. An absent actor still means the
 /// operator, which is what every human surface sends.
 #[tokio::test]
-async fn a_copilot_send_is_recorded_as_copilot_and_an_absent_actor_as_the_operator() {
+async fn a_pal_send_is_recorded_as_copilot_and_an_absent_actor_as_the_operator() {
     let dir = tempfile::tempdir().unwrap();
     let (socket, store, _sink) = start_server(dir.path()).await;
     seed_session(&store, "claude:one").await;
@@ -429,21 +429,21 @@ async fn a_copilot_send_is_recorded_as_copilot_and_an_absent_actor_as_the_operat
             }),
         )
         .await;
-    let copilot = client
+    let pal = client
         .call(
             methods::FLEET_MESSAGE_SEND,
             serde_json::json!({
                 "targets": ["claude:one"],
                 "text": "status?",
-                "request_id": "req-copilot",
+                "request_id": "req-pal",
                 "actor": "copilot",
             }),
         )
         .await;
     assert!(human["error"].is_null(), "{human}");
-    assert!(copilot["error"].is_null(), "{copilot}");
+    assert!(pal["error"].is_null(), "{pal}");
 
-    for (response, expected) in [(&human, "operator"), (&copilot, "copilot")] {
+    for (response, expected) in [(&human, "operator"), (&pal, "copilot")] {
         let id = response["result"]["message_id"].as_str().expect("message id");
         let sender: String = sqlx::query_scalar("SELECT sender FROM fleet_message WHERE id = ?")
             .bind(id)
@@ -452,7 +452,7 @@ async fn a_copilot_send_is_recorded_as_copilot_and_an_absent_actor_as_the_operat
             .unwrap();
         assert_eq!(
             sender, expected,
-            "a copilot write must never wear the operator's name: {response}"
+            "a Pal write must never wear the operator's name: {response}"
         );
     }
 

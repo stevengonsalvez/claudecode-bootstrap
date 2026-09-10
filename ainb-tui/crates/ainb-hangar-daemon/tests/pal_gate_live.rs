@@ -1,4 +1,4 @@
-//! The confirm-card guardrail on the LIVE path: the copilot's real MCP tool
+//! The confirm-card guardrail on the LIVE path: Pal's real MCP tool
 //! server, a real daemon, a real store, one real Unix socket.
 //!
 //! ```text
@@ -10,9 +10,9 @@
 //! ```
 //!
 //! What is real here that `rpc_fleet_chat` could not be: `rpc_fleet_chat` mints
-//! its cards by calling `copilot::gate` directly, which proves the gate but not
+//! its cards by calling `pal::gate` directly, which proves the gate but not
 //! that anything calls it. These tests start at `tools/call` — the MCP entry
-//! point the adapter drives — and never touch `copilot::gate` by name. A gate
+//! point the adapter drives — and never touch `pal::gate` by name. A gate
 //! nothing invoked would fail every one of them.
 //!
 //! What is NOT real: the ACP adapter and the model. No process here decides to
@@ -61,17 +61,17 @@ const TEST_TTL: Duration = Duration::from_secs(2);
 struct Harness {
     _dir: tempfile::TempDir,
     store: Store,
-    /// The client the copilot's tool-server process uses.
+    /// The client Pal's tool-server process uses.
     tools: DaemonClient,
     /// A second client standing in for the operator's UI.
     operator: DaemonClient,
-    /// The copilot channel's minted scope.
+    /// The Pal channel's minted scope.
     scope_key: String,
 }
 
 impl Harness {
     async fn start() -> Self {
-        ainb_hangar_daemon::copilot::set_confirm_ttl_for_test(Some(TEST_TTL));
+        ainb_hangar_daemon::pal::set_confirm_ttl_for_test(Some(TEST_TTL));
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_in(dir.path()).await.unwrap();
         rpc::auth::ensure_socket_token(store.pool(), dir.path())
@@ -97,21 +97,21 @@ impl Harness {
             .to_string();
         let operator = DaemonClient::with_parts(socket_path.clone(), token);
 
-        // The gate resolves its scope from the copilot's own credential, so
-        // there has to be a copilot channel to mint one against. A daemon with
-        // no copilot channel refuses the gate outright, which is the fail-closed
+        // The gate resolves its scope from Pal's own credential, so
+        // there has to be a Pal channel to mint one against. A daemon with
+        // no Pal channel refuses the gate outright, which is the fail-closed
         // direction.
         let created: FleetChannelCreateResult = operator
             .call_typed(
                 methods::FLEET_CHANNEL_CREATE,
                 &FleetChannelCreateParams {
-                    kind: FleetChannelKind::Copilot,
+                    kind: FleetChannelKind::Pal,
                     name: "copilot".to_string(),
                     recipients: None,
                 },
             )
             .await
-            .expect("create the copilot channel");
+            .expect("create the Pal channel");
         let scope_key = created.channel.scope_key;
 
         // The tool server does NOT get the operator's credential. It presents
@@ -119,7 +119,7 @@ impl Harness {
         // what the daemon reads the gate's scope out of.
         let tools = DaemonClient::with_parts(
             socket_path,
-            ainb_hangar_daemon::rpc::auth::mint_copilot_token(&scope_key),
+            ainb_hangar_daemon::rpc::auth::mint_pal_token(&scope_key),
         );
         Self {
             _dir: dir,
@@ -431,7 +431,7 @@ async fn an_expired_card_resolves_the_tool_denied_and_refuses_a_late_answer() {
     assert_eq!(state, "expired");
 }
 
-/// THE adversarial case, end to end: a transcript telling the copilot to ignore
+/// THE adversarial case, end to end: a transcript telling Pal to ignore
 /// its instructions and kill a session, OBEYED to the letter.
 ///
 /// The guarantee is NOT "an injected transcript writes nothing" — `send_prompt`
@@ -439,10 +439,10 @@ async fn an_expired_card_resolves_the_tool_denied_and_refuses_a_late_answer() {
 /// message gets one, with no card. The guarantee is the pair below:
 ///
 /// * no DESTRUCTIVE call happens without a human, and
-/// * every write it CAN produce is attributed to the copilot, never to the
+/// * every write it CAN produce is attributed to Pal, never to the
 ///   operator, and lands on the activity feed a human reviews.
 ///
-/// The second half is what makes the first half worth having: a copilot that
+/// The second half is what makes the first half worth having: a Pal that
 /// could write as the operator would never need `kill`, it could ask another
 /// agent to do it.
 #[tokio::test]
@@ -504,7 +504,7 @@ async fn an_injected_destructive_call_is_denied_and_logged() {
     );
 
     // Now the honest half. The same injection can ask for the AUTO write, and
-    // it gets one — under the copilot's name.
+    // it gets one — under Pal's name.
     let sent = server
         .dispatch(
             "send_prompt",
@@ -526,11 +526,11 @@ async fn an_injected_destructive_call_is_denied_and_logged() {
     assert_eq!(
         senders,
         vec!["copilot".to_string()],
-        "a copilot write must never wear the operator's name"
+        "a Pal write must never wear the operator's name"
     );
 
     // And every attempt is on the feed, refusals included: "zero unlogged
-    // copilot writes" is only checkable if the log covers the calls that did
+    // Pal writes" is only checkable if the log covers the calls that did
     // NOT happen too.
     let rows = harness.activity().await.activities;
     assert_eq!(
@@ -551,14 +551,14 @@ async fn an_injected_destructive_call_is_denied_and_logged() {
     );
 }
 
-/// The copilot's credential is not the operator's.
+/// Pal's credential is not the operator's.
 ///
 /// The confirm card only means anything if the process that minted it cannot
 /// answer it. Same uid, same socket, same box — the difference is the
 /// credential, so this drives it over the real socket rather than asserting on
 /// the allow-list in isolation.
 #[tokio::test]
-async fn the_copilot_credential_cannot_answer_its_own_card_or_write_as_the_operator() {
+async fn the_pal_credential_cannot_answer_its_own_card_or_write_as_the_operator() {
     let harness = Harness::start().await;
     let server = harness.server();
 
@@ -578,7 +578,7 @@ async fn the_copilot_credential_cannot_answer_its_own_card_or_write_as_the_opera
         .await;
     assert!(
         listed.is_err(),
-        "the copilot read the operator's approve queue: {listed:?}"
+        "Pal read the operator's approve queue: {listed:?}"
     );
     let answered = harness
         .tools
@@ -590,7 +590,7 @@ async fn the_copilot_credential_cannot_answer_its_own_card_or_write_as_the_opera
             },
         )
         .await;
-    let error = answered.expect_err("the copilot approved its own confirm card");
+    let error = answered.expect_err("Pal approved its own confirm card");
     assert!(
         error.to_string().contains("fleet/confirm_answer"),
         "the refusal must name the method it refused: {error}"
@@ -610,7 +610,7 @@ async fn the_copilot_credential_cannot_answer_its_own_card_or_write_as_the_opera
             }),
         )
         .await;
-    let error = forged.expect_err("the copilot wrote a chat row as the operator");
+    let error = forged.expect_err("Pal wrote a chat row as the operator");
     assert!(error.to_string().contains("operator"), "{error}");
 
     // The operator's own surface still answers it, and the tool resumes.
@@ -657,16 +657,16 @@ impl Drop for EnvGuard {
     }
 }
 
-/// The `session/new` payload: ONLY the copilot's session is handed the tool
+/// The `session/new` payload: ONLY Pal's session is handed the tool
 /// server, what crosses to the child is two PATHS, and the token behind the
-/// second one is the copilot's OWN credential rather than the operator's.
+/// second one is Pal's OWN credential rather than the operator's.
 ///
 /// `AINB_HANGAR_HOME` is pinned to the harness's own directory for the
 /// duration, which is what makes the negative below mean anything: without it
 /// `session_mcp_servers` resolves the real `~/.agents-in-a-box`, and a token
 /// read from an unrelated tempdir could never have matched whatever it embedded.
 #[tokio::test]
-async fn only_the_copilot_session_is_handed_the_tool_server_and_never_the_operators_token() {
+async fn only_the_pal_session_is_handed_the_tool_server_and_never_the_operators_token() {
     use agent_client_protocol::schema::v1::McpServer;
 
     let harness = Harness::start().await;
@@ -677,24 +677,22 @@ async fn only_the_copilot_session_is_handed_the_tool_server_and_never_the_operat
     std::fs::write(&stand_in, b"#!/bin/sh\n").expect("write stand-in binary");
     // No other test in this binary reads this variable, so the process-global
     // write cannot race one of them.
-    std::env::set_var(ainb_hangar_daemon::copilot::TOOL_SERVER_BIN_ENV, &stand_in);
+    std::env::set_var(ainb_hangar_daemon::pal::TOOL_SERVER_BIN_ENV, &stand_in);
 
     // An ordinary agent session's scope names no channel at all.
-    let none = ainb_hangar_daemon::copilot::session_mcp_servers(
-        harness.store.pool(),
-        "session:acp:ordinary",
-    )
-    .await;
+    let none =
+        ainb_hangar_daemon::pal::session_mcp_servers(harness.store.pool(), "session:acp:ordinary")
+            .await;
     assert!(
         none.is_empty(),
         "an ordinary session was handed the fleet's destructive tools: {none:?}"
     );
 
     let servers =
-        ainb_hangar_daemon::copilot::session_mcp_servers(harness.store.pool(), &harness.scope_key)
+        ainb_hangar_daemon::pal::session_mcp_servers(harness.store.pool(), &harness.scope_key)
             .await;
     let [McpServer::Stdio(stdio)] = servers.as_slice() else {
-        panic!("the copilot session must get exactly one stdio server: {servers:?}");
+        panic!("the Pal session must get exactly one stdio server: {servers:?}");
     };
     assert_eq!(stdio.command, stand_in);
     assert!(
@@ -731,18 +729,15 @@ async fn only_the_copilot_session_is_handed_the_tool_server_and_never_the_operat
         .trim()
         .to_string();
     let keyfile = std::path::PathBuf::from(env[1].1);
-    let copilot_token = std::fs::read_to_string(&keyfile)
-        .expect("read the copilot keyfile")
-        .trim()
-        .to_string();
-    assert!(!daemon_token.is_empty() && !copilot_token.is_empty());
+    let pal_token = std::fs::read_to_string(&keyfile).expect("read Pal keyfile").trim().to_string();
+    assert!(!daemon_token.is_empty() && !pal_token.is_empty());
     assert_ne!(
-        copilot_token, daemon_token,
-        "the copilot was handed the operator's own credential"
+        pal_token, daemon_token,
+        "Pal was handed the operator's own credential"
     );
     assert_ne!(
         keyfile, daemon_token_file,
-        "the copilot points at the daemon's own token file"
+        "Pal points at the daemon's own token file"
     );
     let mode = {
         use std::os::unix::fs::PermissionsExt as _;
@@ -750,11 +745,11 @@ async fn only_the_copilot_session_is_handed_the_tool_server_and_never_the_operat
     };
     assert_eq!(
         mode, 0o600,
-        "the copilot credential is readable by somebody else"
+        "the Pal credential is readable by somebody else"
     );
 
     let described = format!("{stdio:?}");
-    for secret in [&daemon_token, &copilot_token] {
+    for secret in [&daemon_token, &pal_token] {
         assert!(
             !described.contains(secret.as_str()),
             "a token is in the child's spawn description: {described}"

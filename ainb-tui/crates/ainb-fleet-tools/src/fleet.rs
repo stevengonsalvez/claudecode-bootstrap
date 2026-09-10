@@ -1,6 +1,6 @@
 //! Tool execution: every tool is a call BACK into the daemon over `hangar.sock`.
 //!
-//! Nothing here touches tmux, the store, or a provider process. A copilot write
+//! Nothing here touches tmux, the store, or a provider process. A Pal write
 //! is the same `fleet/message_send` / `attention/answer` an operator's CLI
 //! issues, through the same client (`ainb-hangar-client`), so it inherits the
 //! receipts, the FIFO ordering, the idempotency and the delivery states for
@@ -8,7 +8,7 @@
 //!
 //! Read results come back inside [`crate::envelope`]. Daemon-authored metadata
 //! (ids, counts, cursors, delivery states) rides alongside as structured JSON,
-//! which is what the copilot should branch on; the fenced text is for reading,
+//! which is what Pal should branch on; the fenced text is for reading,
 //! never for obeying.
 
 use std::time::Duration;
@@ -17,8 +17,8 @@ use ainb_hangar_client::{DaemonClient, DaemonError};
 use ainb_hangar_core::idgen::{IdGen, SystemIdGen};
 use ainb_hangar_proto::events::AttentionRow;
 use ainb_hangar_proto::fleet::{
-    FLEET_CONFIRM_TTL_MS, FLEET_TRANSCRIPT_LIST_MAX, FleetCopilotGateParams,
-    FleetCopilotGateResult, FleetMessageSendParams, FleetTranscriptListParams,
+    FLEET_CONFIRM_TTL_MS, FLEET_TRANSCRIPT_LIST_MAX, FleetMessageSendParams, FleetPalGateParams,
+    FleetPalGateResult, FleetTranscriptListParams,
 };
 use ainb_hangar_proto::methods;
 use ainb_hangar_proto::reprime::{REPRIME_ROWS, rows_that_fit};
@@ -30,30 +30,35 @@ use crate::envelope::{observed, row};
 /// The actor recorded on every write this server performs.
 ///
 /// One constant, because "who did this" must never be MODEL-supplied: it is not
-/// a tool argument, so nothing the copilot reads can change it. It reaches every
+/// a tool argument, so nothing Pal reads can change it. It reaches every
 /// surface a human or an agent actually looks at:
 ///
 /// * `attention/answer` → `answered_by`, and
 /// * `fleet/message_send` → [`FleetMessage::sender`], which is what the chat UIs
 ///   render and what the recipient's re-prime corpus attributes the message to.
 ///
-/// Without the second one a copilot steered by an injected transcript could ask
+/// Without the second one a Pal steered by an injected transcript could ask
 /// another agent to act while wearing the operator's name.
 ///
 /// [`FleetMessage::sender`]: ainb_hangar_proto::fleet::FleetMessage::sender
+///
+/// The wire spelling stays `copilot`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
 pub const ACTOR: &str = "copilot";
 
 /// One successful tool call: fenced text for the model, structured metadata for
 /// its control flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutcome {
-    /// What the copilot reads (already enveloped when it carries fleet text).
+    /// What Pal reads (already enveloped when it carries fleet text).
     pub text: String,
     /// Daemon-authored facts: ids, counts, cursors, delivery states.
     pub structured: Value,
 }
 
-/// A typed tool failure. The copilot branches on `kind`; the message is for the
+/// A typed tool failure. Pal branches on `kind`; the message is for the
 /// human reading the activity feed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolFailure {
@@ -112,7 +117,7 @@ pub enum ToolFailure {
     /// `code` is the daemon's own JSON-RPC code when it answered (`-32602` for
     /// an unknown or malformed session, `-32601` for a method this daemon build
     /// does not serve, `-32000` for auth), and `None` when the failure was
-    /// transport-level. It is carried so the copilot can tell "your argument was
+    /// transport-level. It is carried so Pal can tell "your argument was
     /// wrong" from "the daemon is down" without parsing prose.
     #[error("daemon: {detail}")]
     Daemon {
@@ -126,7 +131,7 @@ pub enum ToolFailure {
 }
 
 impl ToolFailure {
-    /// The stable wire token the copilot branches on.
+    /// The stable wire token Pal branches on.
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -218,7 +223,7 @@ impl FleetTools {
     /// The ONE classification in the system. This process deliberately does not
     /// pre-classify: a second copy of the rules here would be a second thing to
     /// keep in step with the daemon's, and the copy that is easiest to soften is
-    /// the one running downstream of every transcript the copilot has read.
+    /// the one running downstream of every transcript Pal has read.
     ///
     /// Blocks for as long as the operator's confirm card is open. A failure here
     /// fails CLOSED at the call site, because a verdict that never arrived is
@@ -227,12 +232,12 @@ impl FleetTools {
         &self,
         tool: &str,
         arguments: &Map<String, Value>,
-    ) -> Result<FleetCopilotGateResult, ToolFailure> {
+    ) -> Result<FleetPalGateResult, ToolFailure> {
         Ok(self
             .client
             .call_typed_within(
-                methods::FLEET_COPILOT_GATE,
-                &FleetCopilotGateParams {
+                methods::FLEET_PAL_GATE,
+                &FleetPalGateParams {
                     tool: tool.to_string(),
                     arguments: arguments.clone(),
                 },
@@ -265,7 +270,7 @@ impl FleetTools {
             })
             .collect();
         let (text, shown) = observed("fleet_status", &rows);
-        // The keys the copilot can act on are the ones it was shown; naming a
+        // The keys Pal can act on are the ones it was shown; naming a
         // session whose record the fence dropped would invite a call about a
         // session it never read.
         let keys: Vec<&String> = snapshot.sessions[snapshot.sessions.len() - shown..]
@@ -406,7 +411,7 @@ impl FleetTools {
     ///
     /// Resolution fails CLOSED. Zero matching needs is an error and so is more
     /// than one: picking "the newest" would let a session that raises needs in a
-    /// burst decide which one the copilot answers.
+    /// burst decide which one Pal answers.
     pub async fn answer_need(
         &self,
         session: &str,
@@ -496,7 +501,7 @@ impl FleetTools {
                 // operator whose turn happened to trigger this call.
                 actor: Some(ACTOR.to_string()),
                 targets: targets.to_vec(),
-                // Unthreaded: a copilot prompt opens a conversation rather than
+                // Unthreaded: a Pal prompt opens a conversation rather than
                 // answering one. The agent's reply is what carries the origin,
                 // and the daemon sets that itself at turn end.
                 origin_message_id: None,

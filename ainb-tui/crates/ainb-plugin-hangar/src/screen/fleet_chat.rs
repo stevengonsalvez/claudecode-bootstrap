@@ -1,4 +1,4 @@
-//! The Fleet chat surface: the operator's conversation with the fleet copilot.
+//! The Fleet chat surface: the operator's conversation with the fleet Pal.
 //!
 //! Pure, exactly like the rest of [`super::fleet`]. This module owns no socket:
 //! it folds host-supplied wire rows into state, emits typed intents the host
@@ -10,7 +10,7 @@
 //! half updated):
 //!
 //! 1. **Attribution.** `fleet/message_send` carries an `actor` precisely so a
-//!    copilot-authored write is distinguishable from a human's. That guarantee
+//!    Pal-authored write is distinguishable from a human's. That guarantee
 //!    dies at the last inch if the panel paints both rows the same, so
 //!    [`ChatActor`] is an enum with an exhaustive label mapping, and a blank
 //!    sender renders as [`ChatActor::Unattributed`] rather than degrading into
@@ -40,9 +40,9 @@ use super::fleet::{
     truncate_ellipsis,
 };
 
-/// The channel kind the copilot conversation lives on.
+/// The channel kind the Pal conversation lives on.
 ///
-/// NOT a scope. `fleet/channel_create` MINTS `channel:<ulid>`, so the copilot
+/// NOT a scope. `fleet/channel_create` MINTS `channel:<ulid>`, so the Pal
 /// channel's scope is a value only the daemon knows; this surface learns it
 /// from `fleet/channel_list` and carries it in [`ChatSnapshot::scope_key`].
 ///
@@ -50,11 +50,16 @@ use super::fleet::{
 /// same bug as the ACP provider label: two halves of one fact written in two
 /// places, agreeing in every unit test and disagreeing against a real daemon,
 /// where the timeline silently reads an empty scope forever.
-pub const COPILOT_CHANNEL_KIND: &str = "copilot";
+///
+/// The wire spelling stays `copilot`, deliberately. The surface says
+/// Pal; the wire never changed, so a daemon and a client from either
+/// side of the rename still negotiate. Renaming this VALUE buys
+/// nothing, because no user reads it, and costs every version pairing.
+pub const PAL_CHANNEL_KIND: &str = "copilot";
 
 /// Which conversation this surface is showing.
 ///
-/// The copilot channel and a session thread are the SAME widget over two
+/// The Pal channel and a session thread are the SAME widget over two
 /// scopes, which is the whole reason this is an enum rather than a second
 /// screen: one state machine, one renderer, one set of key bindings.
 ///
@@ -66,9 +71,9 @@ pub const COPILOT_CHANNEL_KIND: &str = "copilot";
 /// state constructor and the host that pages the thread) asks HERE.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatTopic {
-    /// The fleet copilot channel, whose `channel:<ulid>` scope only the daemon
+    /// The fleet Pal channel, whose `channel:<ulid>` scope only the daemon
     /// knows.
-    Copilot,
+    Pal,
     /// One session's own thread.
     Session {
         /// The session that answers in this thread.
@@ -92,13 +97,13 @@ impl ChatTopic {
     /// The scope this topic reads and writes, when it is knowable without
     /// asking the daemon.
     ///
-    /// `None` for the copilot channel deliberately: its scope is MINTED, and a
+    /// `None` for the Pal channel deliberately: its scope is MINTED, and a
     /// literal `channel:copilot` is how the first version of this screen read
     /// an empty timeline forever.
     #[must_use]
     pub fn scope_key(&self) -> Option<String> {
         match self {
-            Self::Copilot => None,
+            Self::Pal => None,
             Self::Session { session_key } => Some(format!("session:{session_key}")),
             Self::Channel { scope_key, .. } => Some(scope_key.clone()),
         }
@@ -112,7 +117,7 @@ impl ChatTopic {
     #[must_use]
     pub fn target_session_key(&self) -> Option<String> {
         match self {
-            Self::Copilot | Self::Channel { .. } => None,
+            Self::Pal | Self::Channel { .. } => None,
             Self::Session { session_key } => Some(session_key.clone()),
         }
     }
@@ -121,7 +126,7 @@ impl ChatTopic {
     /// nobody to address.
     ///
     /// The ONE place a topic becomes a target list. `resolved` is the session
-    /// the host discovered for the copilot channel (its scope is minted, so its
+    /// the host discovered for the Pal channel (its scope is minted, so its
     /// answering session is only known after a page); the other two topics know
     /// their recipients without asking anyone.
     ///
@@ -129,9 +134,9 @@ impl ChatTopic {
     /// addresses, rather than inheriting whichever arm happens to be last.
     pub fn send_targets(&self, resolved: Option<&str>) -> Result<Vec<String>, String> {
         match self {
-            Self::Copilot => resolved
+            Self::Pal => resolved
                 .map(|key| vec![key.to_string()])
-                .ok_or_else(|| "no copilot session yet, nothing to send to".to_string()),
+                .ok_or_else(|| "no Pal session yet, nothing to send to".to_string()),
             Self::Session { session_key } => Ok(vec![session_key.clone()]),
             // A channel with no members is refused HERE rather than at the
             // daemon: `fleet/message_send` requires at least one target, and
@@ -147,11 +152,11 @@ impl ChatTopic {
     /// The header an operator reads, so the two topics are never confusable.
     ///
     /// Wildcard-free: a third topic is a compile error here rather than a
-    /// header that claims to be the copilot channel.
+    /// header that claims to be the Pal channel.
     #[must_use]
     pub fn title(&self) -> String {
         match self {
-            Self::Copilot => "Fleet chat · #copilot".to_string(),
+            Self::Pal => "Fleet chat · #pal".to_string(),
             Self::Session { session_key } => format!("Fleet thread · {session_key}"),
             Self::Channel {
                 name, recipients, ..
@@ -161,16 +166,16 @@ impl ChatTopic {
         }
     }
 
-    /// Whether guardrail confirm cards and the copilot activity feed belong on
+    /// Whether guardrail confirm cards and the Pal activity feed belong on
     /// this surface.
     ///
-    /// They are copilot machinery: a session thread has none, and rendering an
+    /// They are Pal machinery: a session thread has none, and rendering an
     /// empty "CONFIRM CARDS" block there invites an operator to look for cards
     /// that can never appear.
     #[must_use]
-    pub const fn shows_copilot_feeds(&self) -> bool {
+    pub const fn shows_pal_feeds(&self) -> bool {
         match self {
-            Self::Copilot => true,
+            Self::Pal => true,
             Self::Session { .. } | Self::Channel { .. } => false,
         }
     }
@@ -183,7 +188,7 @@ impl ChatTopic {
     #[must_use]
     pub const fn empty_hint(&self) -> &'static str {
         match self {
-            Self::Copilot => "no messages yet, type below to ask the copilot",
+            Self::Pal => "no messages yet, type below to ask Pal",
             Self::Session { .. } => {
                 "no messages in this thread yet, type below to prompt the session"
             }
@@ -203,7 +208,7 @@ impl ChatTopic {
     #[must_use]
     pub const fn shows_receipts(&self) -> bool {
         match self {
-            Self::Copilot | Self::Session { .. } => false,
+            Self::Pal | Self::Session { .. } => false,
             Self::Channel { .. } => true,
         }
     }
@@ -235,7 +240,7 @@ impl ChatThreadRole {
 
 /// How many timeline rows the surface keeps in memory.
 ///
-/// ponytail: a flat cap, not a scrollback. The channel timeline is the copilot
+/// ponytail: a flat cap, not a scrollback. The channel timeline is the Pal
 /// conversation, not a transcript; `fleet/message_list` pages by cursor when a
 /// real scrollback is wanted.
 pub const CHAT_TIMELINE_MAX: usize = 200;
@@ -255,8 +260,9 @@ pub const CHAT_POLL_INTERVAL_MS: i64 = 1_000;
 pub enum ChatActor {
     /// A human at a client: `sender == "operator"`.
     Operator,
-    /// The fleet copilot writing through its MCP tools: `sender == "copilot"`.
-    Copilot,
+    /// Pal writing through its MCP tools: `sender == "copilot"` on the wire,
+    /// which keeps the pre-rename spelling deliberately.
+    Pal,
     /// An agent session replying in its own name: `sender` is a session key.
     Session(String),
     /// A row whose sender is blank.
@@ -274,7 +280,7 @@ impl ChatActor {
         match sender.trim() {
             "" => Self::Unattributed,
             "operator" => Self::Operator,
-            "copilot" => Self::Copilot,
+            "copilot" => Self::Pal,
             other => Self::Session(other.to_string()),
         }
     }
@@ -287,7 +293,7 @@ impl ChatActor {
     pub fn label(&self) -> String {
         match self {
             Self::Operator => "YOU".to_string(),
-            Self::Copilot => "COPILOT".to_string(),
+            Self::Pal => "PAL".to_string(),
             Self::Session(key) => truncate_ellipsis(key, 12),
             Self::Unattributed => "UNATTRIBUTED".to_string(),
         }
@@ -298,7 +304,7 @@ impl ChatActor {
     pub const fn color(&self) -> Color {
         match self {
             Self::Operator => GOLD,
-            Self::Copilot => VIOLET,
+            Self::Pal => VIOLET,
             Self::Session(_) => BLUE,
             Self::Unattributed => ALERT,
         }
@@ -346,7 +352,7 @@ pub const fn confirm_state_is_answerable(state: FleetConfirmState) -> bool {
     }
 }
 
-/// The on-screen label for a copilot action's guardrail class.
+/// The on-screen label for a Pal action's guardrail class.
 #[must_use]
 pub const fn activity_class_label(class: FleetActivityClass) -> &'static str {
     match class {
@@ -366,7 +372,7 @@ pub const fn activity_class_color(class: FleetActivityClass) -> Color {
     }
 }
 
-/// The on-screen label for how a copilot action ended.
+/// The on-screen label for how a Pal action ended.
 #[must_use]
 pub const fn activity_outcome_label(outcome: FleetActivityOutcome) -> &'static str {
     match outcome {
@@ -423,7 +429,7 @@ impl ChatConfirmCard {
         }
     }
 
-    /// The tool the copilot asked to run.
+    /// The tool Pal asked to run.
     #[must_use]
     pub fn tool(&self) -> &str {
         match self {
@@ -572,7 +578,7 @@ pub fn receipt_line(delivery: &FleetMessageDelivery) -> String {
 
 /// One step of the sequence that turns a cold pane into a live conversation.
 ///
-/// The copilot channel is not read, it is BUILT: the scope has to be resolved
+/// The Pal channel is not read, it is BUILT: the scope has to be resolved
 /// or minted, an ACP session has to be created against it, and only then is
 /// there a timeline to page. Four calls, any of which can fail, and until this
 /// existed all four failed into one unlabelled "UNAVAILABLE" — which is how a
@@ -585,7 +591,7 @@ pub fn receipt_line(delivery: &FleetMessageDelivery) -> String {
 pub enum ChatOpenStep {
     /// Dialling the daemon socket, before any RPC.
     Connecting,
-    /// `fleet/channel_list`, looking for an existing copilot channel.
+    /// `fleet/channel_list`, looking for an existing Pal channel.
     ListingChannels,
     /// `fleet/channel_create`, minting one because there was none.
     ///
@@ -621,9 +627,9 @@ impl ChatOpenStep {
     pub const fn describe(self) -> &'static str {
         match self {
             Self::Connecting => "dialling the hangar daemon",
-            Self::ListingChannels => "looking for the copilot channel",
-            Self::CreatingChannel => "creating the copilot channel",
-            Self::CreatingSession => "starting the copilot session",
+            Self::ListingChannels => "looking for the Pal channel",
+            Self::CreatingChannel => "creating the Pal channel",
+            Self::CreatingSession => "starting the Pal session",
             Self::LoadingMessages => "loading the conversation",
         }
     }
@@ -635,9 +641,9 @@ impl ChatOpenStep {
 /// paints it, `ainb-core`'s key router binds it, and a hint for a key nothing
 /// listens to is the exact class of lie this pane exists to remove.
 ///
-/// Alt-modified for the reason the copilot header's dials are: the composer
+/// Alt-modified for the reason the Pal header's dials are: the composer
 /// holds focus as soon as the conversation opens, so a bare letter is a letter
-/// in a half-typed message. `p` for "page", not `r`: the copilot header already
+/// in a half-typed message. `p` for "page", not `r`: the Pal header already
 /// owns Alt-r for the engine dial's own retry, and two retries on one pane that
 /// mean different things must not share a key.
 pub const CHAT_RETRY_HINT: &str = "\u{2325}p";
@@ -652,7 +658,7 @@ pub const CHAT_CANCEL_HINT: &str = "\u{2325}c";
 pub enum ChatStatus {
     /// The open sequence is still walking; the step says where it is.
     ///
-    /// Not a bare "loading": the four calls behind a cold copilot pane take
+    /// Not a bare "loading": the four calls behind a cold Pal pane take
     /// visibly different amounts of time, and an operator watching a spinner
     /// cannot tell a slow `channel_create` from a daemon that is not answering.
     Opening(ChatOpenStep),
@@ -706,12 +712,12 @@ struct CardEdit {
 /// ([`ChatConfirmCard::decode`]) rather than at every call site.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChatSnapshot {
-    /// The copilot channel's minted scope, as the daemon reported it.
+    /// The Pal channel's minted scope, as the daemon reported it.
     ///
     /// The host resolves this through `fleet/channel_list`; the surface never
-    /// guesses it. `None` means the daemon has no copilot channel yet.
+    /// guesses it. `None` means the daemon has no Pal channel yet.
     pub scope_key: Option<String>,
-    /// The copilot session messages are addressed to.
+    /// The Pal session messages are addressed to.
     pub target_session_key: Option<String>,
     /// Timeline rows in ascending commit order.
     pub messages: Vec<FleetMessage>,
@@ -719,13 +725,13 @@ pub struct ChatSnapshot {
     pub confirms: Vec<serde_json::Value>,
     /// Why the confirm feed is empty, when it is empty for a reason.
     pub confirms_detail: Option<String>,
-    /// Why there is no copilot session, in the daemon's own words.
+    /// Why there is no Pal session, in the daemon's own words.
     ///
     /// The daemon's refusals here are specific and actionable (`scope_key` ...
     /// is already held by a session whose cwd is X"), so swallowing them leaves
     /// the operator staring at a generic "not started" forever.
     pub session_detail: Option<String>,
-    /// Copilot activity rows in ascending commit order.
+    /// Pal activity rows in ascending commit order.
     pub activity: Vec<FleetActivityRow>,
     /// The ACP pool's ceiling on one turn, as `fleet/acp_session_create`
     /// reported it.
@@ -795,15 +801,15 @@ pub struct ChatState {
 }
 
 impl ChatState {
-    /// A fresh surface bound to the copilot channel, nothing loaded yet.
+    /// A fresh surface bound to the Pal channel, nothing loaded yet.
     #[must_use]
     pub fn opening() -> Self {
-        Self::for_topic(ChatTopic::Copilot)
+        Self::for_topic(ChatTopic::Pal)
     }
 
     /// A fresh surface bound to ONE session's thread.
     ///
-    /// Unlike the copilot channel there is nothing to resolve: the scope and
+    /// Unlike the Pal channel there is nothing to resolve: the scope and
     /// the recipient are both known from the session the operator selected, so
     /// the composer is live on the first frame rather than after a round trip.
     #[must_use]
@@ -815,7 +821,7 @@ impl ChatState {
     ///
     /// The scope is passed in, never built here: `channel:<ulid>` is the
     /// daemon's to mint, and a client that composes its own reads an empty
-    /// timeline forever (the mistake [`COPILOT_CHANNEL_KIND`] documents).
+    /// timeline forever (the mistake [`PAL_CHANNEL_KIND`] documents).
     #[must_use]
     pub fn channel(scope_key: String, name: String, recipients: Vec<String>) -> Self {
         Self::for_topic(ChatTopic::Channel {
@@ -862,7 +868,7 @@ impl ChatState {
         self.scope_key.as_deref()
     }
 
-    /// The copilot session the composer addresses, once resolved.
+    /// The Pal session the composer addresses, once resolved.
     #[must_use]
     pub fn target_session_key(&self) -> Option<&str> {
         self.target_session_key.as_deref()
@@ -880,7 +886,7 @@ impl ChatState {
         &self.confirms
     }
 
-    /// Copilot activity rows, oldest first.
+    /// Pal activity rows, oldest first.
     #[must_use]
     pub fn activity(&self) -> &[FleetActivityRow] {
         &self.activity
@@ -1072,7 +1078,7 @@ impl ChatState {
         self.receipts_at_ms = (self.now_ms != 0).then_some(self.now_ms);
         // Three separate numbers, because collapsing them lies in both
         // directions. A leg still WAITING is not a leg that failed, and the old
-        // wording reported the copilot's one pending turn as "1 not delivered"
+        // wording reported Pal's one pending turn as "1 not delivered"
         // one row under a header that correctly said it was still waiting.
         let refused = total.saturating_sub(delivered).saturating_sub(waiting);
         let mut line = format!("delivered to {delivered}/{total}");
@@ -1102,7 +1108,7 @@ impl ChatState {
         // reads brings that back: `receipts` is written only by a send, and a
         // snapshot carries no deliveries. So a leg that is never retired keeps
         // advertising `⌥c` for the rest of the pane's life — and on the
-        // copilot, a singleton, that is the whole TUI session — aiming an
+        // Pal, a singleton, that is the whole TUI session — aiming an
         // interrupt at whatever the session happens to be running hours later.
         //
         // Past the pool's own ceiling on a turn, the turn this leg belonged to
@@ -1142,7 +1148,7 @@ impl ChatState {
     ///
     /// The ONE answer to that question, so the composer's prefix, the empty
     /// timeline's hint and the refusal `Enter` prints can never disagree. They
-    /// did: `Enter` said "no copilot channel yet" while the pane above it drew
+    /// did: `Enter` said "no Pal channel yet" while the pane above it drew
     /// a perfectly ordinary composer, which is symptom 1 stated exactly.
     ///
     /// Ordered by what an operator can do about it. A missing scope is the open
@@ -1162,7 +1168,7 @@ impl ChatState {
                 // A page that came back LIVE with no scope means the daemon
                 // answered and simply has no channel. Rare, and it must not
                 // read as "still loading".
-                ChatStatus::Live => "the daemon reported no copilot channel".to_string(),
+                ChatStatus::Live => "the daemon reported no Pal channel".to_string(),
             });
         }
         let refusal = self.topic.send_targets(self.target_session_key.as_deref()).err()?;
@@ -1194,25 +1200,25 @@ impl ChatState {
 pub enum ChatIntent {
     /// Page the conversation this surface is showing.
     ///
-    /// For [`ChatTopic::Copilot`] that means resolving the copilot session and
+    /// For [`ChatTopic::Pal`] that means resolving the Pal session and
     /// channel first (`fleet/acp_session_create`, idempotent per live scope),
     /// then `fleet/message_list` plus the confirm and activity feeds. For
     /// [`ChatTopic::Session`] it is `fleet/message_list` on the session's own
-    /// scope and nothing else: a session thread has no copilot machinery.
+    /// scope and nothing else: a session thread has no Pal machinery.
     Refresh {
         /// Which conversation to page. The host branches on THIS rather than
         /// sniffing the scope string, so the two never disagree about what a
         /// `session:` prefix means.
         topic: ChatTopic,
         /// The scope to page, when this surface already knows it. `None` asks
-        /// the host to resolve the copilot channel first: only the daemon knows
+        /// the host to resolve the Pal channel first: only the daemon knows
         /// the minted `channel:<ulid>`.
         scope_key: Option<String>,
     },
     /// Post an operator message: `fleet/message_send`.
     ///
     /// No `actor` rides this: an operator send omits the key, which is exactly
-    /// what the daemon defaults to. A copilot write is the daemon's own MCP
+    /// what the daemon defaults to. A Pal write is the daemon's own MCP
     /// path and never originates here.
     Send {
         /// Which conversation this was composed in, so the page that follows
@@ -1424,14 +1430,14 @@ fn submit_composer(state: &mut ChatState) -> ChatKeyOutcome {
         state.feedback = state
             .send_block()
             .map(|reason| format!("cannot send: {reason}"))
-            .or_else(|| Some("no copilot channel yet, nothing to send to".into()));
+            .or_else(|| Some("no Pal channel yet, nothing to send to".into()));
         return ChatKeyOutcome::Handled;
     };
     // UNIQUE PER COMPOSITION, not per screen-open. `insert_message_with_deliveries`
     // keys idempotency on this id: a counter restarting at 1 on every visit to
     // the chat means the second visit either replays the first visit's message
     // silently (same text) or is hard-rejected as a fingerprint mismatch
-    // (different text), and in both cases the composer clears and the copilot
+    // (different text), and in both cases the composer clears and Pal
     // never hears it.
     let request_id = format!("fleet-chat-{scope_key}-{}", uuid::Uuid::new_v4());
     state.composer.clear();
@@ -1649,7 +1655,7 @@ pub fn render_chat(
     );
     row = row.saturating_add(1);
     let (status_text, status_color) = match &state.status {
-        // The CALL, then what it is doing. A cold copilot pane spends real time
+        // The CALL, then what it is doing. A cold Pal pane spends real time
         // in `fleet/channel_create` and `fleet/acp_session_create`, and a bare
         // "LOADING" there is indistinguishable from a daemon that is not
         // answering at all.
@@ -1664,10 +1670,10 @@ pub fn render_chat(
                 // Wildcard-free: a channel that reported "session not started"
                 // would be describing machinery it does not have.
                 match &state.topic {
-                    ChatTopic::Copilot | ChatTopic::Session { .. } => format!(
+                    ChatTopic::Pal | ChatTopic::Session { .. } => format!(
                         "{} {}",
-                        if state.topic.shows_copilot_feeds() {
-                            "copilot"
+                        if state.topic.shows_pal_feeds() {
+                            "pal"
                         } else {
                             "session"
                         },
@@ -1693,7 +1699,7 @@ pub fn render_chat(
             GREEN,
         ),
         // The failed CALL first, then the way out, then the daemon's words.
-        // Same shape as the copilot header's dial failure, deliberately: the
+        // Same shape as the Pal header's dial failure, deliberately: the
         // two sit three rows apart and must read the same way.
         //
         // The key sits BEFORE the detail, and that ordering is load-bearing: a
@@ -1726,9 +1732,9 @@ pub fn render_chat(
     let feedback_row = bottom.saturating_sub(1);
     // Cards and receipts STACK rather than share a band. They used to be
     // mutually exclusive by topic, but an unresolved delivery leg now shows on
-    // every topic (that is the whole of symptom 2: a PENDING copilot leg was
-    // invisible because the copilot topic draws no receipts block), so on the
-    // copilot channel both can be live at once and one would paint over the
+    // every topic (that is the whole of symptom 2: a PENDING Pal leg was
+    // invisible because the Pal topic draws no receipts block), so on the
+    // Pal channel both can be live at once and one would paint over the
     // other.
     let receipts_height = receipts_block_height(state);
     let cards_height = cards_block_height(state);
@@ -1799,7 +1805,7 @@ pub fn render_chat(
             // A thread advertises no card key: there are no cards on it, and a
             // footer that promises one is the same lie as an action hint the
             // reducer declines.
-            ChatFocus::Composer if !state.topic.shows_copilot_feeds() => {
+            ChatFocus::Composer if !state.topic.shows_pal_feeds() => {
                 "Enter sends · Esc back to the Fleet panel".to_string()
             }
             ChatFocus::Composer => {
@@ -1825,10 +1831,10 @@ pub const RECEIPTS_VISIBLE: usize = 6;
 /// shows its legs, because "sent to 4" is a lie about the one that was refused.
 /// Any topic shows them while a leg is UNRESOLVED, because a send whose leg
 /// never resolves is otherwise indistinguishable from a send that never
-/// happened: the copilot's own reply is the only thing that would ever appear,
+/// happened: Pal's own reply is the only thing that would ever appear,
 /// and it is exactly what has not arrived.
 ///
-/// A single leg that RESOLVED still shows nothing on the copilot channel and on
+/// A single leg that RESOLVED still shows nothing on the Pal channel and on
 /// a thread, which is the original rule and still the right one: the timeline
 /// row is its receipt.
 fn shows_delivery_block(state: &ChatState) -> bool {
@@ -1979,10 +1985,10 @@ fn render_receipts(buffer: &mut WireBuffer, top: u16, bottom: u16, right: u16, s
 }
 
 fn cards_block_height(state: &ChatState) -> u16 {
-    // A session thread has no guardrail cards and no copilot activity: the
-    // whole block is copilot machinery, and an empty "CONFIRM CARDS · none
+    // A session thread has no guardrail cards and no Pal activity: the
+    // whole block is Pal machinery, and an empty "CONFIRM CARDS · none
     // open" there tells an operator to wait for something that cannot arrive.
-    if !state.topic.shows_copilot_feeds() {
+    if !state.topic.shows_pal_feeds() {
         return 0;
     }
     let rows = state.confirms.len().min(CARDS_VISIBLE) as u16;
@@ -2010,7 +2016,7 @@ fn render_timeline(
     let skip = state.messages.len().saturating_sub(capacity);
     let mut row = top;
     if state.messages.is_empty() {
-        // "type below to ask the copilot" is an INSTRUCTION, and on a pane that
+        // "type below to ask Pal" is an INSTRUCTION, and on a pane that
         // cannot send it is an instruction to do something that will not work:
         // symptom 1 in its own words. Where the surface is blocked, the middle
         // of the pane says which step is running or which call failed instead,
@@ -2075,7 +2081,7 @@ fn cards_window_start(state: &ChatState) -> usize {
 }
 
 fn render_cards(buffer: &mut WireBuffer, top: u16, bottom: u16, right: u16, state: &ChatState) {
-    if bottom <= top || !state.topic.shows_copilot_feeds() {
+    if bottom <= top || !state.topic.shows_pal_feeds() {
         return;
     }
     let mut row = top;
@@ -2149,7 +2155,7 @@ fn render_activity(buffer: &mut WireBuffer, top: u16, bottom: u16, right: u16, s
         buffer,
         1,
         row,
-        "COPILOT ACTIVITY",
+        "PAL ACTIVITY",
         BLUE,
         Some(SURFACE),
         1,
@@ -2349,7 +2355,7 @@ mod tests {
         fn is_the_human(actor: &ChatActor) -> bool {
             match actor {
                 ChatActor::Operator => true,
-                ChatActor::Copilot | ChatActor::Session(_) | ChatActor::Unattributed => false,
+                ChatActor::Pal | ChatActor::Session(_) | ChatActor::Unattributed => false,
             }
         }
 
@@ -2365,16 +2371,16 @@ mod tests {
             );
             labels.insert(label);
         }
-        // A copilot write must not be able to wear the operator's name: the
+        // A Pal write must not be able to wear the operator's name: the
         // whole point of the wire's `actor` field dies if the two paint the same.
         assert!(
-            labels.contains("YOU") && labels.contains("COPILOT"),
-            "operator and copilot rows are not distinguishable: {labels:?}"
+            labels.contains("YOU") && labels.contains("PAL"),
+            "operator and Pal rows are not distinguishable: {labels:?}"
         );
         assert_ne!(
             ChatActor::Operator.color(),
-            ChatActor::Copilot.color(),
-            "operator and copilot rows share a colour"
+            ChatActor::Pal.color(),
+            "operator and Pal rows share a colour"
         );
         assert_ne!(
             ChatActor::Operator.label(),
@@ -2536,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    fn typing_and_sending_addresses_the_copilot_session() {
+    fn typing_and_sending_addresses_the_pal_session() {
         let mut state = loaded(Vec::new());
         for key in [
             ChatKey::Char('h'),
@@ -2558,9 +2564,9 @@ mod tests {
         else {
             panic!("Enter did not send");
         };
-        assert_eq!(topic, ChatTopic::Copilot);
+        assert_eq!(topic, ChatTopic::Pal);
         assert_eq!(scope_key, MINTED_SCOPE);
-        // ONE target, and it is the session the daemon resolved: the copilot
+        // ONE target, and it is the session the daemon resolved: the Pal
         // channel is a fan-out of exactly one.
         assert_eq!(targets, vec!["acp:01J0COPILOT".to_string()]);
         assert_eq!(text, "hi");
@@ -2621,7 +2627,7 @@ mod tests {
     }
 
     #[test]
-    fn sending_before_the_copilot_session_exists_refuses_out_loud() {
+    fn sending_before_the_pal_session_exists_refuses_out_loud() {
         let mut state = ChatState::opening();
         state.apply_snapshot(ChatSnapshot::default());
         for key in [ChatKey::Char('h'), ChatKey::Char('i')] {
@@ -2631,7 +2637,7 @@ mod tests {
             reduce_chat_key(&mut state, ChatKey::Enter),
             ChatKeyOutcome::Handled
         );
-        assert!(state.feedback().is_some_and(|f| f.contains("no copilot session")));
+        assert!(state.feedback().is_some_and(|f| f.contains("no Pal session")));
         assert_eq!(
             state.composer(),
             "hi",
@@ -2684,7 +2690,7 @@ mod tests {
         assert_eq!(
             chat_tick(&mut state, 1_000),
             Some(ChatIntent::Refresh {
-                topic: ChatTopic::Copilot,
+                topic: ChatTopic::Pal,
                 scope_key: None
             })
         );
@@ -2710,7 +2716,7 @@ mod tests {
         assert_eq!(
             chat_tick(&mut state, 9_000),
             Some(ChatIntent::Refresh {
-                topic: ChatTopic::Copilot,
+                topic: ChatTopic::Pal,
                 scope_key: Some(MINTED_SCOPE.into())
             })
         );
@@ -2720,7 +2726,7 @@ mod tests {
     fn sending_before_the_channel_is_resolved_refuses_out_loud() {
         let mut state = ChatState::opening();
         state.apply_snapshot(ChatSnapshot {
-            // A copilot session with no channel yet: the send has a recipient
+            // A Pal session with no channel yet: the send has a recipient
             // but nowhere to file the row, and inventing a scope here is
             // exactly the guess this surface refuses to make.
             target_session_key: Some("acp:01J0COPILOT".into()),
@@ -2733,7 +2739,7 @@ mod tests {
             reduce_chat_key(&mut state, ChatKey::Enter),
             ChatKeyOutcome::Handled
         );
-        assert!(state.feedback().is_some_and(|f| f.contains("no copilot channel")));
+        assert!(state.feedback().is_some_and(|f| f.contains("no Pal channel")));
         assert_eq!(state.composer(), "hi");
     }
 
@@ -2780,7 +2786,7 @@ mod tests {
 
     /// The rendered pane, read as text, is the thing the tripwire asserts on.
     #[test]
-    fn the_rendered_pane_separates_the_operator_from_the_copilot() {
+    fn the_rendered_pane_separates_the_operator_from_pal() {
         let mut state = ChatState::opening();
         state.apply_snapshot(ChatSnapshot {
             scope_key: Some(MINTED_SCOPE.into()),
@@ -2808,22 +2814,22 @@ mod tests {
         let text = render_to_text(&state, 100, 30);
         let rows: Vec<&str> = text.lines().collect();
         assert!(
-            rows.iter().any(|row| row.contains("Fleet chat · #copilot")),
+            rows.iter().any(|row| row.contains("Fleet chat · #pal")),
             "no chat header:\n{text}"
         );
         let operator_row =
             rows.iter().find(|row| row.contains("what is blocked?")).expect("operator row");
-        let copilot_row = rows
+        let pal_row = rows
             .iter()
             .find(|row| row.contains("session one is waiting on you"))
-            .expect("copilot row");
+            .expect("Pal row");
         assert!(
-            operator_row.contains("YOU") && !operator_row.contains("COPILOT"),
+            operator_row.contains("YOU") && !operator_row.contains("PAL"),
             "operator row is not attributed: {operator_row}"
         );
         assert!(
-            copilot_row.contains("COPILOT"),
-            "copilot row is not attributed: {copilot_row}"
+            pal_row.contains("PAL"),
+            "Pal row is not attributed: {pal_row}"
         );
         assert!(
             rows.iter().any(|row| row.contains("[OPEN]") && row.contains("y approve")),
@@ -2831,7 +2837,7 @@ mod tests {
         );
         assert!(
             rows.iter().any(|row| row.contains("WRITE") && row.contains("send_prompt")),
-            "copilot activity is not on screen:\n{text}"
+            "Pal activity is not on screen:\n{text}"
         );
     }
 
@@ -2923,13 +2929,13 @@ mod tests {
         );
     }
 
-    /// When there is no copilot session, the DAEMON's reason is on screen.
+    /// When there is no Pal session, the DAEMON's reason is on screen.
     ///
     /// Its refusals are the actionable ones ("already held by a session whose
     /// cwd is X"); a surface that swallows them leaves the operator reading
     /// "not started" forever with no way to learn why.
     #[test]
-    fn the_status_line_carries_the_daemons_reason_for_no_copilot_session() {
+    fn the_status_line_carries_the_daemons_reason_for_no_pal_session() {
         let mut state = ChatState::opening();
         state.apply_snapshot(ChatSnapshot {
             scope_key: Some(MINTED_SCOPE.into()),
@@ -2990,31 +2996,31 @@ mod tests {
 
     /// Every topic maps to a scope, a recipient, a header and a feed rule, and
     /// a new topic is a compile error in all four rather than a thread that
-    /// silently reads the copilot channel.
+    /// silently reads the Pal channel.
     ///
     /// This is the [`every_wire_actor_renders_a_label_operators_can_tell_apart`]
     /// shape applied to the other fact this surface maps twice: which
     /// conversation it is showing.
     #[test]
     fn every_topic_names_its_scope_its_recipient_and_its_header() {
-        fn is_the_copilot(topic: &ChatTopic) -> bool {
+        fn is_the_pal(topic: &ChatTopic) -> bool {
             match topic {
-                ChatTopic::Copilot => true,
+                ChatTopic::Pal => true,
                 ChatTopic::Session { .. } | ChatTopic::Channel { .. } => false,
             }
         }
 
         /// A topic whose recipient is ONE session, known without asking the
-        /// daemon. A channel's is a list, and the copilot's is resolved.
+        /// daemon. A channel's is a list, and Pal's is resolved.
         fn addresses_one_known_session(topic: &ChatTopic) -> bool {
             match topic {
                 ChatTopic::Session { .. } => true,
-                ChatTopic::Copilot | ChatTopic::Channel { .. } => false,
+                ChatTopic::Pal | ChatTopic::Channel { .. } => false,
             }
         }
 
         for topic in [
-            ChatTopic::Copilot,
+            ChatTopic::Pal,
             ChatTopic::Session {
                 session_key: THREAD_SESSION.to_string(),
             },
@@ -3031,12 +3037,12 @@ mod tests {
             );
             assert_eq!(
                 topic.scope_key().is_none(),
-                is_the_copilot(&topic),
+                is_the_pal(&topic),
                 "{topic:?} disagrees with itself about whether its scope is minted"
             );
             assert_eq!(
-                topic.shows_copilot_feeds(),
-                is_the_copilot(&topic),
+                topic.shows_pal_feeds(),
+                is_the_pal(&topic),
                 "{topic:?} shows the wrong feeds"
             );
             assert_eq!(
@@ -3052,12 +3058,12 @@ mod tests {
             );
         }
         assert_ne!(
-            ChatTopic::Copilot.title(),
+            ChatTopic::Pal.title(),
             ChatTopic::Session {
                 session_key: THREAD_SESSION.to_string()
             }
             .title(),
-            "a thread and the copilot channel render the same header"
+            "a thread and the Pal channel render the same header"
         );
         // The scope grammar part 1 froze, and the string the daemon derives for
         // a single-target send that omits `scope_key`.
@@ -3108,7 +3114,7 @@ mod tests {
 
     /// Composing in a thread sends to THAT session, in THAT scope, and the
     /// intent carries the topic so the page that follows the write reads the
-    /// thread rather than resolving the copilot channel.
+    /// thread rather than resolving the Pal channel.
     #[test]
     fn composing_in_a_thread_prompts_the_session_it_is_open_on() {
         let mut state = threaded(Vec::new());
@@ -3183,7 +3189,7 @@ mod tests {
     /// it, and a footer that promises a key the surface cannot honour is the
     /// same lie as an action hint the reducer declines.
     #[test]
-    fn a_thread_shows_no_copilot_feeds() {
+    fn a_thread_shows_no_pal_feeds() {
         let mut state = threaded(vec![thread_row("01J0A", "operator", "run the tests", None)]);
         // Even handed cards and activity, a thread paints neither: the topic
         // decides, not the payload.
@@ -3202,11 +3208,11 @@ mod tests {
         let text = render_to_text(&state, 100, 30);
         assert!(
             !text.contains("CONFIRM CARDS"),
-            "a session thread painted the copilot's card block:\n{text}"
+            "a session thread painted Pal's card block:\n{text}"
         );
         assert!(
-            !text.contains("COPILOT ACTIVITY"),
-            "a session thread painted the copilot activity feed:\n{text}"
+            !text.contains("PAL ACTIVITY"),
+            "a session thread painted the Pal activity feed:\n{text}"
         );
         assert!(
             text.lines().any(|row| row.contains("Enter sends · Esc back")),
@@ -3425,9 +3431,9 @@ mod tests {
     }
 
     /// A channel is the chat widget over a third topic, not a third widget: it
-    /// paints no copilot machinery, and its own header names the channel.
+    /// paints no Pal machinery, and its own header names the channel.
     #[test]
-    fn a_channel_view_paints_its_own_header_and_no_copilot_machinery() {
+    fn a_channel_view_paints_its_own_header_and_no_pal_machinery() {
         let state = ChatState::channel(
             CHANNEL_SCOPE.to_string(),
             "#ops".to_string(),
@@ -3441,7 +3447,7 @@ mod tests {
         );
         assert!(
             !text.contains("CONFIRM CARDS"),
-            "a broadcast channel painted the copilot's card block:\n{text}"
+            "a broadcast channel painted Pal's card block:\n{text}"
         );
         assert!(
             !text.contains("DELIVERY RECEIPTS"),
@@ -3491,7 +3497,7 @@ mod tests {
         }
     }
 
-    /// A fresh install opening the copilot tab sees the CREATE, not a composer.
+    /// A fresh install opening the Pal tab sees the CREATE, not a composer.
     ///
     /// The spec's symptom 1, asserted on the rendered text: the pane must name
     /// the step, must not draw the ordinary send prompt, and must not tell the
@@ -3504,7 +3510,7 @@ mod tests {
         let text = render_to_text(&state, 100, 30);
         assert!(
             text.lines().any(|row| row.contains("fleet/channel_create")
-                && row.contains("creating the copilot channel")),
+                && row.contains("creating the Pal channel")),
             "the pane does not name the create step:\n{text}"
         );
         assert!(
@@ -3512,12 +3518,12 @@ mod tests {
             "a pane that cannot send drew the ordinary send prompt:\n{text}"
         );
         assert!(
-            !text.contains("type below to ask the copilot"),
+            !text.contains("type below to ask Pal"),
             "the pane told the operator to type into a composer that cannot send:\n{text}"
         );
         assert_eq!(
             state.send_block().as_deref(),
-            Some("creating the copilot channel (fleet/channel_create)"),
+            Some("creating the Pal channel (fleet/channel_create)"),
             "the composer does not agree with the pane about why it is blocked"
         );
     }
@@ -3569,7 +3575,7 @@ mod tests {
     /// A failed call is named on the pane, with the daemon's words and a key.
     ///
     /// The spec's error row: "`channel_list` / `acp_session_create` fails →
-    /// copilot pane names the failed call → retry key on the pane". All three
+    /// Pal pane names the failed call → retry key on the pane". All three
     /// asserted on one rendered row, so this cannot pass on a pane that
     /// mentions them in three unrelated places.
     #[test]
@@ -3614,7 +3620,7 @@ mod tests {
         assert_eq!(
             outcome,
             ChatKeyOutcome::Intent(ChatIntent::Refresh {
-                topic: ChatTopic::Copilot,
+                topic: ChatTopic::Pal,
                 scope_key: None
             }),
             "the retry key did not ask for a new page"
@@ -3659,7 +3665,7 @@ mod tests {
 
     // ------------------------------------------------------ the unresolved leg
 
-    /// A copilot state with one leg that has not resolved, and a clock.
+    /// A Pal state with one leg that has not resolved, and a clock.
     fn waiting_on_one_leg(deadline_ms: Option<i64>) -> ChatState {
         let mut state = loaded(Vec::new());
         state.apply_snapshot(ChatSnapshot {
@@ -3683,7 +3689,7 @@ mod tests {
     /// The spec's symptom 2, asserted on one rendered row.
     ///
     /// A leg that never resolves used to render exactly like a send that never
-    /// happened: the copilot channel draws no receipts block, and the only
+    /// happened: the Pal channel draws no receipts block, and the only
     /// other evidence would have been the reply that has not arrived. The row
     /// has to carry all three of the wait, the bound on it, and the way out.
     #[test]
@@ -3738,7 +3744,7 @@ mod tests {
         );
     }
 
-    /// A leg that ANSWERED still keeps the copilot pane quiet.
+    /// A leg that ANSWERED still keeps the Pal pane quiet.
     ///
     /// The original rule and still the right one: a single-recipient send whose
     /// leg delivered has the timeline row as its receipt, and a permanent
@@ -3764,7 +3770,7 @@ mod tests {
     ///
     /// Nothing the page reads retires a PENDING leg: `receipts` is written only
     /// by a send, and a snapshot carries no deliveries. So an unretired leg
-    /// kept offering `⌥c` for the life of the pane — and on the copilot, a
+    /// kept offering `⌥c` for the life of the pane — and on Pal, a
     /// singleton, that is the whole TUI session — aiming an interrupt at
     /// whatever that session was running hours later.
     #[test]
@@ -3990,7 +3996,7 @@ mod tests {
 
     /// A leg still waiting is never counted as one that failed.
     ///
-    /// The feedback row used to report the copilot's single PENDING turn as
+    /// The feedback row used to report Pal's single PENDING turn as
     /// "1 not delivered", one row under a header that correctly called it a
     /// wait. Two numbers about the same send disagreeing is how an operator
     /// stops believing either.
@@ -4016,15 +4022,15 @@ mod tests {
             Some("delivered to 1/4 · 2 waiting · 1 not delivered")
         );
 
-        // And the all-waiting case, which is the copilot's own: nothing has
+        // And the all-waiting case, which is Pal's own: nothing has
         // failed, so the line must not say anything did.
-        let mut copilot = loaded(Vec::new());
-        copilot.apply_receipts(vec![leg(
+        let mut pal = loaded(Vec::new());
+        pal.apply_receipts(vec![leg(
             "acp:01J0COPILOT",
             ActionReceiptStatus::Pending,
             None,
         )]);
-        assert_eq!(copilot.feedback(), Some("delivered to 0/1 · 1 waiting"));
+        assert_eq!(pal.feedback(), Some("delivered to 0/1 · 1 waiting"));
     }
 
     /// The retry key survives a refusal too long for the pane.

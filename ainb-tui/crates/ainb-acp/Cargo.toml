@@ -24,7 +24,7 @@ ainb-hangar-store = { path = "../ainb-hangar-store" }
 # `IdGen` seam: minted event ids are deterministic under test.
 ainb-hangar-core = { path = "../ainb-hangar-core" }
 # Home of the re-primed untrusted-text envelope (`reprime`), shared with the
-# copilot's MCP tool server. Pure data crate, so it costs this crate nothing.
+# Pal's MCP tool server. Pure data crate, so it costs this crate nothing.
 ainb-hangar-proto = { path = "../ainb-hangar-proto" }
 # The OS FS confinement a PER-TASK adapter child is spawned under. Only the
 # policy crosses this boundary: Landlock lives in a `pre_exec` closure on the

@@ -2312,8 +2312,8 @@ impl CliCommand for FleetCommand {
                          DURING the turn, not after it",
                 ),
             );
-        // Part 2's chat surface: channels, the copilot's per-session config,
-        // the guardrail confirm cards and the activity feed. Every one of these
+        // Part 2's chat surface: channels, Pal's per-session config, the
+        // guardrail confirm cards and the activity feed. Every one of these
         // is the CLI leg of a `fleet/*` method that landed with it, per the
         // repo's CLI-parity rule.
         let channel = Command::new("channel")
@@ -2326,9 +2326,16 @@ impl CliCommand for FleetCommand {
                     .arg(
                         clap::Arg::new("kind")
                             .long("kind")
-                            .value_parser(["copilot", "broadcast"])
+                            // `copilot` is the STORED kind token and stays
+                            // accepted for scripts written before the rename;
+                            // hidden so `--help` names only the new spelling.
+                            .value_parser([
+                                clap::builder::PossibleValue::new("pal"),
+                                clap::builder::PossibleValue::new("copilot").hide(true),
+                                clap::builder::PossibleValue::new("broadcast"),
+                            ])
                             .default_value("broadcast")
-                            .help("copilot (an ACP session answers on it) or broadcast"),
+                            .help("pal (Pal answers on it) or broadcast"),
                     )
                     .arg(
                         clap::Arg::new("name")
@@ -2344,7 +2351,7 @@ impl CliCommand for FleetCommand {
                         clap::Arg::new("recipient")
                             .long("recipient")
                             .action(clap::ArgAction::Append)
-                            .help("Member session_key (repeat); none for a copilot channel"),
+                            .help("Member session_key (repeat); none for a Pal channel"),
                     ),
             )
             .subcommand(Command::new("list").about("List channels and their members"))
@@ -2393,13 +2400,17 @@ impl CliCommand for FleetCommand {
             .subcommand(
                 Command::new("list").about("List the adapters, their commands and pinned modes"),
             );
-        let copilot = Command::new("copilot")
-            .about("The fleet copilot session's per-session adapter config")
+        // `copilot` stays as a HIDDEN alias: the verb was renamed because the
+        // fleet's own assistant kept being read as GitHub Copilot, but scripts
+        // and muscle memory built on the old spelling still work.
+        let pal = Command::new("pal")
+            .alias("copilot")
+            .about("Pal's per-session adapter config")
             .subcommand_required(true)
             .arg_required_else_help(true)
             .subcommand(
                 Command::new("configure")
-                    .about("Set the copilot's provider, model, reasoning effort and persona")
+                    .about("Set Pal's provider, model, reasoning effort and persona")
                     .arg(
                         clap::Arg::new("provider")
                             .long("provider")
@@ -2412,11 +2423,14 @@ impl CliCommand for FleetCommand {
                             .help("Adapter name from `ainb fleet adapter list`"),
                     )
                     .arg(
-                        clap::Arg::new("copilot-mode")
-                            .long("copilot-mode")
+                        clap::Arg::new("pal-mode")
+                            .long("pal-mode")
+                            // Hidden alias, for the same reason the `pal` verb
+                            // keeps one: the old spelling still works.
+                            .alias("copilot-mode")
                             .value_parser(["help", "guarded", "yolo"])
                             .help(
-                                "The channel's guardrail dial: which of the copilot's OWN fleet \
+                                "The channel's guardrail dial: which of Pal's OWN fleet \
                                  tools fire, take a confirm card, or are not offered",
                             ),
                     )
@@ -2429,7 +2443,7 @@ impl CliCommand for FleetCommand {
                     .arg(
                         clap::Arg::new("persona-file")
                             .long("persona-file")
-                            .help("File holding the copilot system prompt"),
+                            .help("File holding Pal's system prompt"),
                     )
                     // Named in the help because it is the setting an operator
                     // will most plausibly reach for, and the daemon REFUSES it
@@ -2441,7 +2455,7 @@ impl CliCommand for FleetCommand {
                     ),
             );
         let confirm = Command::new("confirm")
-            .about("Guardrail confirm cards: copilot tool calls held for a human")
+            .about("Guardrail confirm cards: Pal tool calls held for a human")
             .subcommand_required(true)
             .arg_required_else_help(true)
             .subcommand(
@@ -2474,7 +2488,7 @@ impl CliCommand for FleetCommand {
                     ),
             );
         let activity = Command::new("activity")
-            .about("The append-only copilot activity feed")
+            .about("The append-only Pal activity feed")
             .subcommand_required(true)
             .arg_required_else_help(true)
             .subcommand(
@@ -2705,7 +2719,7 @@ impl CliCommand for FleetCommand {
                 .subcommand(acp)
                 .subcommand(transcript)
                 .subcommand(channel)
-                .subcommand(copilot)
+                .subcommand(pal)
                 .subcommand(adapter)
                 .subcommand(confirm)
                 .subcommand(activity)
@@ -3364,7 +3378,6 @@ mod tests {
                 "broadcast",
                 "channel",
                 "confirm",
-                "copilot",
                 "cost",
                 "daemon",
                 "daemons",
@@ -3374,6 +3387,9 @@ mod tests {
                 "msg",
                 "needs",
                 "open-terminal",
+                // `pal`; the hidden `copilot` alias is not a subcommand name,
+                // so `get_subcommands` does not list it and the count holds.
+                "pal",
                 "runtime",
                 "sequence",
                 "standup",

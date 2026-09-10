@@ -490,11 +490,11 @@ jobs:
           needs.changes.outputs.relevant != 'false')
         run: cargo test -p ainb --test tripwire_sessions_tab_strip --no-fail-fast
         working-directory: ${{ env.WORKING_DIR }}
-      - name: Tripwire — the copilot engine picker and guardrail dial
+      - name: Tripwire — the Pal engine picker and guardrail dial
         if: >-
           !cancelled() && (github.event_name != 'pull_request' ||
           needs.changes.outputs.relevant != 'false')
-        run: cargo test -p ainb --test tripwire_sessions_copilot_engine_swap --no-fail-fast
+        run: cargo test -p ainb --test tripwire_sessions_pal_engine_swap --no-fail-fast
         working-directory: ${{ env.WORKING_DIR }}
       # Named here for the same reason as the two above: the `Test` job filters
       # `not binary(/^tripwire_/)`, so a tripwire nobody names is a tripwire

@@ -1,8 +1,8 @@
-//! Channels, guardrail confirm cards and the copilot activity feed
+//! Channels, guardrail confirm cards and the Pal activity feed
 //! (migration 0083, buzz-port part 2).
 //!
 //! Three small tables under one roof because they are one concern: what the
-//! copilot channel is, what it asked a human for, and what it did.
+//! Pal channel is, what it asked a human for, and what it did.
 //!
 //! Two rules carry across from the chat bus and are the reason this module
 //! exists rather than raw queries at the call sites:
@@ -25,7 +25,7 @@ use sqlx::{Row, SqlitePool};
 pub struct FleetChannelRow {
     /// Daemon-minted ULID.
     pub id: String,
-    /// `copilot` or `broadcast`.
+    /// `copilot` (Pal's channel) or `broadcast`.
     pub kind: String,
     /// Human-readable name.
     pub name: String,
@@ -37,6 +37,9 @@ pub struct FleetChannelRow {
     ///
     /// A `copilot` channel's only. A `broadcast` channel carries the default and
     /// nothing reads it.
+    /// The COLUMN keeps its pre-rename name deliberately: migration 0096 wrote
+    /// `copilot_mode`, and renaming it would need a migration that buys a
+    /// reader nothing, because only Pal's surface was renamed.
     pub copilot_mode: String,
     /// Creation time in epoch milliseconds.
     pub created_at: i64,
@@ -138,7 +141,7 @@ impl FleetChannelRepo {
         }))
     }
 
-    /// The newest channel of `kind`, the copilot singleton lookup.
+    /// The newest channel of `kind`, the Pal singleton lookup.
     pub async fn newest_of_kind(
         pool: &SqlitePool,
         kind: &str,
@@ -209,7 +212,7 @@ pub struct FleetConfirmRow {
     pub confirm_id: String,
     /// Scope the card belongs to.
     pub scope_key: String,
-    /// The MCP tool the copilot asked to run.
+    /// The MCP tool Pal asked to run.
     pub tool: String,
     /// Arguments, ALREADY projected to the tool's declared schema keys.
     pub arguments: String,
@@ -276,7 +279,7 @@ impl FleetConfirmRepo {
     /// The OPEN, UNLAPSED cards at `now`, oldest first, optionally one scope.
     ///
     /// The expiry term is not decoration: the TTL that parks a card is a
-    /// `tokio` timer inside the copilot's turn, and that timer dies with the
+    /// `tokio` timer inside Pal's turn, and that timer dies with the
     /// process. Without `expires_at > now` here, a card whose daemon was
     /// restarted stays `open` in the table and keeps rendering as answerable
     /// days later, on every client.
@@ -392,7 +395,7 @@ impl FleetConfirmRepo {
 
     /// Count the open cards and the age of the oldest, for `hangar/daemon_health`.
     ///
-    /// "Why is the copilot stuck" is answered by part 1's pool fields plus this
+    /// "Why is Pal stuck" is answered by part 1's pool fields plus this
     /// pair: a card nobody answered holds a turn, and a turn holds its queue.
     pub async fn open_stats(pool: &SqlitePool) -> Result<(i64, Option<i64>), sqlx::Error> {
         let row = sqlx::query(
@@ -422,7 +425,7 @@ fn confirm_from(row: &sqlx::sqlite::SqliteRow) -> Result<FleetConfirmRow, sqlx::
 
 // ----------------------------------------------------------- activity feed
 
-/// One append-only copilot activity row to persist.
+/// One append-only Pal activity row to persist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewFleetActivity {
     /// Daemon-minted ULID.

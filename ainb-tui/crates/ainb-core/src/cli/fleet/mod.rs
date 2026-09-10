@@ -50,7 +50,7 @@ pub async fn execute(matches: &clap::ArgMatches, format: OutputFormat) -> Result
         Some(("transcript", sub)) => acp::execute_transcript(sub, format).await,
         // Part 2's chat surface, all four verb families in one module.
         Some(("channel", sub)) => chat::execute_channel(sub, format).await,
-        Some(("copilot", sub)) => chat::execute_copilot(sub, format).await,
+        Some(("pal", sub)) => chat::execute_pal(sub, format).await,
         Some(("adapter", sub)) => chat::execute_adapter(sub, format).await,
         Some(("confirm", sub)) => chat::execute_confirm(sub, format).await,
         Some(("activity", sub)) => chat::execute_activity(sub, format).await,

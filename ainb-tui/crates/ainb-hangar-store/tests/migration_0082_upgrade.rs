@@ -22,7 +22,7 @@ use ainb_hangar_store::apply_migrations;
 const NEW_MIGRATION_VERSION: i64 = 82;
 
 /// The persona octet bound the migration's CHECK enforces, mirroring
-/// `ainb_hangar_proto::fleet::FLEET_COPILOT_PERSONA_MAX`.
+/// `ainb_hangar_proto::fleet::FLEET_PAL_PERSONA_MAX`.
 const PERSONA_MAX: usize = 8 * 1024;
 
 /// Open a fresh on-disk WAL pool in `dir` and apply only the migrations PRIOR

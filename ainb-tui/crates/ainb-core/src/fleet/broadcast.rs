@@ -1,12 +1,12 @@
 // ABOUTME: One message to every checked session — the composer, the send, and
 // what each recipient's leg actually did.
 //
-// NOT a `ChatHost`. A thread and the copilot are CONVERSATIONS: they have a
+// NOT a `ChatHost`. A thread and Pal are CONVERSATIONS: they have a
 // durable scope, a timeline, and a page that reloads it. A broadcast has none
 // of those — `fleet/broadcast` fans one text out to N sessions and answers with
 // N receipts, and there is nothing to page afterwards. Modelling it as a
 // conversation would mean inventing a scope for it, which is exactly the
-// "named channel" the copilot tab already offers for operators who want one.
+// "named channel" the Pal tab already offers for operators who want one.
 
 use std::sync::{Arc, Mutex};
 

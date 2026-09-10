@@ -95,7 +95,7 @@ async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> Daemon
         //
         // The classification travels WITH the reason, from the typed error
         // rather than its wording: this cell is the host's only off-thread
-        // answer to "is there a daemon at all", and the copilot pane's offer to
+        // answer to "is there a daemon at all", and the Pal pane's offer to
         // start one is only honest if that answer is.
         Err(error) => {
             return DaemonAttention::down(

@@ -212,7 +212,7 @@ fn help_overlay_documents_panels_section() {
         // What replaced the deleted Inbox and Fleet panels. `err` joined the
         // strip with the ERR pane; this line and `help.rs` disagreed on main
         // because no workflow names this tripwire, so nothing ran it.
-        "Sessions: preview / ask / err / thread / copilot / log",
+        "Sessions: preview / ask / err / thread / pal / log",
         "Stats / usage analytics (Esc closes)",
         "Witr process browser (quit witr to return)",
         "Skills catalogue (Esc closes)",

@@ -1,4 +1,4 @@
-# vhs tape: phase 7 — the copilot tab, its engine picker and guardrail dial.
+# vhs tape: phase 7 — the Pal tab, its engine picker and guardrail dial.
 #
 # Drives scripts/attention-surface-demo.sh --daemon: this half of the surface
 # is daemon-owned, so it needs one running to show anything true. The daemon
@@ -39,6 +39,6 @@ Sleep 7s
 # ask -> thread
 Tab
 Sleep 7s
-# thread -> copilot
+# thread -> pal
 Tab
 Sleep 14s

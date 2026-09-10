@@ -7,7 +7,7 @@ import Foundation
 /// This exists because the fixture daemon's stdin protocol only injects hook
 /// observations (`seed`) and shutdown; there is no command that files a chat
 /// message. The push journey needs a writer that is not the app, so it opens
-/// its own connection, exactly as the copilot, the terminal UI or a second
+/// its own connection, exactly as Pal, the terminal UI or a second
 /// window would.
 ///
 /// Deliberately NOT the app's `FleetConnection`. The UI test bundle runs out of
@@ -63,9 +63,9 @@ final class FleetChatClient {
 
     deinit { Darwin.close(descriptor) }
 
-    /// File one message into the copilot conversation the APP already opened.
+    /// File one message into the Pal conversation the APP already opened.
     ///
-    /// It resolves rather than creates: the channel is the newest copilot one
+    /// It resolves rather than creates: the channel is the newest Pal one
     /// on the daemon, which is the one the app's own page created or found, and
     /// the recipient is resolved by an idempotent create naming neither
     /// `provider` nor `cwd`, which the daemon answers with the session already
@@ -73,15 +73,15 @@ final class FleetChatClient {
     /// message in a conversation the app is not showing, and the journey would
     /// fail for a reason that has nothing to do with the push.
     @discardableResult
-    func sendToCopilotChannel(text: String) throws -> String {
+    func sendToPalChannel(text: String) throws -> String {
         let channels = try call("fleet/channel_list", [:])["channels"] as? [[String: Any]] ?? []
         guard let channel = channels.last(where: { $0["kind"] as? String == "copilot" }),
               let scope = channel["scope_key"] as? String else {
-            throw ClientError.noCopilotChannel
+            throw ClientError.noPalChannel
         }
         let session = try call("fleet/acp_session_create", ["scope_key": scope])
         guard let target = session["session_key"] as? String else {
-            throw ClientError.noCopilotSession
+            throw ClientError.noPalSession
         }
         let sent = try call("fleet/message_send", [
             "scope_key": scope,
@@ -166,8 +166,8 @@ final class FleetChatClient {
         case disconnected
         case timedOut
         case rpc(String, String)
-        case noCopilotChannel
-        case noCopilotSession
+        case noPalChannel
+        case noPalSession
         case noMessageID
 
         var errorDescription: String? {
@@ -176,8 +176,8 @@ final class FleetChatClient {
             case .disconnected: "the daemon closed the chat client's connection"
             case .timedOut: "the daemon did not answer the chat client"
             case let .rpc(method, failure): "\(method) refused: \(failure)"
-            case .noCopilotChannel: "the daemon has no copilot channel; the app never opened one"
-            case .noCopilotSession: "the copilot scope holds no session; the app never minted one"
+            case .noPalChannel: "the daemon has no Pal channel; the app never opened one"
+            case .noPalSession: "Pal's scope holds no session; the app never minted one"
             case .noMessageID: "the daemon accepted the send without naming a message"
             }
         }

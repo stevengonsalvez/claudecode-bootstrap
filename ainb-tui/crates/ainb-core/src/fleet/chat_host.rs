@@ -6,7 +6,7 @@
 // happened. This is the thing that tells it.
 //
 // It exists as its own module rather than inside a screen because TWO surfaces
-// drive the same conversation — the sessions screen's `thread` and `copilot`
+// drive the same conversation — the sessions screen's `thread` and `pal`
 // tabs — and a second copy of "spawn a worker, page the daemon, fold the answer
 // back" is how two chat surfaces drift apart in what they render and which
 // failures they report.
@@ -66,10 +66,10 @@ pub struct ChatHost {
 }
 
 impl ChatHost {
-    /// Open the copilot conversation.
+    /// Open the Pal conversation.
     #[must_use]
-    pub fn copilot() -> Self {
-        Self::new(ChatState::opening(), ChatTopic::Copilot)
+    pub fn pal() -> Self {
+        Self::new(ChatState::opening(), ChatTopic::Pal)
     }
 
     /// Open one session's own thread.
@@ -154,8 +154,8 @@ impl ChatHost {
         // The scope the surface is CURRENTLY on, for the writes that carry none
         // of their own. A confirm card and a cancel both name a session or a
         // card, never a channel, and handing the page no scope does not mean
-        // "page what I am looking at": the copilot page RESOLVES an absent scope
-        // newest-wins, so with a second copilot channel in the store (the CLI
+        // "page what I am looking at": the Pal page RESOLVES an absent scope
+        // newest-wins, so with a second Pal channel in the store (the CLI
         // mints one on demand; `chat_page_blocking` documents a race minting one
         // by accident) the write's page swapped the operator's conversation for
         // a different one. `None` here still means "resolve", which is right
@@ -182,7 +182,7 @@ impl ChatHost {
                     let params = ainb_hangar_proto::fleet::FleetMessageSendParams {
                         scope_key: Some(scope_key.clone()),
                         // No actor: an operator send omits the key, which is
-                        // exactly what the daemon defaults to. A copilot write
+                        // exactly what the daemon defaults to. A Pal write
                         // is the daemon's own MCP path and never starts here.
                         actor: None,
                         targets,
@@ -258,11 +258,9 @@ impl ChatHost {
             // is what clears the surface's in-flight latch, and a failed send
             // still has to show the operator the conversation as it now stands.
             let paged = match &topic {
-                ChatTopic::Copilot => {
-                    crate::fleet::control::chat_page_blocking(scope_key, &|step| {
-                        publish(ChatOutcome::Step(step));
-                    })
-                }
+                ChatTopic::Pal => crate::fleet::control::chat_page_blocking(scope_key, &|step| {
+                    publish(ChatOutcome::Step(step));
+                }),
                 ChatTopic::Session { .. } | ChatTopic::Channel { .. } => {
                     crate::fleet::control::chat_thread_page_blocking(&topic)
                 }
@@ -306,12 +304,12 @@ mod tests {
     }
 
     #[test]
-    fn a_copilot_host_has_no_scope_until_the_daemon_mints_one() {
+    fn a_pal_host_has_no_scope_until_the_daemon_mints_one() {
         // The `channel:<ulid>` is the daemon's to mint. A client that composed
         // its own would page an empty timeline forever against a real daemon
         // while every unit test stayed green.
-        let host = ChatHost::copilot();
-        assert_eq!(host.topic(), &ChatTopic::Copilot);
+        let host = ChatHost::pal();
+        assert_eq!(host.topic(), &ChatTopic::Pal);
         assert_eq!(host.state().scope_key(), None);
     }
 
@@ -384,7 +382,7 @@ mod tests {
     fn a_failed_page_names_the_call_that_failed_on_the_surface() {
         use ainb_plugin_hangar::screen::fleet_chat::{ChatOpenStep, ChatStatus};
 
-        let mut host = ChatHost::copilot();
+        let mut host = ChatHost::pal();
         host.inbox.lock().unwrap().push(ChatOutcome::PageFailed(
             ChatOpenStep::CreatingSession,
             "scope_key is already held by a session whose cwd is /elsewhere".to_string(),
@@ -418,7 +416,7 @@ mod tests {
     fn a_notice_puts_the_summary_on_the_feedback_row_without_failing_the_send() {
         use ainb_hangar_proto::fleet::{ActionReceiptStatus, FleetMessageDelivery};
 
-        let mut host = ChatHost::copilot();
+        let mut host = ChatHost::pal();
         host.inbox
             .lock()
             .unwrap()
@@ -454,14 +452,14 @@ mod tests {
     /// A step published mid-page reaches the surface on the next frame.
     ///
     /// This is what makes the cold open legible: the worker is still inside
-    /// `fleet/channel_create` when the frame that renders "creating the copilot
+    /// `fleet/channel_create` when the frame that renders "creating the Pal
     /// channel" is drawn. A step that only landed with the finished page would
     /// report progress that had already finished.
     #[test]
     fn a_step_published_mid_page_reaches_the_surface_before_the_page_does() {
         use ainb_plugin_hangar::screen::fleet_chat::{ChatOpenStep, ChatStatus};
 
-        let mut host = ChatHost::copilot();
+        let mut host = ChatHost::pal();
         host.inbox
             .lock()
             .unwrap()
@@ -473,7 +471,7 @@ mod tests {
         );
         assert_eq!(
             host.state().send_block().as_deref(),
-            Some("creating the copilot channel (fleet/channel_create)"),
+            Some("creating the Pal channel (fleet/channel_create)"),
             "the composer does not say the create is why it cannot send yet"
         );
     }
