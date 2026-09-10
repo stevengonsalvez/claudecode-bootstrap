@@ -1,6 +1,6 @@
 ---
 title: "ainb CLI Reference"
-description: "Full multi-hierarchy reference for every ainb subcommand — generated from the binary's --help."
+description: "Full multi-hierarchy reference for every ainb subcommand: generated from the binary's --help."
 ---
 
 `ainb` is both an interactive terminal UI and a scriptable, headless CLI. Every
@@ -9,7 +9,7 @@ output, so humans drive it from the dashboard and agents drive it from shell
 scripts. Run `ainb` with no arguments to launch the TUI; use any subcommand
 below for non-interactive work.
 
-> **Generated — do not edit by hand.** This page is produced from the live
+> **Generated: do not edit by hand.** This page is produced from the live
 > binary by [`ainb-tui/scripts/gen-cli-reference.sh`](https://github.com/stevengonsalvez/agents-in-a-box/blob/main/ainb-tui/scripts/gen-cli-reference.sh),
 > which walks `ainb <cmd> --help` for every command. CI fails if it drifts, so
 > the output of `ainb --help` stays the source of truth. To update: run the
@@ -20,13 +20,13 @@ below for non-interactive work.
 | Flag | Description |
 |------|-------------|
 | `--format <text\|json\|csv\|markdown>` | Output format for any command (default `text`). `json` is the machine-readable form for scripting/agents. |
-| `-h, --help` | Print help for the command (recursive — works at every level). |
+| `-h, --help` | Print help for the command (recursive: works at every level). |
 | `-V, --version` | Print the build identity (commit + date), or `-V` for the bare semver. |
 
 ## Reading this reference
 
 Each command shows its description followed by the verbatim `ainb <cmd> --help`
-output — including its arguments, flags, and an `EXAMPLES:` block. Groups
+output: including its arguments, flags, and an `EXAMPLES:` block. Groups
 (`config`, `git`, `usage`, `fleet`, `hangar`, …) nest their subcommands as
 sub-sections; recursive help (`ainb <group> <sub> --help`) works for every
 node. The page's right-hand "On this page" panel is the full command tree.
@@ -94,7 +94,7 @@ Options:
       --dangerously-skip-permissions   Skip permission prompts (dangerous!)
       --name <NAME>                    Custom tmux session name (NOT an attach/status/kill handle)
   -i, --interactive                    Run in interactive mode (spawn tmux and attach)
-      --parent <PARENT>                Parent session id — links this session to an orchestrator (e.g. ATC) so its completions route to the parent's durable inbox (event-driven plumbing). Exported into the session as `AINB_PARENT_SESSION`
+      --parent <PARENT>                Parent session id: links this session to an orchestrator (e.g. ATC) so its completions route to the parent's durable inbox (event-driven plumbing). Exported into the session as `AINB_PARENT_SESSION`
   -h, --help                           Print help
 
 EXAMPLES:
@@ -943,10 +943,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -976,10 +976,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1009,10 +1009,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1042,10 +1042,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1075,10 +1075,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -o, --output <OUTPUT>      Output file or directory
   -h, --help                 Print help
 ```
@@ -1131,10 +1131,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1256,10 +1256,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1289,10 +1289,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1322,10 +1322,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1355,10 +1355,10 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
   -h, --help                 Print help
 ```
 
@@ -1438,21 +1438,21 @@ Options:
       --hard                 Hard refresh: wipe the parse cache and stable rollup, then rebuild everything from source before reporting. CPU-heavy on large histories; the flag itself is the explicit opt-in (no interactive prompt, safe for pipes/scripts)
       --project <PROJECT>    Drill into a single project (exact match). Repeatable
       --model <MODEL>        Drill into a single model (exact match). Repeatable
-      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc. — see ActivityCategory::label). Repeatable
+      --activity <ACTIVITY>  Drill into one activity category (Coding, Conversation, Git, etc.: see ActivityCategory::label). Repeatable
       --session <SESSION>    Drill into a single session id. Repeatable
       --branch <BRANCH>      Drill into a single git branch (exact match against `gitBranch` on Claude turns). Repeatable. Codex turns have no recorded branch and are excluded by any non-empty `--branch` filter
-      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap" — emit every row [default: 8]
+      --top <TOP>            Cap the long By-Project / By-Activity / By-Model tables at N rows (default 8 mirrors the historical hard-coded slice). Applies to report, today, month, and export subcommands across every format. 0 means "no cap": emit every row [default: 8]
       --by-task              Emit a per-model × per-activity-category matrix instead of the flat per-model rollup. Rows = model, columns = activity category, cell = (calls, tokens, cost)
   -h, --help                 Print help
 ```
 
 ## `ainb claudecode`
 
-Claude Code-specific commands (statusline, etc.). Provider-namespaced — other providers grow their own.
+Claude Code-specific commands (statusline, etc.). Provider-namespaced: other providers grow their own.
 
 ```console
 $ ainb claudecode --help
-Claude Code-specific commands (statusline, etc.). Provider-namespaced — other providers grow their own.
+Claude Code-specific commands (statusline, etc.). Provider-namespaced: other providers grow their own.
 
 Usage: ainb claudecode [OPTIONS] <COMMAND>
 
@@ -1489,11 +1489,11 @@ Options:
 
 ## `ainb codex`
 
-Codex-specific commands (statusline, etc.). Provider-namespaced — the Codex analog of `claudecode`.
+Codex-specific commands (statusline, etc.). Provider-namespaced: the Codex analog of `claudecode`.
 
 ```console
 $ ainb codex --help
-Codex-specific commands (statusline, etc.). Provider-namespaced — the Codex analog of `claudecode`.
+Codex-specific commands (statusline, etc.). Provider-namespaced: the Codex analog of `claudecode`.
 
 Usage: ainb codex [OPTIONS] <COMMAND>
 
@@ -1718,7 +1718,7 @@ Options:
       --format <format>   Output format [default: text] [possible values: text, json, csv, markdown]
       --listen <ADDR>     Address to bind (default: web.listen, or 127.0.0.1:8420; non-loopback needs --token)
       --token <SECRET>    Bearer token required on every /api/* route (enables non-loopback bind)
-      --insecure-bind     Allow a non-loopback bind with no token. DANGEROUS: an unauthenticated bind exposes a control surface — the live WS terminal is interactive shell access to every fleet session. Only honored with --read-only (terminal disabled); otherwise refused. Use --token instead to expose the write surface safely
+      --insecure-bind     Allow a non-loopback bind with no token. DANGEROUS: an unauthenticated bind exposes a control surface: the live WS terminal is interactive shell access to every fleet session. Only honored with --read-only (terminal disabled); otherwise refused. Use --token instead to expose the write surface safely
       --read-only         Viewer-only: disable the live terminal write surface (the WS terminal is refused with 403)
       --no-read-only      Serve the write surface for this run, overriding web.read_only
       --no-insecure-bind  Refuse an unauthenticated non-loopback bind for this run, overriding web.insecure_bind
@@ -2059,13 +2059,13 @@ Commands:
   confirm        Guardrail confirm cards: copilot tool calls held for a human
   activity       The append-only copilot activity feed
   sequence       Ordered prompts with ack between steps
-  needs          Center control panel — sessions blocked on input / errors / idle / waiting
+  needs          Center control panel: sessions blocked on input / errors / idle / waiting
   archived       Sessions the daemon retired out of the live roster (still browsable)
   cost           Per-session / model / day / group spend rollups + budget caps
   daemon         DEPRECATED, superseded by `ainb fleet atc`: auto-continues API errors without ATC's per-session retry cap
   daemons        Unified runtime health of every long-running daemon (phone bridge / notifyd / ATC / fleet daemon)
   runtime        Install the standalone Fleet daemon and provider hooks
-  atc            Air Traffic Control — the persistent fleet brain (setup / status / list / repair / teardown)
+  atc            Air Traffic Control: the persistent fleet brain (setup / status / list / repair / teardown)
   bridge         Native phone bridge (Telegram + Slack): relay messages two-way to ainb sessions
   enrich-cache   Content-addressed enrich cache (the producer's write path)
   help           Print this message or the help of the given subcommand(s)
@@ -2233,7 +2233,7 @@ Usage: ainb fleet standup [OPTIONS]
 Options:
       --format <format>  Output format [default: text] [possible values: text, json, csv, markdown]
       --text             Force text output even with --format json
-      --no-enrich        Skip AI enrichment — 0-token output (env AINB_FLEET_ENRICH=0)
+      --no-enrich        Skip AI enrichment: 0-token output (env AINB_FLEET_ENRICH=0)
   -h, --help             Print help
 ```
 
@@ -2695,18 +2695,18 @@ Options:
 
 ### `ainb fleet needs`
 
-Center control panel — sessions blocked on input / errors / idle / waiting
+Center control panel: sessions blocked on input / errors / idle / waiting
 
 ```console
 $ ainb fleet needs --help
-Center control panel — sessions blocked on input / errors / idle / waiting
+Center control panel: sessions blocked on input / errors / idle / waiting
 
 Usage: ainb fleet needs [OPTIONS]
 
 Options:
       --format <format>      Output format [default: text] [possible values: text, json, csv, markdown]
       --idle-min <idle-min>  Minutes of assistant silence before flagging IDLE (default 5, env AINB_FLEET_IDLE_MIN)
-      --no-enrich            Skip AI enrichment — 0-token HUD (env AINB_FLEET_ENRICH=0)
+      --no-enrich            Skip AI enrichment: 0-token HUD (env AINB_FLEET_ENRICH=0)
   -h, --help                 Print help
 ```
 
@@ -2824,11 +2824,11 @@ Options:
 
 ### `ainb fleet atc`
 
-Air Traffic Control — the persistent fleet brain (setup / status / list / repair / teardown)
+Air Traffic Control: the persistent fleet brain (setup / status / list / repair / teardown)
 
 ```console
 $ ainb fleet atc --help
-Air Traffic Control — the persistent fleet brain (setup / status / list / repair / teardown)
+Air Traffic Control: the persistent fleet brain (setup / status / list / repair / teardown)
 
 Usage: ainb fleet atc [OPTIONS] <COMMAND>
 
@@ -3932,7 +3932,7 @@ Run the shared MCP pool daemon (foreground).
 $ ainb mcp daemon --help
 Run the shared MCP pool daemon (foreground).
 
-You rarely run this directly — `ainb run` and the TUI overlay's import auto-start it detached. There is exactly ONE daemon per user, keyed by the control socket at ~/.agents-in-a-box/mcp/sockets/control.sock: every `ainb` instance (and Codex/Copilot sessions wired via `ainb mcp install`) shares it, so N sessions share ONE child process per server. A second start is a no-op — it detects the live socket (or loses the bind race) and exits.
+You rarely run this directly: `ainb run` and the TUI overlay's import auto-start it detached. There is exactly ONE daemon per user, keyed by the control socket at ~/.agents-in-a-box/mcp/sockets/control.sock: every `ainb` instance (and Codex/Copilot sessions wired via `ainb mcp install`) shares it, so N sessions share ONE child process per server. A second start is a no-op: it detects the live socket (or loses the bind race) and exits.
 
 Lifecycle: servers spawn lazily on first attach; a server's child is reaped [mcp_pool].idle_grace_secs after its last client detaches (default 300); and the whole daemon exits after [mcp_pool].daemon_idle_grace_secs with no clients anywhere (default 900, 0 = never) so an unused or orphaned pool can't linger.
 
@@ -4051,7 +4051,7 @@ Commands:
   run        Run the daemon in the foreground (default)
   stop       Stop a running daemon via its PID file
   reap       Kill orphan / wedged notifyd processes, sparing the live owner
-  restart    Stop, reap, and respawn the daemon — the single resume/repair command for a dead or wedged approve socket
+  restart    Stop, reap, and respawn the daemon: the single resume/repair command for a dead or wedged approve socket
   install    Install the ainb-hooks hook
   uninstall  Uninstall the ainb-hooks hook
   status     Report install + daemon status
@@ -4116,11 +4116,11 @@ Options:
 
 ### `ainb notifyd restart`
 
-Stop, reap, and respawn the daemon — the single resume/repair command for a dead or wedged approve socket
+Stop, reap, and respawn the daemon: the single resume/repair command for a dead or wedged approve socket
 
 ```console
 $ ainb notifyd restart --help
-Stop, reap, and respawn the daemon — the single resume/repair command for a dead or wedged approve socket
+Stop, reap, and respawn the daemon: the single resume/repair command for a dead or wedged approve socket
 
 Usage: ainb notifyd restart [OPTIONS]
 
@@ -4270,7 +4270,7 @@ Commands:
   unsubscribe  Unsubscribe an actor from an issue's notifications. Idempotent
   subscribers  List who watches an issue, with the reason each one was subscribed
   react        Add, remove, or list an issue's emoji reactions
-  why          Explain why an issue did (or did not) dispatch — its admission history
+  why          Explain why an issue did (or did not) dispatch: its admission history
   timeline     Show one issue's activity timeline: state changes, assignments, comments
   property     Set or clear one of the workspace's custom properties on an issue
   meta         Read and write an issue's agent metadata scratch bag
@@ -4315,7 +4315,7 @@ Options:
           When set, the issue's assignee is the agent and a `queued` task is enqueued for the agent's runtime, so the daemon's claim loop picks it up, materialises the agent's attached skills (P6.4), and dispatches the provider. The created task id is printed alongside the issue id.
 
       --priority <PRIORITY>
-          Urgency: 0..3 mapping P3..P0 — HIGHER = MORE URGENT (default 0).
+          Urgency: 0..3 mapping P3..P0: HIGHER = MORE URGENT (default 0).
           
           Stamped onto BOTH the created issue and (when `--assign` enqueues one) the task: the daemon's claim loop drains `priority DESC, created_at, id` (reference ordering parity), so a higher value jumps the queue while equal priorities stay FIFO.
           
@@ -4337,12 +4337,12 @@ Options:
           Persisted as the issue's ordered acceptance-criteria list (migration 0048, multica parity); rendered on the detail card's `Acceptance:` block.
 
       --context-ref <CONTEXT_REFS>
-          A context reference — URL / `owner/repo#123` / note (repeatable).
+          A context reference: URL / `owner/repo#123` / note (repeatable).
           
           Persisted as the issue's ordered context-reference list (migration 0048, multica parity); rendered on the detail card's `Context:` block.
 
       --repo <REPO>
-          The repo the run executes in: an absolute checkout path, the literal `scratch`, or a REMOTE (`owner/repo`, a full URL, or `git@…`) — a remote is cloned once into the shared clone cache and the local path persisted, exactly like the board card-create path (migration 0032/0042)
+          The repo the run executes in: an absolute checkout path, the literal `scratch`, or a REMOTE (`owner/repo`, a full URL, or `git@…`): a remote is cloned once into the shared clone cache and the local path persisted, exactly like the board card-create path (migration 0032/0042)
 
       --source-branch <SOURCE_BRANCH>
           The SOURCE branch the run branches FROM (migration 0042); omitted uses the repo's default branch. Persisted on the issue AND the enqueued task
@@ -4363,7 +4363,7 @@ Options:
       --origin-type <ORIGIN_TYPE>
           Provenance of this issue: `autopilot` | `comment_mention` | `manual` (migration 0056, multica parity #21).
           
-          Defaults to `$HANGAR_ORIGIN_TYPE` — the daemon injects it into a dispatched agent's environment, so an issue an agent creates mid-run is attributable back to the comment / autopilot that asked for it. With neither flag nor env, a create is stamped `manual`.
+          Defaults to `$HANGAR_ORIGIN_TYPE`: the daemon injects it into a dispatched agent's environment, so an issue an agent creates mid-run is attributable back to the comment / autopilot that asked for it. With neither flag nor env, a create is stamped `manual`.
 
       --origin-id <ORIGIN_ID>
           The provenance id: the autopilot id for `autopilot`, the comment id for `comment_mention`. REQUIRED for every kind except `manual`.
@@ -4449,7 +4449,7 @@ Options:
           [possible values: text, json, csv, markdown]
 
       --state <STATE>
-          New lifecycle state — one of `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`; omitted leaves it
+          New lifecycle state: one of `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`; omitted leaves it
 
       --assign <ASSIGN>
           Reassign the issue to an agent (`agent.id`); omitted leaves the assignee.
@@ -4492,7 +4492,7 @@ Arguments:
 
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
-      --state <STATE>          The lifecycle state applied to EVERY id — one of `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`
+      --state <STATE>          The lifecycle state applied to EVERY id: one of `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`
       --workspace <WORKSPACE>  Workspace slug the issues belong to. Defaults to the bootstrapped `default` workspace
   -h, --help                   Print help
 ```
@@ -4661,11 +4661,11 @@ Options:
 
 #### `ainb hangar issue why`
 
-Explain why an issue did (or did not) dispatch — its admission history
+Explain why an issue did (or did not) dispatch: its admission history
 
 ```console
 $ ainb hangar issue why --help
-Explain why an issue did (or did not) dispatch — its admission history
+Explain why an issue did (or did not) dispatch: its admission history
 
 Usage: ainb hangar issue why [OPTIONS] <ID>
 
@@ -4694,7 +4694,7 @@ Arguments:
 
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
-      --limit <LIMIT>          How many entries to show — the newest window, printed oldest-first [default: 200]
+      --limit <LIMIT>          How many entries to show: the newest window, printed oldest-first [default: 200]
       --workspace <WORKSPACE>  Workspace slug the issue belongs to. Defaults to the bootstrapped `default` workspace
   -h, --help                   Print help
 ```
@@ -4844,7 +4844,7 @@ Walk the mapping table and repair Hangar <-> bd drift
 Usage: ainb hangar beads reconcile [OPTIONS]
 
 Options:
-      --dry-run          Diff only — report drift without writing either side
+      --dry-run          Diff only: report drift without writing either side
       --format <format>  Output format [default: text] [possible values: text, json, csv, markdown]
       --label <LABEL>    Restrict to bd issues carrying this label (repeatable)
       --json             Emit the reconcile report as JSON instead of a summary line
@@ -5111,8 +5111,8 @@ Manage personal access tokens
 Usage: ainb hangar auth token [OPTIONS] <COMMAND>
 
 Commands:
-  create  Mint a new PAT. Prints the plaintext **once** — it is never recoverable
-  list    List this user's PATs (id, scope, timestamps — never the plaintext)
+  create  Mint a new PAT. Prints the plaintext **once**: it is never recoverable
+  list    List this user's PATs (id, scope, timestamps: never the plaintext)
   revoke  Revoke a PAT by id
   help    Print this message or the help of the given subcommand(s)
 
@@ -5420,7 +5420,7 @@ Options:
       --instructions <INSTRUCTIONS>  Optional instructions / system prompt for the agent
       --description <DESCRIPTION>    Optional short blurb rendered beside the agent (≤255 characters)
       --avatar <AVATAR>              Optional avatar token (e.g. `emoji:🦊`); omitted mints a random emoji
-      --service-tier <SERVICE_TIER>  Optional Codex service tier (e.g. `priority`); omitted inherits the local Codex config. Stored + surfaced only — no dispatch-time override yet
+      --service-tier <SERVICE_TIER>  Optional Codex service tier (e.g. `priority`); omitted inherits the local Codex config. Stored + surfaced only: no dispatch-time override yet
       --workspace <WORKSPACE>        Workspace slug to create the agent in. Defaults to the bootstrapped `default` workspace (created if absent)
   -h, --help                         Print help
 ```
@@ -5467,7 +5467,7 @@ Options:
       --clear-mcp                    Clear the MCP config; omitted leaves it
       --thinking <THINKING>          New thinking level (e.g. `low`/`medium`/`high`); omitted leaves it. Mutually exclusive with `--clear-thinking`
       --clear-thinking               Clear the thinking level; omitted leaves it
-      --env <ENV>                    A `KEY=VALUE` env var for the agent (repeatable; ANY `--env` REPLACES the whole map). Visible in `ps` / shell history — prefer `--env-stdin` / `--env-file` for secrets
+      --env <ENV>                    A `KEY=VALUE` env var for the agent (repeatable; ANY `--env` REPLACES the whole map). Visible in `ps` / shell history: prefer `--env-stdin` / `--env-file` for secrets
       --env-stdin                    Read the whole env map from STDIN as a JSON object of string→string, keeping secrets off argv; `{}` clears it and empty input is an ERROR, not a clear
       --env-file <ENV_FILE>          Read the whole env map from a FILE as a JSON object of string→string (same contract as `--env-stdin`)
       --token-budget <TOKEN_BUDGET>  New token budget (rtk/headroom, migration 0042); omitted leaves it. Mutually exclusive with `--clear-token-budget`
@@ -5497,7 +5497,7 @@ Arguments:
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
       --workspace <WORKSPACE>  Workspace slug the agent belongs to. Defaults to the bootstrapped `default` workspace
-      --by <BY>                The `user.id` recorded as the archiving actor (migration 0052). Omitted defaults to the workspace owner — the ordinary single-operator archive
+      --by <BY>                The `user.id` recorded as the archiving actor (migration 0052). Omitted defaults to the workspace owner: the ordinary single-operator archive
   -h, --help                   Print help
 ```
 
@@ -5517,7 +5517,7 @@ Arguments:
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
       --workspace <WORKSPACE>  Workspace slug the agent belongs to. Defaults to the bootstrapped `default` workspace
-      --by <BY>                The `user.id` recorded as the archiving actor (migration 0052). Omitted defaults to the workspace owner — the ordinary single-operator archive
+      --by <BY>                The `user.id` recorded as the archiving actor (migration 0052). Omitted defaults to the workspace owner: the ordinary single-operator archive
   -h, --help                   Print help
 ```
 
@@ -5628,7 +5628,7 @@ Commands:
   list      List the workspace's members (email + role)
   set-role  Change a member's role (`owner` / `admin` / `member`)
   remove    Remove a member from the workspace (the user row survives)
-  invite    Invite an email to join (pending until accepted — parity #18)
+  invite    Invite an email to join (pending until accepted: parity #18)
   invites   List the workspace's live pending invitations
   accept    Accept an invitation addressed to you (this is what adds the member)
   decline   Decline an invitation addressed to you (no member is created)
@@ -5750,11 +5750,11 @@ Options:
 
 #### `ainb hangar member invite`
 
-Invite an email to join (pending until accepted — parity #18)
+Invite an email to join (pending until accepted: parity #18)
 
 ```console
 $ ainb hangar member invite --help
-Invite an email to join (pending until accepted — parity #18)
+Invite an email to join (pending until accepted: parity #18)
 
 Usage: ainb hangar member invite [OPTIONS] --email <EMAIL>
 
@@ -5769,7 +5769,7 @@ Options:
           [possible values: text, json, csv, markdown]
 
       --role <ROLE>
-          The role the invitee will hold on accept: `admin` or `member` (default `member`). `owner` parses but is rejected — ownership is transferred, never invited
+          The role the invitee will hold on accept: `admin` or `member` (default `member`). `owner` parses but is rejected: ownership is transferred, never invited
 
           Possible values:
           - owner:  Full administrative control; a workspace must always keep one
@@ -5872,7 +5872,7 @@ Create squads, manage membership, and view squad status + leader
 Usage: ainb hangar squad [OPTIONS] <COMMAND>
 
 Commands:
-  list           List the workspace's squads (name, leader, members) — the status view
+  list           List the workspace's squads (name, leader, members): the status view
   create         Create a squad with a leader actor-ref (`agent:<id>` / `member:<id>`)
   add-member     Add a member actor to a squad (`agent:<id>` / `member:<id>`)
   remove-member  Remove a member actor from a squad (`agent:<id>` / `member:<id>`)
@@ -5891,11 +5891,11 @@ Options:
 
 #### `ainb hangar squad list`
 
-List the workspace's squads (name, leader, members) — the status view
+List the workspace's squads (name, leader, members): the status view
 
 ```console
 $ ainb hangar squad list --help
-List the workspace's squads (name, leader, members) — the status view
+List the workspace's squads (name, leader, members): the status view
 
 Usage: ainb hangar squad list [OPTIONS]
 
@@ -5989,7 +5989,7 @@ Options:
       --priority <PRIORITY>    Claim urgency (0..3, higher = more urgent). Defaults to `0` (routine) [default: 0]
       --fanout                 Dispatch through the squad. Enqueues the card into the first role-gated pipeline column, where ONE eligible agent takes it (no longer one run per member)
       --redundant <N>          Deliberately run this issue N times in parallel on up to N distinct squad agents, all stamped with one shared `run_group`. Omitted or `1` is a single owner
-      --invoker <INVOKER>      The user the invocation-permission gate judges this assignment by (a user id or an email). Omitted defaults to the workspace owner — the ordinary single-operator assign, which the gate always admits
+      --invoker <INVOKER>      The user the invocation-permission gate judges this assignment by (a user id or an email). Omitted defaults to the workspace owner: the ordinary single-operator assign, which the gate always admits
       --workspace <WORKSPACE>  Workspace slug the squad belongs to. Defaults to the bootstrapped `default` workspace
   -h, --help                   Print help
 ```
@@ -6118,7 +6118,7 @@ Commands:
   webhook       Configure the HTTP webhook trigger (enable/disable, rotate secret, filter)
   deliveries    List the autopilot's recent webhook deliveries (audit log)
   collaborator  Manage the rule's explicit WRITE-GRANT set (multica parity #27)
-  subscriber    Manage the rule's STANDING subscriber list — every issue the rule spawns auto-subscribes it (multica parity #27)
+  subscriber    Manage the rule's STANDING subscriber list: every issue the rule spawns auto-subscribes it (multica parity #27)
   access        Open or restrict who may WRITE this rule (multica parity #27)
   help          Print this message or the help of the given subcommand(s)
 
@@ -6148,7 +6148,7 @@ Options:
           Name, unique within the workspace
 
       --cron <CRON>
-          Cron expression (UTC, 5-field) — validated before insert
+          Cron expression (UTC, 5-field): validated before insert
 
       --agent <AGENT>
           Agent id to dispatch to at each tick (`agent.id`)
@@ -6181,7 +6181,7 @@ Options:
           [default: skip]
 
       --as-user <AS_USER>
-          The ACCOUNTABLE HUMAN for this rule (`user.id` or email). Recorded on rule-version v1, which creation writes in the same transaction. Omitted defaults to the local human (`member:me`) — a CLI create always has a human at the keyboard
+          The ACCOUNTABLE HUMAN for this rule (`user.id` or email). Recorded on rule-version v1, which creation writes in the same transaction. Omitted defaults to the local human (`member:me`): a CLI create always has a human at the keyboard
 
       --workspace <WORKSPACE>
           Workspace slug to create in. Defaults to the bootstrapped `default`
@@ -6273,7 +6273,7 @@ Options:
           New display name (cosmetic on its own)
 
       --cron <CRON>
-          New cron expression (UTC, 5-field) — revalidated before any write
+          New cron expression (UTC, 5-field): revalidated before any write
 
       --agent <AGENT>
           Re-target the rule at a different agent (`agent.id`)
@@ -6303,7 +6303,7 @@ Options:
           - replace: Supersede the in-flight run and fire fresh
 
       --as-user <AS_USER>
-          The ACCOUNTABLE HUMAN for this edit (`user.id` or email) — the name recorded on the minted rule version. Defaults to the local human (`member:me`)
+          The ACCOUNTABLE HUMAN for this edit (`user.id` or email): the name recorded on the minted rule version. Defaults to the local human (`member:me`)
 
       --workspace <WORKSPACE>
           Workspace slug the autopilot belongs to. Defaults to `default`
@@ -6363,7 +6363,7 @@ Options:
           [default: manual]
 
       --as-user <AS_USER>
-          The human firing it (`user.id` or email). A `manual` run attributes to this human (`direct_human`) — them, not the rule's owner. An `api` run stays UNATTENDED (`rule_owner`), matching multica. Defaults to the local human (`member:me`)
+          The human firing it (`user.id` or email). A `manual` run attributes to this human (`direct_human`): them, not the rule's owner. An `api` run stays UNATTENDED (`rule_owner`), matching multica. Defaults to the local human (`member:me`)
 
       --workspace <WORKSPACE>
           Workspace slug the autopilot belongs to. Defaults to `default`
@@ -6480,11 +6480,11 @@ Options:
 
 #### `ainb hangar autopilot subscriber`
 
-Manage the rule's STANDING subscriber list — every issue the rule spawns auto-subscribes it (multica parity #27)
+Manage the rule's STANDING subscriber list: every issue the rule spawns auto-subscribes it (multica parity #27)
 
 ```console
 $ ainb hangar autopilot subscriber --help
-Manage the rule's STANDING subscriber list — every issue the rule spawns auto-subscribes it (multica parity #27)
+Manage the rule's STANDING subscriber list: every issue the rule spawns auto-subscribes it (multica parity #27)
 
 Usage: ainb hangar autopilot subscriber [OPTIONS] <COMMAND>
 
@@ -6512,7 +6512,7 @@ Usage: ainb hangar autopilot access [OPTIONS] --id <ID> --mode <MODE>
 Options:
       --format <format>        Output format [default: text] [possible values: text, json, csv, markdown]
       --id <ID>                The autopilot id (`autopilot.id`)
-      --mode <MODE>            `open` (any actor in the workspace may write — the default and every pre-0064 rule) or `restricted` (owner / workspace owner+admin / an explicit `editor` collaborator only)
+      --mode <MODE>            `open` (any actor in the workspace may write: the default and every pre-0064 rule) or `restricted` (owner / workspace owner+admin / an explicit `editor` collaborator only)
       --as-user <AS_USER>      The acting human (write gate subject + rule-version attribution)
       --workspace <WORKSPACE>  Workspace slug the autopilot belongs to. Defaults to `default`
   -h, --help                   Print help
@@ -6597,7 +6597,7 @@ Options:
       --repo-whitelist <REPO_WHITELIST>
           Set the repo whitelist as a comma-separated list of `owner/name` slugs (e.g. `org/api,org/web`). The empty string sets a configured-but-empty whitelist (allows nothing); use `--clear-repo-whitelist` to remove the gate
       --clear-repo-whitelist
-          Unset the repo whitelist (no gate — every repo allowed)
+          Unset the repo whitelist (no gate: every repo allowed)
       --workspace <WORKSPACE>
           Workspace slug to configure. Defaults to the bootstrapped `default` workspace
   -h, --help
@@ -6770,7 +6770,7 @@ Options:
       --issue <ISSUE>          Issue id (ULID) to comment on
       --body <BODY>            The comment body. `@handle` and `[@Label](mention://type/id)` both route
       --author <AUTHOR>        The author as a canonical actor-ref. `member:me` is the local operator, which the invocation gate resolves to the workspace owner [default: member:me]
-      --parent <PARENT>        The comment this one replies to — drives the reply-parent fallback and multica's parent-mention inheritance
+      --parent <PARENT>        The comment this one replies to: drives the reply-parent fallback and multica's parent-mention inheritance
       --workspace <WORKSPACE>  Workspace slug the issue belongs to. Defaults to the bootstrapped `default` workspace
   -h, --help                   Print help
 ```
@@ -6790,7 +6790,7 @@ Options:
       --issue <ISSUE>          Issue id (ULID) to comment on
       --body <BODY>            The comment body. `@handle` and `[@Label](mention://type/id)` both route
       --author <AUTHOR>        The author as a canonical actor-ref. `member:me` is the local operator, which the invocation gate resolves to the workspace owner [default: member:me]
-      --parent <PARENT>        The comment this one replies to — drives the reply-parent fallback and multica's parent-mention inheritance
+      --parent <PARENT>        The comment this one replies to: drives the reply-parent fallback and multica's parent-mention inheritance
       --workspace <WORKSPACE>  Workspace slug the issue belongs to. Defaults to the bootstrapped `default` workspace
   -h, --help                   Print help
 ```
@@ -7105,7 +7105,7 @@ Options:
 
 The skill-manager commands (`skill`, `source`, `search`, `migrate`) are
 intercepted before clap and routed to the unit manager; they are documented in
-their own section under [Skill manager](../skill-manager/guide) and surfaced in
+their own section under [Skill manager](/skill-manager/guide) and surfaced in
 `ainb --help` under "SKILL MANAGER". Run `ainb skill --help` for the full verb
 list.
 
@@ -7114,10 +7114,10 @@ list.
 A few commands are hidden from `ainb --help` because they are internal
 daemon/hook entrypoints rather than everyday verbs. Run `<cmd> --help` for each:
 
-- `ainb notifyd <run|stop|install|uninstall|status|list>` — the ainb-hooks
+- `ainb notifyd <run|stop|install|uninstall|status|list>`: the ainb-hooks
   notification daemon. `ainb notifyd list [--format json]` reads persisted
   notifications headlessly; the TUI Inbox is the interactive view.
-- `ainb statusline` — legacy Claude Code statusline alias (prefer
+- `ainb statusline`: legacy Claude Code statusline alias (prefer
   `ainb claudecode statusline`).
 
 ## Exit codes
