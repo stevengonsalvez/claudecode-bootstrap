@@ -73,6 +73,6 @@ Logs are written to `~/.agents-in-a-box/phone-bridge.log`.
 
 ## Next steps
 
-- [ATC background watcher](atc-plumbing.md): always-on session watcher
-- [Attaching to sessions](tui/attach.md): terminal attachment controls
-- [CLI reference](tui/cli.md): fleet bridge command flags
+- [ATC background watcher](/atc-plumbing): always-on session watcher
+- [Attaching to sessions](/tui/attach): terminal attachment controls
+- [CLI reference](/tui/cli): fleet bridge command flags
