@@ -1,17 +1,17 @@
 ---
 title: "Hooks & Platform · how reflect captures and recalls across Claude + Codex"
-description: "Visual deep-dive into the reflect plugin's hook architecture, recall flows, capture flows, status line integration, and cross-tool drain — across Claude Code and Codex CLI."
+description: "Visual deep-dive into the reflect plugin's hook architecture, recall flows, capture flows, status line integration, and cross-tool drain: across Claude Code and Codex CLI."
 ---
 
-> **The short version** — Three harnesses (Claude Code, Codex CLI, GitHub Copilot) wire the same
+> **The short version**: Three harnesses (Claude Code, Codex CLI, GitHub Copilot) wire the same
 > hook scripts into different config files (`~/.claude/settings.json` vs `~/.codex/hooks.json` vs
 > `~/.copilot/hooks/reflect.json`) and share one on-disk knowledge base (`~/.reflect/` queue +
 > `~/.learnings/` documents + GraphRAG index). **SessionStart** fires the baseline recall + the
 > bg-drainer; **UserPromptSubmit** fires the intent-sharp recall with per-session dedupe;
 > **PreCompact**, **Stop**, and **PostToolUse** capture learnings into the shared store. A codex
-> session can enqueue a reflection that a later Claude session drains — and vice versa.
+> session can enqueue a reflection that a later Claude session drains: and vice versa.
 >
-> **No extra LLM/embedding config** on any harness — recall/index use a local model (no key);
+> **No extra LLM/embedding config** on any harness: recall/index use a local model (no key);
 > capture reuses the harness LLM (`claude -p`), so Codex/Copilot need the `claude` CLI on PATH for
 > the drain. Copilot drops `userPromptSubmitted` hook output, so per-prompt recall there is manual
 > `/recall` (SessionStart auto-recall works).
@@ -53,14 +53,14 @@ flow; dashed clay arrows are recall (read into context); dashed olive arrows are
           <text x="290" y="58" font-size="15" font-weight="600" fill="#141413" text-anchor="middle">Claude Code session</text>
           <text x="290" y="80" font-size="12" fill="#3D3D3A" text-anchor="middle">reads hooks from <tspan font-family="ui-monospace, monospace" fill="#141413">~/.claude/settings.json</tspan></text>
           <text x="290" y="100" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">wired by plugin.json autowire (CLAUDE_PLUGIN_ROOT)</text>
-          <text x="290" y="122" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">— OR — manual claude_adapter.py install</text>
+          <text x="290" y="122" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">,  OR: manual claude_adapter.py install</text>
         </g>
         <g>
           <rect x="600" y="30" width="380" height="110" rx="12" ry="12" fill="#A8C5E6" stroke="#3D3D3A" stroke-width="1.5"/>
           <text x="790" y="58" font-size="15" font-weight="600" fill="#141413" text-anchor="middle">Codex CLI session</text>
           <text x="790" y="80" font-size="12" fill="#3D3D3A" text-anchor="middle">reads hooks from <tspan font-family="ui-monospace, monospace" fill="#141413">~/.codex/hooks.json</tspan></text>
           <text x="790" y="100" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">wired by codex_adapter.py install</text>
-          <text x="790" y="122" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">(no plugin runtime — adapter autowires itself)</text>
+          <text x="790" y="122" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">(no plugin runtime: adapter autowires itself)</text>
         </g>
         <!-- ============ HOOK SCRIPTS BAND ============ -->
         <g>
@@ -99,7 +99,7 @@ flow; dashed clay arrows are recall (read into context); dashed olive arrows are
           <text x="240" y="508" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">one line per queued transcript</text>
           <text x="240" y="525" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">{transcript_path, session_id,</text>
           <text x="240" y="540" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">trigger, harness, queued_at}</text>
-          <text x="240" y="572" font-size="11" fill="#3D3D3A" text-anchor="middle" font-style="italic">harness-agnostic — any harness</text>
+          <text x="240" y="572" font-size="11" fill="#3D3D3A" text-anchor="middle" font-style="italic">harness-agnostic: any harness</text>
           <text x="240" y="589" font-size="11" fill="#3D3D3A" text-anchor="middle" font-style="italic">writes, any harness drains</text>
         </g>
         <g>
@@ -132,7 +132,7 @@ flow; dashed clay arrows are recall (read into context); dashed olive arrows are
           <text x="540" y="756" font-size="12" fill="#141413" text-anchor="middle" font-style="italic">"extract the learnings from this transcript"</text>
           <text x="540" y="782" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">--output-format json · --max-turns 25</text>
           <text x="540" y="799" font-size="11" font-family="ui-monospace, monospace" fill="#3D3D3A" text-anchor="middle">--permission-mode bypassPermissions</text>
-          <text x="540" y="823" font-size="11" fill="#3D3D3A" text-anchor="middle" font-style="italic">always claude — even when a codex session triggered the drain</text>
+          <text x="540" y="823" font-size="11" fill="#3D3D3A" text-anchor="middle" font-style="italic">always claude: even when a codex session triggered the drain</text>
         </g>
         <!-- ============ ARROWS ============ -->
         <!-- 1: SessionStart → recall (both harnesses) -->
@@ -250,7 +250,7 @@ A horizontal view of what fires when. Hook events show above the spine; data I/O
         <text x="370" y="162" font-size="11" font-family="ui-monospace,monospace" fill="#3D3D3A" text-anchor="middle" font-weight="600">User prompts</text>
         <text x="370" y="175" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">conversation</text>
         <!-- no hook -->
-        <text x="370" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">—</text>
+        <text x="370" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">, </text>
         <!-- data below -->
         <text x="370" y="220" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">model context</text>
         <text x="370" y="233" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">+ learnings</text>
@@ -259,7 +259,7 @@ A horizontal view of what fires when. Hook events show above the spine; data I/O
         <circle cx="510" cy="126" r="7" fill="#FAF9F5" stroke="#3D3D3A" stroke-width="1.5"/>
         <text x="510" y="162" font-size="11" font-family="ui-monospace,monospace" fill="#3D3D3A" text-anchor="middle" font-weight="600">Tool uses</text>
         <text x="510" y="175" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">edits / runs</text>
-        <text x="510" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">—</text>
+        <text x="510" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">, </text>
         <!-- data below -->
         <text x="510" y="220" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">transcript grows;</text>
         <text x="510" y="233" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">~/.claude/ JSONL</text>
@@ -268,7 +268,7 @@ A horizontal view of what fires when. Hook events show above the spine; data I/O
         <circle cx="640" cy="126" r="7" fill="#F4E4C1" stroke="#3D3D3A" stroke-width="1.5"/>
         <text x="640" y="162" font-size="11" font-family="ui-monospace,monospace" fill="#3D3D3A" text-anchor="middle" font-weight="600">Context fills</text>
         <text x="640" y="175" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">approaching limit</text>
-        <text x="640" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">—</text>
+        <text x="640" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">, </text>
         <!-- data below -->
         <text x="640" y="220" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">harness detects</text>
         <text x="640" y="233" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">token threshold</text>
@@ -291,7 +291,7 @@ A horizontal view of what fires when. Hook events show above the spine; data I/O
         <circle cx="900" cy="126" r="7" fill="#E8E6E3" stroke="#3D3D3A" stroke-width="1.5"/>
         <text x="900" y="162" font-size="11" font-family="ui-monospace,monospace" fill="#3D3D3A" text-anchor="middle" font-weight="600">Compaction</text>
         <text x="900" y="175" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">harness compresses</text>
-        <text x="900" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">—</text>
+        <text x="900" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">, </text>
         <!-- data below -->
         <text x="900" y="220" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">transcript archived;</text>
         <text x="900" y="233" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">context window reset</text>
@@ -300,7 +300,7 @@ A horizontal view of what fires when. Hook events show above the spine; data I/O
         <circle cx="1040" cy="126" r="7" fill="#E8E6E3" stroke="#3D3D3A" stroke-width="1.5"/>
         <text x="1040" y="162" font-size="11" font-family="ui-monospace,monospace" fill="#3D3D3A" text-anchor="middle" font-weight="600">Session ends</text>
         <text x="1040" y="175" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">process exits</text>
-        <text x="1040" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">—</text>
+        <text x="1040" y="36" font-size="9.5" font-family="ui-monospace,monospace" fill="#D1CFC5" text-anchor="middle">, </text>
         <!-- data below -->
         <text x="1040" y="220" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">queue entry waits;</text>
         <text x="1040" y="233" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">drained next start</text>
@@ -471,7 +471,7 @@ point at the same hook scripts and the same shared knowledge base.
         <rect x="776" y="30" width="318" height="276" rx="14" fill="#FFFFFF" stroke="#3D3D3A" stroke-width="2"/>
         <text x="935" y="60" font-size="14" font-weight="600" fill="#141413" text-anchor="middle" font-family="ui-monospace,monospace">~/.reflect/ + ~/.learnings/</text>
         <line x1="794" y1="70" x2="1076" y2="70" stroke="#E8E6E3" stroke-width="1"/>
-        <text x="935" y="88" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">shared by ALL harnesses — same directory</text>
+        <text x="935" y="88" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">shared by ALL harnesses: same directory</text>
         <!-- KB tier 1 -->
         <rect x="794" y="100" width="282" height="52" rx="8" fill="#F4E4C1" stroke="#3D3D3A" stroke-width="1"/>
         <text x="935" y="122" font-size="11" font-weight="600" fill="#141413" text-anchor="middle">pending queue</text>
@@ -509,7 +509,7 @@ point at the same hook scripts and the same shared knowledge base.
         <path d="M 776 255 Q 760 305 560 305 Q 450 305 430 280" fill="none" stroke="#D97757" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#c-clay)"/>
         <text x="640" y="320" font-size="9.5" font-family="ui-monospace,monospace" fill="#D97757" text-anchor="middle">recall · top-3 learnings injected into session context</text>
         <!-- "one shared KB" note -->
-        <text x="935" y="326" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">ALL adapters point here — harness-agnostic</text>
+        <text x="935" y="326" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">ALL adapters point here: harness-agnostic</text>
       </svg>
 </div>
 
@@ -629,13 +629,13 @@ command.
       </svg>
 </div>
 
-The `reflect` plugin now ships from its own repo, [stevengonsalvez/ainb-reflect-memory](https://github.com/stevengonsalvez/ainb-reflect-memory) (plugin under `plugin/`), not this monorepo's marketplace — so `/plugin install reflect@agents-in-a-box` no longer resolves. Clone that repo (or use `ainb reflect bootstrap`, which installs from it) and run the adapters from its `plugin/adapters/` directory:
+The `reflect` plugin now ships from its own repo, [stevengonsalvez/ainb-reflect-memory](https://github.com/stevengonsalvez/ainb-reflect-memory) (plugin under `plugin/`), not this monorepo's marketplace: so `/plugin install reflect@agents-in-a-box` no longer resolves. Clone that repo (or use `ainb reflect bootstrap`, which installs from it) and run the adapters from its `plugin/adapters/` directory:
 
 ```bash
-# Claude Code — install from the ainb-reflect-memory plugin/ dir via your
+# Claude Code: install from the ainb-reflect-memory plugin/ dir via your
 # harness's plugin runtime (see the repo README).
 
-# Codex CLI — adapter does the autowire (paths relative to the new repo's plugin/ dir)
+# Codex CLI: adapter does the autowire (paths relative to the new repo's plugin/ dir)
 python plugin/adapters/codex/codex_adapter.py install
 # or skip the bg drain on codex-only machines without claude on PATH:
 python plugin/adapters/codex/codex_adapter.py install --no-bg-drain
@@ -645,7 +645,7 @@ python plugin/adapters/codex/codex_adapter.py install --no-bg-drain
 
 ## Recall · UserPromptSubmit primary, SessionStart baseline, per-session dedupe
 
-SessionStart fires *before* the user has typed anything — its recall query has to be
+SessionStart fires *before* the user has typed anything: its recall query has to be
 inferred from cwd, branch, and recent commits. UserPromptSubmit has the actual user prompt
 to query against, which gives much sharper hits. Both fire; UserPromptSubmit dedupes against
 learnings already injected this session so the same memory doesn't re-inject on every prompt.
@@ -741,7 +741,7 @@ learnings already injected this session so the same memory doesn't re-inject on 
       </svg>
 </div>
 
-**Dedupe state** lives at `~/.reflect/session-injected/<session_id>.json` — a per-session
+**Dedupe state** lives at `~/.reflect/session-injected/<session_id>.json`: a per-session
 set of learning IDs already injected. UserPromptSubmit recall queries the KB, intersects
 with the dedupe set, and only injects new hits as `additionalContext`.
 
@@ -752,7 +752,7 @@ with the dedupe set, and only injects new hits as `additionalContext`.
 PreCompact handles the high-cost full reflection (`claude -p /reflect`). Two more hooks
 cover gaps:
 
-- **PostToolUse** captures cheap mini-learnings inline — on tool failure, arms a watcher
+- **PostToolUse** captures cheap mini-learnings inline: on tool failure, arms a watcher
   for the next user prompt; if the prompt looks like a correction (`"try X instead"`),
   write a low-confidence learning directly to disk. No LLM run needed.
 - **Stop** catches short sessions that end before PreCompact ever fires. Enqueues the
@@ -881,18 +881,18 @@ Both harnesses give visual feedback, but through different mechanisms.
         <text x="978" y="242" font-size="10" font-family="ui-monospace,monospace" fill="#87867F" text-anchor="middle">main · ./repo · 4%</text>
         <!-- Asymmetry callout -->
         <text x="36" y="286" font-size="10.5" font-family="ui-monospace,monospace" fill="#87867F">
-          ★ Claude has a custom shell statusline — we get persistent counters (recalled N · queued M). Codex's status line is a fixed token list;
+          ★ Claude has a custom shell statusline: we get persistent counters (recalled N · queued M). Codex's status line is a fixed token list;
         </text>
         <text x="36" y="302" font-size="10.5" font-family="ui-monospace,monospace" fill="#87867F">
-          we use the per-hook statusMessage field — shows ephemerally during hook execution only. Full parity blocked on a codex custom-token API.
+          we use the per-hook statusMessage field: shows ephemerally during hook execution only. Full parity blocked on a codex custom-token API.
         </text>
       </svg>
 </div>
 
-- **Claude Code** — hooks write `~/.reflect/last-event.json`; the user's
+- **Claude Code**: hooks write `~/.reflect/last-event.json`; the user's
   `~/.claude/statusline.sh` reads it and renders a persistent reflect fragment
   (`🧠 3 recalled · 1 queued`).
-- **Codex CLI** — hooks declare a `statusMessage` field in `hooks.json`. Codex shows it
+- **Codex CLI**: hooks declare a `statusMessage` field in `hooks.json`. Codex shows it
   ephemerally *during* hook execution (`🧠 recalling...`). The static `[tui] status_line`
   config can't carry a custom token yet, so persistent codex-side counters wait on a
   codex API extension.
@@ -984,22 +984,22 @@ and an afternoon Codex session on the same repo.
       </svg>
 </div>
 
-1. **09:14 · Claude SessionStart** — recall on `cwd=auth-service` returns L₁ ("OAuth state
+1. **09:14 · Claude SessionStart**: recall on `cwd=auth-service` returns L₁ ("OAuth state
    handling"). Injected as baseline.
-2. **09:14 · UserPromptSubmit** — user types "fix the OAuth redirect bug". Sharp query
+2. **09:14 · UserPromptSubmit**: user types "fix the OAuth redirect bug". Sharp query
    pulls L₂, L₃. L₁ skipped (already injected). Dedupe set: `{L₁, L₂, L₃}`.
-3. **09:18 · PostToolUse** — `curl` returns 500. Mini-learning watcher arms.
-4. **09:18 · UserPromptSubmit** — user types "use `--insecure` for local dev". Watcher
+3. **09:18 · PostToolUse**: `curl` returns 500. Mini-learning watcher arms.
+4. **09:18 · UserPromptSubmit**: user types "use `--insecure` for local dev". Watcher
    sees correction pattern, writes mini-learning directly to disk. No LLM run.
-5. **10:42 · PreCompact** — context 90% full. Transcript path enqueued to
+5. **10:42 · PreCompact**: context 90% full. Transcript path enqueued to
    `~/.reflect/pending_reflections.jsonl`.
-6. **11:05 · Stop** — agent finishes. `stop_reflect.py` checks queue, sees PreCompact
+6. **11:05 · Stop**: agent finishes. `stop_reflect.py` checks queue, sees PreCompact
    already enqueued this session_id → skips.
-7. **14:30 · Codex SessionStart** — different harness, same repo. `reflect-drain-bg.sh`
+7. **14:30 · Codex SessionStart**: different harness, same repo. `reflect-drain-bg.sh`
    starts in background, finds the morning queue entry, spawns `claude -p /reflect`
    headless. Writes L₄ ("OAuth state mismatch on redirect").
-8. **14:31 · Codex UserPromptSubmit** — user types "add OAuth refresh tokens". Recall pulls
-   L₂, L₃, L₄ — including the learning Claude just wrote this morning.
+8. **14:31 · Codex UserPromptSubmit**: user types "add OAuth refresh tokens". Recall pulls
+   L₂, L₃, L₄: including the learning Claude just wrote this morning.
 
 The codex session benefits from the morning's Claude work without anyone moving files
 around. The queue and the learnings store are the only handoff.
@@ -1032,7 +1032,7 @@ The plugin-internal files below now live under `plugin/` in the standalone [stev
 
 **Why doesn't SessionStart recall use the user's first prompt?**
 SessionStart fires *before* the user has typed anything. Its query has to be inferred from
-cwd, branch, and recent commits — coarse but immediate. UserPromptSubmit fills the
+cwd, branch, and recent commits: coarse but immediate. UserPromptSubmit fills the
 prompt-aware recall slot.
 
 **What stops UserPromptSubmit recall from re-injecting the same learning every prompt?**
@@ -1051,12 +1051,12 @@ first; Stop is a fallback for sessions that never compact.
 
 **Where does `~/.reflect/` live, and is it portable?**
 Under `$HOME/.reflect/` by default; overridable via `REFLECT_STATE_DIR`. Contents are
-JSONL/Markdown/YAML — fully grep-able, version-control friendly, and portable across
+JSONL/Markdown/YAML: fully grep-able, version-control friendly, and portable across
 machines via filesystem sync.
 
 ---
 
-> **Try it** — see the standalone visual posters with the same diagrams:
+> **Try it**: see the standalone visual posters with the same diagrams:
 > - Prose explainer + small SVG: <https://unfold-ledger-qjhe.here.now/>
 > - Full platform poster: <https://saffron-mesa-9nz2.here.now/>
 
