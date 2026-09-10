@@ -73,7 +73,7 @@ Press `Enter` on **`[ Launch ]`**, or press **`Ctrl+Enter`** from any row to qui
 
 ## Next steps
 
-- [Quickstart](quickstart.md): command-line `ainb run` equivalents
-- [Attaching to sessions](attach.md): full-screen and embedded tmux attach
-- [Keyboard shortcuts](keyboard-shortcuts.md): complete keymap
-- [Overview](overview.md): all TUI screens
+- [Quickstart](/tui/quickstart): command-line `ainb run` equivalents
+- [Attaching to sessions](/tui/attach): full-screen and embedded tmux attach
+- [Keyboard shortcuts](/tui/keyboard-shortcuts): complete keymap
+- [Overview](/tui/overview): all TUI screens

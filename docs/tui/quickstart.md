@@ -63,7 +63,7 @@ ainb kill my-project -f     # force, no prompt
 
 ## Where to go next
 
-- [Concepts](../product/concepts.md): workspaces, worktrees, and persistence
-- [Keyboard shortcuts](keyboard-shortcuts.md)
-- [CLI reference](cli.md): every subcommand and flag
-- [Starting a new session](start-session.md): new session wizard options
+- [Concepts](/product/concepts): workspaces, worktrees, and persistence
+- [Keyboard shortcuts](/tui/keyboard-shortcuts)
+- [CLI reference](/tui/cli): every subcommand and flag
+- [Starting a new session](/tui/start-session): new session wizard options

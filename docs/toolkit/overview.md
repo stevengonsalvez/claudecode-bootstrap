@@ -9,8 +9,8 @@ repo, where it is **flattened** at the repo root: skills at `skills/`, agents at
 `agents/`, workflows at `workflows/`, utilities at `utilities/`, plus
 `bootstrap.js`, `external-dependencies.yaml`, and `catalog.yaml`. `ainb`
 consumes it as a pinned external source. The paths shown below use the legacy
-`toolkit/packages/` form for continuity — in ainb-toolkit they live without the
-`toolkit/packages/` prefix. See [Repositories](/reference/repositories/) for how
+`toolkit/packages/` form for continuity: in ainb-toolkit they live without the
+`toolkit/packages/` prefix. See [Repositories](/reference/repositories) for how
 the two repos fit together.
 :::
 
@@ -26,7 +26,7 @@ One canonical source tree, many AI tools. Author a skill, agent, or workflow onc
 | `packages/workflows/single-agent/` | Guided plan -> implement -> validate flows |
 | `packages/knowledge/` | Knowledge/docs templates |
 
-The `reflect` Claude Code plugin and its companion knowledge-base CLI were extracted into their own repo, [stevengonsalvez/ainb-reflect-memory](https://github.com/stevengonsalvez/ainb-reflect-memory) — the CLI flattened at that repo's root, the plugin under `plugin/`. They are no longer in this monorepo (or under `toolkit/packages/`). The reflect/recall CLI is installed via `uv tool install` (`uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`) by `bootstrap.js`.
+The `reflect` Claude Code plugin and its companion knowledge-base CLI were extracted into their own repo, [stevengonsalvez/ainb-reflect-memory](https://github.com/stevengonsalvez/ainb-reflect-memory): the CLI flattened at that repo's root, the plugin under `plugin/`. They are no longer in this monorepo (or under `toolkit/packages/`). The reflect/recall CLI is installed via `uv tool install` (`uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`) by `bootstrap.js`.
 
 ## Supported tools
 
@@ -54,7 +54,7 @@ node bootstrap.js --tool=claude-code-4.5   # one tool
 node bootstrap.js --tool=claude-code-4.5 --verify   # read-only parity check
 ```
 
-Each target gets its own home-dir population; repeat per tool. See [Bootstrap engine](bootstrap.md) for the deploy mechanics.
+Each target gets its own home-dir population; repeat per tool. See [Bootstrap engine](/toolkit/bootstrap) for the deploy mechanics.
 
 ## External dependencies
 
@@ -72,7 +72,7 @@ Artifacts land under `specs/<feature-branch>/`.
 
 ## See also
 
-- [Bootstrap engine](bootstrap.md)
-- [Skills](skills.md)
-- [Agents](agents.md)
-- [Docs hub](../README.md)
+- [Bootstrap engine](/toolkit/bootstrap)
+- [Skills](/toolkit/skills)
+- [Agents](/toolkit/agents)
+- [Docs hub](/readme)

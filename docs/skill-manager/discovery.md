@@ -5,7 +5,7 @@ description: Detect existing skills, agents, commands and marketplace plugins on
 
 > Read-only adoption flow for users with pre-populated tool homes
 > and Claude-Code-installed marketplace plugins. Layers on top of
-> the v1 skill-manager — see `ainb-tui/plans/skill-manager/spec.md`
+> the v1 skill-manager: see `ainb-tui/plans/skill-manager/spec.md`
 > for v1 mechanics, and
 > `.agents/goals/ainb-skill-manager-v1.1-discovery-spec.md` for the
 > full v1.1 spec this document summarises.
@@ -32,9 +32,9 @@ import. Nothing is written without explicit user consent.
 
 ```text
 DiscoveryWalker (read-only)
-├── class_a   — marketplace plugins from ~/.claude/plugins/cache/
-├── class_b   — legacy external-dependencies.yaml matcher (opt-in)
-└── class_c   — orphan SKILL.md units in ~/.<tool>/skills/, etc.
+├── class_a  : marketplace plugins from ~/.claude/plugins/cache/
+├── class_b  : legacy external-dependencies.yaml matcher (opt-in)
+└── class_c  : orphan SKILL.md units in ~/.<tool>/skills/, etc.
                 across all 9 adapter tools
               ↓
 Reconciler (pure fn)
@@ -48,13 +48,13 @@ SkillManager TUI
 └── [Enter] import all · [d] details · [s] skip
 ```
 
-All three walkers are **pure** — they never write, never panic on
+All three walkers are **pure**: they never write, never panic on
 malformed input, and tolerate any subset of the layout being
 missing (best-effort discovery).
 
 ## The three walker classes
 
-### Class A — marketplace plugins
+### Class A: marketplace plugins
 
 Source: `ainb-cli/src/discovery/class_a.rs`.
 
@@ -65,7 +65,7 @@ directory and every `agents/<name>.md` file as a
 
 ```text
 ~/.claude/plugins/
-├── known_marketplaces.json     # registry — when present, marketplace
+├── known_marketplaces.json     # registry: when present, marketplace
 │                               # names are real; when absent every
 │                               # marketplace is labelled "unknown"
 └── cache/
@@ -88,7 +88,7 @@ DiscoveredMarketplaceUnit {
 }
 ```
 
-### Class B — legacy YAML matcher (opt-in)
+### Class B: legacy YAML matcher (opt-in)
 
 The legacy `external-dependencies.yaml` matcher was only ever enabled via the
 `--legacy-yaml=<path>` flag on the now-removed `ainb migrate --discover`
@@ -99,12 +99,12 @@ discovered units against the legacy bootstrap manifest, so users
 mid-cutover from `bootstrap.js` can adopt their units as
 `gh:<repo>@<ref>` URIs instead of `local:`.
 
-Never auto-runs — the bootstrap.js era is over and surfacing its
+Never auto-runs: the bootstrap.js era is over and surfacing its
 metadata by default would rot `ainb`. The flag preserves the
 migration path for the dwindling set of users still on the old
 flow.
 
-### Class C — orphan units across 9 tool homes
+### Class C: orphan units across 9 tool homes
 
 Source: `ainb-cli/src/discovery/class_c.rs`.
 
@@ -151,7 +151,7 @@ A SKILL.md (or flat `.md`) is treated as "parseable" when:
 
 `frontmatter_valid = true` reports that the YAML block existed
 AND parsed. It does NOT require both `name` and `kind` to be
-populated — name-only and kind-only frontmatter are valid. The
+populated: name-only and kind-only frontmatter are valid. The
 walker never aborts on a single malformed unit; the malformed one
 falls back to directory name + kind=skill.
 
@@ -159,10 +159,10 @@ falls back to directory name + kind=skill.
 
 `tripwire perf_budget_under_500ms_for_100_units` asserts the
 class-C walker completes a 100-unit fixture in under 500ms on a
-debug build. Class-A walks file-system-bound but small layouts —
+debug build. Class-A walks file-system-bound but small layouts , 
 empirically <100ms for a full Claude Code plugin cache.
 
-## Reconciler — URI synthesis + conflict detection
+## Reconciler: URI synthesis + conflict detection
 
 Source: `ainb-cli/src/discovery/reconcile.rs`. Pure fn:
 
@@ -190,7 +190,7 @@ fn reconcile(walker_out: &WalkerOutput) -> ManifestPatch
 
 The reconciler indexes class-C orphans by `(tool, name)` then
 walks the class-A output looking for collisions. The default is
-**orphan wins** — the user's hand-edited files take precedence —
+**orphan wins**: the user's hand-edited files take precedence , 
 which the `[s]` keybind in the TUI Units panel can flip per-unit.
 
 | Scenario                                                  | Default                                                              |
@@ -230,13 +230,13 @@ maybe_show_discovery_banner(state, ainb_home, walker)
 
 The banner flips to `Visible` when ALL three conditions hold:
 
-1. `manifest.units.is_empty()` — the user hasn't yet adopted
+1. `manifest.units.is_empty()`: the user hasn't yet adopted
    anything.
-2. `<ainb_home>/.discovery-skipped` marker absent — the user has
+2. `<ainb_home>/.discovery-skipped` marker absent: the user has
    not previously pressed `[s]`.
 3. Walker output has at least one candidate.
 
-Subsequent re-opens of SkillManager are **idempotent** — if the
+Subsequent re-opens of SkillManager are **idempotent**: if the
 banner is already `Visible`, the trigger is a no-op so the user
 sees the same counts they did first time. Per spec §Edge cases:
 "Banner appears but user navigates away before pressing Enter →
@@ -245,7 +245,7 @@ Banner re-appears next open until dismissed via [s]."
 ### Banner overlay
 
 ```text
-┌ Detected existing units — import them? ┐
+┌ Detected existing units: import them? ┐
 │ Marketplace plugins:                 3 │
 │ Orphan units:                        9 │
 │                                        │
@@ -271,16 +271,16 @@ Counts come from `compute_counts(&WalkerOutput)`:
 
 | Key      | Action                                                                            |
 |----------|-----------------------------------------------------------------------------------|
-| `Enter`  | `apply_discovery_import` — calls `reconcile()` on the cached walker output, merges the patch into `<ainb_home>/manifest.yaml`, refreshes the Sources / Units / Detail panels in place, and dismisses the banner. |
-| `d`      | `toggle_discovery_details` — flips between the compact `Visible` and expanded `Details` rendering. |
-| `s`      | `apply_discovery_skip` — writes `<ainb_home>/.discovery-skipped`, dismisses the banner, and clears the cached walker output. |
+| `Enter`  | `apply_discovery_import`: calls `reconcile()` on the cached walker output, merges the patch into `<ainb_home>/manifest.yaml`, refreshes the Sources / Units / Detail panels in place, and dismisses the banner. |
+| `d`      | `toggle_discovery_details`: flips between the compact `Visible` and expanded `Details` rendering. |
+| `s`      | `apply_discovery_skip`: writes `<ainb_home>/.discovery-skipped`, dismisses the banner, and clears the cached walker output. |
 | `Esc`/`q`| Returns to Home without touching the banner state. The banner re-appears next time SkillManager opens. |
 
 ### Persistence
 
 - **Import** writes the new sources + units to
   `<ainb_home>/manifest.yaml` and dismisses the banner. No
-  separate skip-marker is written — the import is the "yes"
+  separate skip-marker is written: the import is the "yes"
   answer.
 - **Skip** writes a zero-byte `<ainb_home>/.discovery-skipped`
   marker file. Future opens skip the trigger entirely until the

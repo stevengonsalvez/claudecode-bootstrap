@@ -5,11 +5,11 @@ title: "Knowledge & Memory System"
 > "Correct once, never again. Solve once, never re-research."
 
 This document explains the complete knowledge capture, storage, indexing, and
-retrieval system in agents-in-a-box — including all memory tiers, the reflection
+retrieval system in agents-in-a-box: including all memory tiers, the reflection
 pipeline, semantic search engines, micro-learnings, and session context loading.
 
 
-> **Heads-up — reflect now lives in its own repo.** The reflect engine (`reflect-kb`) and its
+> **Heads-up: reflect now lives in its own repo.** The reflect engine (`reflect-kb`) and its
 > Claude Code plugin were extracted from this monorepo into
 > **[github.com/stevengonsalvez/ainb-reflect-memory](https://github.com/stevengonsalvez/ainb-reflect-memory)**
 > (flattened: engine at the repo root, plugin under `plugin/`). Install the CLI with
@@ -17,9 +17,9 @@ pipeline, semantic search engines, micro-learnings, and session context loading.
 > and the plugin with `claude plugin install reflect@ainb-reflect-memory`. The concepts below are unchanged.
 
 :::tip[New here? Start with reflect-memory]
-For the newcomer's path — what bare-harness memory does **not** do, the capture→index→recall
-mental model, and every recall feature with an example — see the dedicated
-**[Reflect Memory](/knowledge/reflect-memory/problem-and-fit/)** section. This page is the deeper
+For the newcomer's path: what bare-harness memory does **not** do, the capture→index→recall
+mental model, and every recall feature with an example: see the dedicated
+**[Reflect Memory](/knowledge/reflect-memory/problem-and-fit)** section. This page is the deeper
 architecture reference.
 :::
 
@@ -108,7 +108,7 @@ architecture reference.
 
 ## Tier 1: Context Window Memory
 
-Memory that is **always loaded** into every conversation turn — no search required.
+Memory that is **always loaded** into every conversation turn: no search required.
 
 | Source | Location | Scope |
 |--------|----------|-------|
@@ -138,7 +138,7 @@ into every conversation automatically.
 Project-scoped memory committed to the repo. Shared across all team members
 and agents. `/reflect` routes project-specific gotchas here.
 
-**200-line limit** — if exceeded, verbose items should be moved to skills or docs/solutions/.
+**200-line limit**: if exceeded, verbose items should be moved to skills or docs/solutions/.
 
 ---
 
@@ -213,7 +213,7 @@ Cross-project knowledge indexed with **dual search engines** that run in paralle
 └── qmd/                       # QMD embeddings
 ```
 
-### Search Engine 1: QMD — "What matches?"
+### Search Engine 1: QMD: "What matches?"
 
 Hybrid search combining three strategies for best-in-class retrieval:
 
@@ -230,7 +230,7 @@ Query ──┬──► BM25 keyword matching     (exact terms)
 - Embedding model: `all-mpnet-base-v2` on CPU/MPS
 - Best for: finding documents that directly match a query
 
-### Search Engine 2: GraphRAG — "What's connected?"
+### Search Engine 2: GraphRAG: "What's connected?"
 
 Entity graph traversal that discovers relationships invisible to keyword search:
 
@@ -273,10 +273,10 @@ They are **complementary, not fallback**. Both run in parallel and results merge
 
 ### Key Architecture Decisions
 
-- **Passthrough LLM**: Pre-extracted `.entities.yaml` sidecars feed GraphRAG directly — no external LLM API calls during indexing
-- **Batch inserts only**: Never call `insert()` sequentially — use `insert_documents_batch()` or `learnings reindex`
+- **Passthrough LLM**: Pre-extracted `.entities.yaml` sidecars feed GraphRAG directly: no external LLM API calls during indexing
+- **Batch inserts only**: Never call `insert()` sequentially: use `insert_documents_batch()` or `learnings reindex`
 - **File-based locks**: fcntl locks with 5-minute timeout for multi-process safety
-- **Local embedding**: `all-mpnet-base-v2` runs on CPU/MPS — zero cloud dependency
+- **Local embedding**: `all-mpnet-base-v2` runs on CPU/MPS: zero cloud dependency
 
 ---
 
@@ -284,14 +284,14 @@ They are **complementary, not fallback**. Both run in parallel and results merge
 
 The derived vector + graph store runs **local** per-machine (default) or **shared** on one Supabase
 Postgres so every machine queries the same memory. The markdown notes stay the source of truth and
-all LLM/embedding work stays client-side either way — no extra API key.
+all LLM/embedding work stays client-side either way: no extra API key.
 
 ➡️ Full treatment (topology, the two modes, threat model) lives on the reflect-memory
-**[Construct](/knowledge/reflect-memory/construct/#backend-local-or-shared-postgres)** page.
+**[Construct](/knowledge/reflect-memory/construct#backend-local-or-shared-postgres)** page.
 
 ---
 
-## Tier 4: Instincts — Micro-Learnings
+## Tier 4: Instincts: Micro-Learnings
 
 Lightweight YAML rules with confidence scoring (0.3–0.9). Too small for a full
 knowledge note, but important enough to remember.
@@ -338,7 +338,7 @@ instincts:
 
 ---
 
-## /reflect — Knowledge Capture Pipeline
+## /reflect: Knowledge Capture Pipeline
 
 `/reflect` analyses conversations to extract two signal types and route them
 to the appropriate memory tier.
@@ -494,7 +494,7 @@ relationships:
 
 ---
 
-## /research — Knowledge Retrieval Pipeline
+## /research: Knowledge Retrieval Pipeline
 
 `/research` spawns parallel sub-agents to search all sources, then synthesises
 findings into a single report.
@@ -561,7 +561,7 @@ findings into a single report.
 
 ---
 
-## /prime — Session Context Loading
+## /prime: Session Context Loading
 
 `/prime` runs at session start to load relevant knowledge into the conversation.
 
@@ -634,10 +634,10 @@ findings into a single report.
 │  │                                                                   │       │
 │  │  Writes to:                                                       │       │
 │  │    • Agent files        (behavioral corrections)                  │       │
-│  │    • docs/solutions/    (knowledge notes — Tier 2)                │       │
-│  │    • ~/.learnings/      (knowledge notes — Tier 3, dual-indexed)  │       │
-│  │    • .agents/MEMORY.md  (project gotchas — Tier 1)                │       │
-│  │    • instincts.yaml     (micro-learnings — Tier 4)                │       │
+│  │    • docs/solutions/    (knowledge notes: Tier 2)                │       │
+│  │    • ~/.learnings/      (knowledge notes: Tier 3, dual-indexed)  │       │
+│  │    • .agents/MEMORY.md  (project gotchas: Tier 1)                │       │
+│  │    • instincts.yaml     (micro-learnings: Tier 4)                │       │
 │  └──────────────────────────────────────────────────────────────────┘       │
 │                               │                                             │
 │                               ▼                                             │
@@ -660,7 +660,7 @@ tools via the `ainb` skill manager (`ainb-tui/`):
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  ainb-toolkit: skills/                                           │
-│  (github.com/stevengonsalvez/ainb-toolkit — canonical source)   │
+│  (github.com/stevengonsalvez/ainb-toolkit: canonical source)   │
 │                                                                  │
 │  ├── reflect/          ├── research/       ├── prime/            │
 │  ├── instincts/        └── compound-docs/                        │
@@ -681,7 +681,7 @@ tools via the `ainb` skill manager (`ainb-tui/`):
   {{HOME_TOOL_DIR}} → ~/.claude / ~/.codex / ~/.copilot
 ```
 
-The global knowledge base (`~/.learnings/`) is shared across all tools — a
+The global knowledge base (`~/.learnings/`) is shared across all tools: a
 learning captured in Claude Code is searchable from Codex or Copilot.
 
 ---
@@ -763,7 +763,7 @@ search-learnings.sh "query"
 
   /prime loads Tier 1 + relevant Tier 3 at session start.
   /research searches Tier 2 + Tier 3 on demand.
-  Tier 1 is always in the context window — no search needed.
+  Tier 1 is always in the context window: no search needed.
   Tier 4 instincts live in context but promote to Tier 3 over time.
 ```
 
@@ -773,10 +773,10 @@ search-learnings.sh "query"
 
 | Guardrail | Mechanism |
 |-----------|-----------|
-| **Human-in-the-loop** | `/reflect` NEVER auto-applies — all changes require explicit approval |
+| **Human-in-the-loop** | `/reflect` NEVER auto-applies: all changes require explicit approval |
 | **Git versioning** | Every capture is committed with descriptive message; `git revert` for rollback |
 | **De-duplication** | QMD similarity check prevents knowledge base bloat |
 | **Conflict detection** | Warns if proposed rule contradicts existing rule |
 | **File-based locks** | fcntl locks with 5-minute timeout prevent concurrent index corruption |
-| **Incremental only** | Reflect only adds to sections — never deletes or rewrites existing rules |
+| **Incremental only** | Reflect only adds to sections: never deletes or rewrites existing rules |
 | **Metrics tracking** | `~/.learnings/metrics.yaml` tracks signal counts, acceptance rates |

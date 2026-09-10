@@ -1,11 +1,11 @@
 ---
-title: "Hangar — architecture & features"
+title: "Hangar: architecture & features"
 description: "Hangar is ainb's TUI-first managed-agents control plane (a Multica feature replica): daemon + plugin over unix-socket JSON-RPC, with issues, autopilots, skills, a kanban board, and an agent fleet."
 ---
 
-Hangar gives `ainb` a **managed-agent control plane**: file work as *issues*, assign them to *agents* (Claude / Codex / Gemini), watch tasks march through a lifecycle on a *kanban board*, schedule recurring work with *autopilots*, curate reusable *skills* and *agent templates*, and observe the whole fleet's health — all from the terminal. It is a feature replica of Multica, built natively inside ainb.
+Hangar gives `ainb` a **managed-agent control plane**: file work as *issues*, assign them to *agents* (Claude / Codex / Gemini), watch tasks march through a lifecycle on a *kanban board*, schedule recurring work with *autopilots*, curate reusable *skills* and *agent templates*, and observe the whole fleet's health: all from the terminal. It is a feature replica of Multica, built natively inside ainb.
 
-It is deliberately **loosely coupled**. A standalone `ainb-hangar-daemon` owns the data plane (SQLite, the task FSM, the cron scheduler, the agent runner). The TUI is a **plugin** (`hangar-tui`) that the host `ainb` binary loads and that talks to the daemon over a unix-socket JSON-RPC contract. The plugin holds *zero* domain logic — it subscribes, pulls snapshots, renders, and forwards key intents. So the control plane keeps running (autopilots fire, tasks dispatch) whether or not a TUI is attached.
+It is deliberately **loosely coupled**. A standalone `ainb-hangar-daemon` owns the data plane (SQLite, the task FSM, the cron scheduler, the agent runner). The TUI is a **plugin** (`hangar-tui`) that the host `ainb` binary loads and that talks to the daemon over a unix-socket JSON-RPC contract. The plugin holds *zero* domain logic: it subscribes, pulls snapshots, renders, and forwards key intents. So the control plane keeps running (autopilots fire, tasks dispatch) whether or not a TUI is attached.
 
 | | | How to re-derive |
 |---|---|---|
@@ -19,12 +19,12 @@ It is deliberately **loosely coupled**. A standalone `ainb-hangar-daemon` owns t
 > produces it, because the previous set (4 crates, 17 RPC methods, migrations
 > 0001–0010) was a pre-e38 snapshot that stayed on the page long after the
 > code moved. The reconciliation in
-> [`proofs/multica-comparison.md`](proofs/multica-comparison.md) is itself
+> [`proofs/multica-comparison.md`](https://github.com/stevengonsalvez/agents-in-a-box/blob/main/docs/hangar/proofs/multica-comparison.md) is itself
 > now behind: it records 39 RPC methods and 23 migrations.
 
 ## System architecture
 
-Five Rust components in three planes: the **host + plugin** (presentation), the **daemon** (control), and the **store + SQLite** (data). Two cross-cutting crates — `ainb-hangar-core` (IO-free domain types) and `ainb-hangar-proto` (wire types) — are shared by everything.
+Five Rust components in three planes: the **host + plugin** (presentation), the **daemon** (control), and the **store + SQLite** (data). Two cross-cutting crates: `ainb-hangar-core` (IO-free domain types) and `ainb-hangar-proto` (wire types): are shared by everything.
 
 ![Hangar layered system architecture](./diagrams/arch-system.svg)
 
@@ -37,12 +37,12 @@ Five Rust components in three planes: the **host + plugin** (presentation), the 
 | **`ainb-hangar-core`** | IO-free domain layer: typed ids, the `HangarClock`/`IdGen` traits, the task-status FSM table, the cron parser, env-allowlist policy, skill + autopilot service traits, PR-URL parser, token mint/verify, `TaskResult`. |
 | **`ainb-hangar-proto`** | JSON-RPC wire types + method-name constants shared by daemon and plugin. Plus the plugin SDK (`ainb-plugin-protocol` / `ainb-plugin-sdk-rust`). |
 
-The plugin dials `~/.ainb/hangar/hangar.sock` via the host `unix_socket_dial` capability. The daemon resolves a workspace identifier (slug *or* id) to the real row before scoping any query — the guard that closed the cross-tenant IDOR. Plugin subprocesses are spawned with `kill_on_drop(true)` plus an OS leak-guard (`PR_SET_PDEATHSIG` on Linux, `setpgid` + `kill(-pgid)` on macOS).
+The plugin dials `~/.ainb/hangar/hangar.sock` via the host `unix_socket_dial` capability. The daemon resolves a workspace identifier (slug *or* id) to the real row before scoping any query: the guard that closed the cross-tenant IDOR. Plugin subprocesses are spawned with `kill_on_drop(true)` plus an OS leak-guard (`PR_SET_PDEATHSIG` on Linux, `setpgid` + `kill(-pgid)` on macOS).
 
 ## Dependency graph
 
 ```text
-ainb-hangar-core   (foundation — IO-free; no internal deps)
+ainb-hangar-core   (foundation: IO-free; no internal deps)
       ▲          ▲              ▲
       │          │              │
 ainb-hangar-store │       ainb-hangar-proto
@@ -56,13 +56,13 @@ ainb-hangar-store │       ainb-hangar-proto
         hangar-tui plugin  (deps: proto + plugin-sdk)  ◀── loaded by ──  ainb (host + plugin-runtime v2)
 ```
 
-`core` is the root and depends on nothing internal, so it stays IO-free and trivially testable. `store` and `proto` both build on `core`; the `daemon` ties all three together. The plugin depends only on `proto` + the SDK — never on the daemon or store crates — so it cannot smuggle in domain logic.
+`core` is the root and depends on nothing internal, so it stays IO-free and trivially testable. `store` and `proto` both build on `core`; the `daemon` ties all three together. The plugin depends only on `proto` + the SDK: never on the daemon or store crates: so it cannot smuggle in domain logic.
 
 ### Key external dependencies
 
 | Crate | Purpose |
 |-------|---------|
-| `tokio` | Async runtime — daemon server, claim loop, scheduler, runner, plugin stdio. |
+| `tokio` | Async runtime: daemon server, claim loop, scheduler, runner, plugin stdio. |
 | `sqlx` (SQLite) | Async, runtime-checked queries; migrations 0001–0010. Postgres-compatible schema for a future backend. |
 | `ratatui` + `crossterm` | TUI rendering (host + plugin screens). |
 | `cron` v0.12 | Cron parsing (6-field; 5-field POSIX normalised by prepending `0 `). |
@@ -75,24 +75,24 @@ ainb-hangar-store │       ainb-hangar-proto
 
 ## Data & control flow
 
-Two loops run continuously and independently: the **dispatch loop** (control plane — turns issues into running agent tasks) and the **render loop** (data plane — turns daemon state into TUI pixels).
+Two loops run continuously and independently: the **dispatch loop** (control plane: turns issues into running agent tasks) and the **render loop** (data plane: turns daemon state into TUI pixels).
 
 ![Hangar control and data flow](./diagrams/arch-dataflow.svg)
 
 **Dispatch loop (control):**
 
 1. `ainb hangar issue create --assign <agent>` (or an autopilot tick) enqueues an `agent_task_queue` row.
-2. The daemon **claim loop** atomically claims the most urgent (then oldest) queued task for an idle runtime (`queued → dispatched`) — `ORDER BY priority DESC, created_at, id` — respecting per-agent `max_concurrent_tasks` and the per-(issue, agent) active-set guard.
-3. It **materialises skills** into the task's per-task directory at the provider-native path (`.claude/skills/`, `.codex/skills/`, `.agent_context/skills/` …) — copied, scripts `chmod 0755`, kept outside the worktree git root so `git status` stays clean.
+2. The daemon **claim loop** atomically claims the most urgent (then oldest) queued task for an idle runtime (`queued → dispatched`): `ORDER BY priority DESC, created_at, id`: respecting per-agent `max_concurrent_tasks` and the per-(issue, agent) active-set guard.
+3. It **materialises skills** into the task's per-task directory at the provider-native path (`.claude/skills/`, `.codex/skills/`, `.agent_context/skills/` …): copied, scripts `chmod 0755`, kept outside the worktree git root so `git status` stays clean.
 4. It spawns the provider in an isolated git worktree (`dispatched → running`), streaming the transcript.
 5. On a terminal transition the **FSM finalize** path runs idempotently: it stamps `done/failed/cancelled`, cascades `autopilot_run.completed_at` when the task belongs to an autopilot run, and captures any `gh pr create` URL into `result.pr_url`.
 
 **Render loop (data):**
 
 1. The plugin sends `workspace/subscribe` for the active workspace; the daemon registers the (authenticated) connection as a workspace-scoped event subscriber.
-2. On the ack it fires snapshot RPCs — `hangar/issues_list`, `tasks_list`, `agents_list`, `skills_list`, `autopilots_list`, `daemon_health` — which the daemon answers from the store (resolving slug→id, scoping by workspace).
+2. On the ack it fires snapshot RPCs: `hangar/issues_list`, `tasks_list`, `agents_list`, `skills_list`, `autopilots_list`, `daemon_health`: which the daemon answers from the store (resolving slug→id, scoping by workspace).
 3. The plugin folds the wire rows into screen state and renders.
-4. The daemon **pushes** `hangar/event` notifications over the same subscription (this closed parity-review design gap 02 — the channel used to be decode-only with zero emission sites): the claim loop emits `TaskStarted` and the terminal `TaskFinished` as the FSM finalizes, the Kanban `task_transition` RPC emits the matching lifecycle event when a card actually moves, and the autopilot scheduler / fire-now path emits `AutopilotRunChanged` (fired and skipped ticks). Events are scoped to the subscribed workspace's resolved row id — a tenant never sees another tenant's frames — and only authenticated, subscribed connections receive them. Delivery is best-effort instant feedback; the next snapshot reconciles authoritatively, so a dropped event self-heals.
+4. The daemon **pushes** `hangar/event` notifications over the same subscription (this closed parity-review design gap 02: the channel used to be decode-only with zero emission sites): the claim loop emits `TaskStarted` and the terminal `TaskFinished` as the FSM finalizes, the Kanban `task_transition` RPC emits the matching lifecycle event when a card actually moves, and the autopilot scheduler / fire-now path emits `AutopilotRunChanged` (fired and skipped ticks). Events are scoped to the subscribed workspace's resolved row id: a tenant never sees another tenant's frames: and only authenticated, subscribed connections receive them. Delivery is best-effort instant feedback; the next snapshot reconciles authoritatively, so a dropped event self-heals.
 
 ## Task lifecycle (FSM)
 
@@ -100,12 +100,12 @@ Every unit of agent work is an `agent_task_queue` row walking a strict finite-st
 
 ![Task FSM state machine](./diagrams/arch-task-fsm.svg)
 
-- **Per-(issue, agent) concurrency** — task work on one issue serialises per **agent**, not globally (decision: adopt Multica's `ClaimAgentTask` model, closing parity-review design gap 03). The partial unique index `idx_one_pending_task_per_issue_agent` (migration 0012, replacing 0004's global-per-issue scope) allows at most one *pending* (`queued`/`dispatched`) task per `(issue_id, agent_id)`, and the claim SQL's `NOT EXISTS` active-set guard refuses to dispatch an agent a second `queued`/`dispatched`/`running` task for an issue it is already working — so different agents work one issue in parallel while the same agent's duplicate fires still coalesce.
-- **Priority ordering** — the claim drains `ORDER BY priority DESC, created_at, id` (decision: adopt Multica's `priority DESC, created_at` claim ordering, closing the parity-review "no expedite path" design gap). `agent_task_queue.priority` (migration 0013) is an integer **0..3 mapping P3..P0 — higher = more urgent**: `0` = P3 (the routine default, so untouched enqueue paths stay strict-FIFO), `3` = P0 (claimed first). Equal priorities keep the FIFO `created_at, id` tiebreak. `ainb hangar issue create --priority N --assign <agent>` stamps it onto the enqueued task; a retry child inherits its parent's priority.
-- **Idempotent finalize** — concurrent complete-vs-cancel resolves deterministically (first wins, loser no-ops); a terminal row never re-transitions.
-- **Retry** — a failure with a *retryable* reason (e.g. runtime offline) spawns a child task linked by `parent_task_id`, capped by `max_attempts`; `agent_error` does not retry.
-- **TTL sweepers** — stale `queued` (2h) / `dispatched` (5min) / `running` (2.5h) rows are swept to `failed` in idempotent batches (cap 500).
-- **Autopilot cascade** — finalising a task carrying an `autopilot_run_id` stamps the run's `completed_at` in the same path.
+- **Per-(issue, agent) concurrency**: task work on one issue serialises per **agent**, not globally (decision: adopt Multica's `ClaimAgentTask` model, closing parity-review design gap 03). The partial unique index `idx_one_pending_task_per_issue_agent` (migration 0012, replacing 0004's global-per-issue scope) allows at most one *pending* (`queued`/`dispatched`) task per `(issue_id, agent_id)`, and the claim SQL's `NOT EXISTS` active-set guard refuses to dispatch an agent a second `queued`/`dispatched`/`running` task for an issue it is already working: so different agents work one issue in parallel while the same agent's duplicate fires still coalesce.
+- **Priority ordering**: the claim drains `ORDER BY priority DESC, created_at, id` (decision: adopt Multica's `priority DESC, created_at` claim ordering, closing the parity-review "no expedite path" design gap). `agent_task_queue.priority` (migration 0013) is an integer **0..3 mapping P3..P0: higher = more urgent**: `0` = P3 (the routine default, so untouched enqueue paths stay strict-FIFO), `3` = P0 (claimed first). Equal priorities keep the FIFO `created_at, id` tiebreak. `ainb hangar issue create --priority N --assign <agent>` stamps it onto the enqueued task; a retry child inherits its parent's priority.
+- **Idempotent finalize**: concurrent complete-vs-cancel resolves deterministically (first wins, loser no-ops); a terminal row never re-transitions.
+- **Retry**: a failure with a *retryable* reason (e.g. runtime offline) spawns a child task linked by `parent_task_id`, capped by `max_attempts`; `agent_error` does not retry.
+- **TTL sweepers**: stale `queued` (2h) / `dispatched` (5min) / `running` (2.5h) rows are swept to `failed` in idempotent batches (cap 500).
+- **Autopilot cascade**: finalising a task carrying an `autopilot_run_id` stamps the run's `completed_at` in the same path.
 
 ## Data model
 
@@ -199,12 +199,12 @@ time.
 
 > **Verification captures.** `assets/journeys/` holds ~68 more files (~16MB)
 > from the e38 parity run, indexed by
-> [`verify-converged-goal.md`](verify-converged-goal.md). They are evidence
+> [`verify-converged-goal.md`](https://github.com/stevengonsalvez/agents-in-a-box/blob/main/docs/hangar/verify-converged-goal.md). They are evidence
 > that a behaviour was exercised, not illustrations: most are 2200x1000 frames
 > where the content occupies a small corner, and the `ch2`-`ch7` set has no
 > reproducer script. Use them to check a claim, not to learn the product.
 
-## Feature catalogue — what a user does
+## Feature catalogue: what a user does
 
 Every Hangar feature is reachable two ways: a **TUI screen** (open Hangar with `g`, then a hotkey) and/or the `ainb hangar <noun>` **CLI**.
 
@@ -238,7 +238,7 @@ ainb hangar beads      reconcile        ainb hangar daemon  status
 
 ## Feature × test coverage
 
-Built test-first: every feature carries an **acceptance test** (unit/integration), and most carry an **e2e tripwire** — a real test that drives `ainb tui` in a `tmux` pane (or the daemon over its real socket) and asserts the rendered/persisted result, per the `tmux-ui-tripwire` discipline.
+Built test-first: every feature carries an **acceptance test** (unit/integration), and most carry an **e2e tripwire**: a real test that drives `ainb tui` in a `tmux` pane (or the daemon over its real socket) and asserts the rendered/persisted result, per the `tmux-ui-tripwire` discipline.
 
 Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only · file references are verifiable in-tree.
 
@@ -247,7 +247,7 @@ Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
 | Create / list / show issue | CLI | `hangar_cli_integration.rs` (4) + `cli::hangar` parse (3) | `tripwire_hangar_issue_roundtrip.rs` | ✅ |
-| Persist issue + assignee | store | `repo_issue.rs` (4) | — (via roundtrip) | ✅ |
+| Persist issue + assignee | store | `repo_issue.rs` (4) |: (via roundtrip) | ✅ |
 | Issue list screen (nav/filter/create) | TUI | `issue_list_reducer_test.rs` (7) | `tripwire_p4_issue_list_renders.rs` | ✅ |
 | Kanban board (4 cols, card move) | TUI | `kanban_reducer` (10) + `rpc_over_socket` + `snapshot` (5) | `tripwire_kanban_columns_render.rs` | ✅ |
 
@@ -256,24 +256,24 @@ Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
 | Task FSM (claim/start/complete/fail/cancel) | store+core | `finalize_idempotency` (22) + `claim_task_integration` + `task_state_transitions` | `tripwire_task_happy_path_claude_provider.rs` | ✅ |
-| Retry chain (parent/child, max-attempts) | store | `retry_chain.rs` (8) | — | ✅ (acc.) |
+| Retry chain (parent/child, max-attempts) | store | `retry_chain.rs` (8) |: | ✅ (acc.) |
 | TTL sweep (stale → fail) | daemon | `sweeper_ttls.rs` (10) | `tripwire_ttl_sweeper_fails_stale_dispatched.rs` | ✅ |
 | Task detail + transcript screen | TUI | `transcript_reducer` (10) + `render_snapshot` (2) | `tripwire_p4_task_detail_streams.rs` | ✅ |
-| Task CLI (list/cancel/retry) | CLI | `hangar_cli_integration` + parse | — | ✅ (acc.) |
-| Task-started banner | TUI | `banner_reducer_test.rs` (6) | — | ✅ (acc.) |
+| Task CLI (list/cancel/retry) | CLI | `hangar_cli_integration` + parse |: | ✅ (acc.) |
+| Task-started banner | TUI | `banner_reducer_test.rs` (6) |: | ✅ (acc.) |
 
 ### Agents
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
 | Agent picker (assign agent) | TUI | `agent_picker_reducer_test.rs` (8) | `tripwire_p4_agent_picker_opens.rs` | ✅ |
-| agents_list snapshot | daemon/store | `repo_agent.rs` + `rpc_server.rs` | — (in picker tripwire) | ✅ |
+| agents_list snapshot | daemon/store | `repo_agent.rs` + `rpc_server.rs` |: (in picker tripwire) | ✅ |
 
 ### Skills
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
-| Skill repo CRUD (scoping, cascade) | store+core | `skill_repo_tests` (9) + `skill_service` inline | — | ✅ (acc.) |
+| Skill repo CRUD (scoping, cascade) | store+core | `skill_repo_tests` (9) + `skill_service` inline |: | ✅ (acc.) |
 | Skills sync importer (idempotent) | daemon/CLI | `tripwire_skills_sync_idempotent.rs` (5) + parse | `screens_render_from_daemon` (sync RPC) | ✅ |
 | Skill manager screen (attach/detach/sync) | TUI | `skill_manager_reducer` (9) + `snapshot` (2) | `tripwire_p4_skill_manager_lists.rs` | ✅ |
 | Dispatch-time materialisation | daemon | `materialise_skills_tests.rs` (8) | `tripwire_skill_import_and_dispatch.rs` | ✅ |
@@ -282,26 +282,26 @@ Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only 
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
-| 10 curated templates (embedded, resolve) | core | `template_registry_tests.rs` (5) | — | ✅ (acc.) |
-| templates list / show / use | CLI+daemon | `template_use_tests` (6) + parse | — | ✅ (acc.) |
+| 10 curated templates (embedded, resolve) | core | `template_registry_tests.rs` (5) |: | ✅ (acc.) |
+| templates list / show / use | CLI+daemon | `template_use_tests` (6) + parse |: | ✅ (acc.) |
 
 ### Autopilots
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
-| Cron CRUD (reject invalid cron) | store+core | `repo_autopilot` (14) + `cron.rs` inline (12) | — | ✅ (acc.) |
+| Cron CRUD (reject invalid cron) | store+core | `repo_autopilot` (14) + `cron.rs` inline (12) |: | ✅ (acc.) |
 | Scheduler fires on schedule | daemon | `scheduler_loop` + `repo_autopilot_enqueue` | `tripwire_autopilot_fires_on_schedule.rs` | ✅ |
 | Scheduler skips when in-flight | daemon | `scheduler_loop::skip_when_prior_run_in_flight` | `tripwire_autopilot_skips_when_running.rs` | ✅ |
-| Autopilots manager screen | TUI | `autopilots_reducer` (6) + `snapshot` (4) + `rpc_over_socket` | — (real-socket, no tmux) | ✅ |
-| autopilot CLI (create/list/disable/run) | CLI | `hangar_autopilot_cli.rs` (2) + parse | — | ✅ |
+| Autopilots manager screen | TUI | `autopilots_reducer` (6) + `snapshot` (4) + `rpc_over_socket` |: (real-socket, no tmux) | ✅ |
+| autopilot CLI (create/list/disable/run) | CLI | `hangar_autopilot_cli.rs` (2) + parse |: | ✅ |
 
 ### Auth / Secrets
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
 | OS keychain store/get/delete | secrets | `backend.rs` (7) | `tripwire_keychain_roundtrip.rs` *(#[ignore], dev-mac)* | ✅ |
-| secret_store_get cap gating | runtime | `secret_store_cap.rs` (5) | — | ✅ (acc.) |
-| PAT / daemon tokens (hash-only) | store+core | `repo_token` (11) + `token.rs` inline (3) + cli | — | ✅ (acc.) |
+| secret_store_get cap gating | runtime | `secret_store_cap.rs` (5) |: | ✅ (acc.) |
+| PAT / daemon tokens (hash-only) | store+core | `repo_token` (11) + `token.rs` inline (3) + cli |: | ✅ (acc.) |
 | Env allowlist (block LD_PRELOAD) | core+daemon | `env_policy` (5) + `env_allow_config` (3) + runner | `tripwire_env_allowlist_blocks_ld_preload` / `_passes_home` | ✅ |
 | danger-full-access first-run warning | core+daemon | `warnings.rs` inline (4) | `tripwire_warning_shown_on_first_provider_use.rs` | ✅ |
 | Workspace switching in Settings | TUI+runtime | `settings_reducer` + `workspace_cap.rs` (7) | `tripwire_workspace_switch_e2e.rs` | ✅ |
@@ -311,11 +311,11 @@ Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only 
 
 | Feature | Layer | Acceptance | e2e tripwire | |
 |---|---|---|---|---|
-| Tracing JSONL sink | daemon | `it_subscriber_writes_jsonl.rs` | — | ✅ (acc.) |
+| Tracing JSONL sink | daemon | `it_subscriber_writes_jsonl.rs` |: | ✅ (acc.) |
 | OTLP exporter (otlp feature) | daemon | `it_otlp_export_when_endpoint_set.rs` *(--features otlp)* | `tripwire_otel_export_when_endpoint_set.rs` | ✅ |
-| Instrumented service spans (8 methods) | store+daemon | `service_spans_emit` + `beads_sync_spans_emit` | — | ✅ (acc.) |
+| Instrumented service spans (8 methods) | store+daemon | `service_spans_emit` + `beads_sync_spans_emit` |: | ✅ (acc.) |
 | Daemon health pane + sparkline | TUI+daemon | `snapshot_daemon_health.rs` (5) | `tripwire_daemon_health_sparkline.rs` | ✅ |
-| logs tail CLI + logs screen | CLI+TUI | `logs.rs` inline (8) + cli + `snapshot_logs_screen` (3) | — (no tmux for logs screen) | ✅ (acc.) |
+| logs tail CLI + logs screen | CLI+TUI | `logs.rs` inline (8) + cli + `snapshot_logs_screen` (3) |: (no tmux for logs screen) | ✅ (acc.) |
 
 ### gh integration
 
@@ -333,22 +333,22 @@ Legend: **✅** = acceptance + e2e tripwire · **✅ (acc.)** = acceptance only 
 | workspace/subscribe + event stream | proto+daemon+plugin | `event_roundtrip` (6) + `stream_decode` (8) + `daemon_dial` + `rpc_event_push.rs` (3: push, workspace isolation, no-op silence) | `tripwire_detects_daemon_drop` | ✅ |
 | Cross-screen navigation | TUI | `screen_router_test.rs` (5) | `tripwire_p4_cross_screen_navigation.rs` | ✅ |
 | Beads bidirectional sync | daemon | `beads_adapter`/`reconcile`/`inbound`/`outbound`/`cli` (50+) | `tripwire_beads_roundtrip.rs` | ✅ |
-| Claude runner exec (env/exit/stream/timeout) | daemon | `runner_claude.rs` (6) | — (in happy-path) | ✅ |
-| Full-suite e2e guard (no shrink) | daemon | — | `tripwire_full_e2e.rs` | ✅ |
+| Claude runner exec (env/exit/stream/timeout) | daemon | `runner_claude.rs` (6) |: (in happy-path) | ✅ |
+| Full-suite e2e guard (no shrink) | daemon |: | `tripwire_full_e2e.rs` | ✅ |
 
 ### Coverage summary
 
-- **22 features have a full e2e tripwire** — 11 via real `tmux` driving `ainb tui`, 11 via daemon-over-real-socket.
-- **12 are acceptance-only** (strong unit/integration; no tmux) — task retry, task/templates/token CLIs, skill CRUD, autopilot CRUD, JSONL sink, service spans, logs screen.
-- **0 are untested** — every feature has at least an acceptance test.
+- **22 features have a full e2e tripwire**: 11 via real `tmux` driving `ainb tui`, 11 via daemon-over-real-socket.
+- **12 are acceptance-only** (strong unit/integration; no tmux): task retry, task/templates/token CLIs, skill CRUD, autopilot CRUD, JSONL sink, service spans, logs screen.
+- **0 are untested**: every feature has at least an acceptance test.
 
-:::caution[Honest gaps — coverage shape, not regressions]
+:::caution[Honest gaps: coverage shape, not regressions]
 - The **logs screen** and **autopilots manager screen** have reducer + snapshot + real-socket coverage but no `tmux capture-pane` proof of the rendered screen.
 - The `task` / `templates` / `token` CLIs are acceptance-only, versus the `issue` path which has a full tmux roundtrip.
 - The keychain roundtrip tripwire is `#[ignore]` by default (needs a real dev-mac keychain prompt); the in-memory + cfg-gated backend tests are the authoritative proof.
 :::
 
-## How it was built — phases P0–P9
+## How it was built: phases P0–P9
 
 Per-bead TDD (RED → GREEN → review → scoped gate → close), each phase capped by e2e tripwires.
 

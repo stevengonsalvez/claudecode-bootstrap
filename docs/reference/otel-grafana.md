@@ -25,7 +25,7 @@ both the `ainb` CLI and the first-run TUI onboarding wizard.
 
 > The three Grafana values come from one screen: **Connections → OpenTelemetry
 > (OTLP)** in your Grafana Cloud stack. The "Instance ID" there is the Basic-auth
-> username — it is NOT your org id.
+> username: it is NOT your org id.
 
 Example of the three values (yours differ by region/stack):
 
@@ -36,7 +36,7 @@ API token      glc_eyJ...        (scope: metrics + logs + traces write)
 ```
 
 > The OTLP endpoint is the **remote** Grafana Cloud URL Alloy ships to (ends in
-> `/otlp`) — **not** the local `http://localhost:4318` that Claude Code points at.
+> `/otlp`): **not** the local `http://localhost:4318` that Claude Code points at.
 > That local hop is wired automatically; you only supply the remote endpoint here.
 
 ## Setup (CLI)
@@ -53,7 +53,7 @@ ainb otel start            # (re)start Alloy in its tmux session
 2. Prompt for the three Grafana Cloud values (or read them from
    `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_INSTANCE_ID` / `GRAFANA_API_TOKEN` env
    vars if set).
-3. Write `~/.agents-in-a-box/otel/grafana-cloud.env` (mode `0600` — secrets).
+3. Write `~/.agents-in-a-box/otel/grafana-cloud.env` (mode `0600`: secrets).
 4. Ensure the generic, non-secret OTEL keys are in `~/.claude/settings.json`.
 5. Wire your shell rc to `source` the env file (backed up to `<rc>.bak`).
 6. Offer to `brew install` Alloy if missing, then start it in tmux.
@@ -64,7 +64,7 @@ The onboarding wizard has an optional **Telemetry** step. Fill the three fields
 (Tab to move between them) and press Enter to set up, or press Enter with the
 fields empty to skip. Re-run later any time with `ainb otel setup`.
 
-The TUI does not `brew install` Alloy — if it's missing the config is still
+The TUI does not `brew install` Alloy: if it's missing the config is still
 written; finish with `ainb otel setup` or `brew install grafana/grafana/alloy`
 then `ainb otel start`.
 
@@ -72,8 +72,8 @@ then `ainb otel start`.
 
 | File | Contents | Secret? |
 |------|----------|---------|
-| `~/.claude/settings.json` (`env`) | Generic OTEL flags (exporter/protocol/intervals/log toggles) | **No** — this file syncs to a public repo, so nothing machine-specific or secret goes here |
-| `~/.agents-in-a-box/otel/grafana-cloud.env` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES` (host.name), `GRAFANA_*` creds | **Yes** — `0600`, never committed, sourced by your shell + read by Alloy |
+| `~/.claude/settings.json` (`env`) | Generic OTEL flags (exporter/protocol/intervals/log toggles) | **No**: this file syncs to a public repo, so nothing machine-specific or secret goes here |
+| `~/.agents-in-a-box/otel/grafana-cloud.env` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES` (host.name), `GRAFANA_*` creds | **Yes**: `0600`, never committed, sourced by your shell + read by Alloy |
 | `~/.agents-in-a-box/otel/config.alloy` | Alloy OTLP fan-in pipeline (Delta→Cumulative for Mimir) | No |
 | `~/.agents-in-a-box/otel/dashboards/*.json` | Grafana dashboards to import (Claude Code + Codex) | No |
 
@@ -97,14 +97,14 @@ the data.
 `~/.agents-in-a-box/otel/dashboards/`. Import them in Grafana Cloud
 (**Dashboards → New → Import**) to land these views.
 
-**Claude Code — Usage & Cost** — total cost/tokens, sessions, active time, cost
+**Claude Code: Usage & Cost**: total cost/tokens, sessions, active time, cost
 rate by model, tokens by type, cost by skill, cost-by-model share, plus recent
 traces and prompt text.
 
-![Claude Code Usage & Cost Grafana dashboard — cost, tokens, sessions, cost by model and by skill](../assets/screenshots/otel-grafana-claude-dashboard.png)
+![Claude Code Usage & Cost Grafana dashboard: cost, tokens, sessions, cost by model and by skill](../assets/screenshots/otel-grafana-claude-dashboard.png)
 
-**Codex CLI — Usage & Telemetry** — total tokens, conversation turns, tool/hook
+**Codex CLI: Usage & Telemetry**: total tokens, conversation turns, tool/hook
 runs, WebSocket requests, tokens-per-turn and turn-latency p95, MCP tool-list
 latency, and the full `codex_*` series catalog.
 
-![Codex CLI Usage & Telemetry Grafana dashboard — tokens, turns, tool/hook runs, latency p95, series catalog](../assets/screenshots/otel-grafana-codex-dashboard.png)
+![Codex CLI Usage & Telemetry Grafana dashboard: tokens, turns, tool/hook runs, latency p95, series catalog](../assets/screenshots/otel-grafana-codex-dashboard.png)

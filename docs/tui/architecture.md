@@ -112,7 +112,7 @@ crates/ainb-core/src/
 
 ## Plugin runtime
 
-`ainb-plugin-runtime` is the host-side supervisor that loads v2 plugins as native subprocess binaries speaking JSON-RPC over stdio (the `ainb-plugin-protocol` types). Authors build against `ainb-plugin-sdk-rust` and validate with `ainb-plugin-testkit` and the `ainb-plugin-cts-v2` conformance suite. The three in-tree reference plugins — `burndown` (analytics), `notifyd` (notifications), and `session-reader` (data backend) — double as worked examples. Install and inspect plugins via `ainb plugin install|list|lint|watch|tail` (see the [CLI reference](cli.md)).
+`ainb-plugin-runtime` is the host-side supervisor that loads v2 plugins as native subprocess binaries speaking JSON-RPC over stdio (the `ainb-plugin-protocol` types). Authors build against `ainb-plugin-sdk-rust` and validate with `ainb-plugin-testkit` and the `ainb-plugin-cts-v2` conformance suite. The three in-tree reference plugins: `burndown` (analytics), `notifyd` (notifications), and `session-reader` (data backend): double as worked examples. Install and inspect plugins via `ainb plugin install|list|lint|watch|tail` (see the [CLI reference](/tui/cli)).
 
 ## Style guide
 
@@ -122,13 +122,13 @@ Components follow the shared palette in `.claude/skills/tui-screen/SKILL.md`: co
 
 Tests live under `crates/ainb-core/tests/`:
 
-- **Unit + model tests** — `test_app_state.rs`, `test_events.rs`, `test_session_model.rs`, etc.
-- **Behavioral** — `behavioral.rs` and the `behavioral/` suite.
-- **E2E PTY** — `e2e_pty_tests.rs`, `interactive_mode_tests.rs` (real PTY drive).
-- **Tripwires** — `tripwire_*.rs` tmux-driven end-to-end screen assertions (burndown, inbox, crash recovery, new-session, …).
+- **Unit + model tests**: `test_app_state.rs`, `test_events.rs`, `test_session_model.rs`, etc.
+- **Behavioral**: `behavioral.rs` and the `behavioral/` suite.
+- **E2E PTY**: `e2e_pty_tests.rs`, `interactive_mode_tests.rs` (real PTY drive).
+- **Tripwires**: `tripwire_*.rs` tmux-driven end-to-end screen assertions (burndown, inbox, crash recovery, new-session, …).
 
 ## See also
 
-- [Overview](overview.md)
-- [Keyboard shortcuts](keyboard-shortcuts.md)
-- [Docs hub](../README.md)
+- [Overview](/tui/overview)
+- [Keyboard shortcuts](/tui/keyboard-shortcuts)
+- [Docs hub](/readme)

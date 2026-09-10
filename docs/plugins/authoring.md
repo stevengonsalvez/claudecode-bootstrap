@@ -2,7 +2,7 @@
 title: "ainb plugin authoring"
 ---
 
-Developer-facing reference for shipping a v2 plugin. For end-user install/CLI docs see [./user-guide.md](./user-guide.md). For the wire contract see [./spec-v2.md](./spec-v2.md).
+Developer-facing reference for shipping a v2 plugin. For end-user install/CLI docs see [./user-guide.md](/plugins/user-guide). For the wire contract see [./spec-v2.md](/plugins/spec-v2).
 
 ## What you're building
 
@@ -10,15 +10,15 @@ A v2 ainb plugin is a **native executable** that talks JSON-RPC 2.0 to the host 
 
 A plugin can:
 
-- **Own a TUI screen** — implement `Plugin::render` and paint a `WireBuffer` per frame; the host blits it onto the terminal
-- **Own a CLI subcommand tree** — claim a `cli_namespaces` entry in your manifest; the host dispatches `ainb <ns> ...` invocations through `Plugin::cli_dispatch`
-- **Publish snapshots** — push data onto a topic via `HostClient::snapshot_publish`; subscribers (other plugins or the host) get `plugin/handle_event` deliveries
-- **Subscribe to snapshots** — declare `[subscribes].snapshots` in your manifest; the runtime auto-pushes deliveries via `handle_event`
-- **Persist its own state** — write under `~/.agents-in-a-box/plugins/<name>/` (gated by `write_plugin_data`)
-- **Read host-managed state** — sessions, Claude/Codex logs (capability-gated)
-- **Invoke host actions** — call out to host-owned operations via `host/action/invoke`
+- **Own a TUI screen**: implement `Plugin::render` and paint a `WireBuffer` per frame; the host blits it onto the terminal
+- **Own a CLI subcommand tree**: claim a `cli_namespaces` entry in your manifest; the host dispatches `ainb <ns> ...` invocations through `Plugin::cli_dispatch`
+- **Publish snapshots**: push data onto a topic via `HostClient::snapshot_publish`; subscribers (other plugins or the host) get `plugin/handle_event` deliveries
+- **Subscribe to snapshots**: declare `[subscribes].snapshots` in your manifest; the runtime auto-pushes deliveries via `handle_event`
+- **Persist its own state**: write under `~/.agents-in-a-box/plugins/<name>/` (gated by `write_plugin_data`)
+- **Read host-managed state**: sessions, Claude/Codex logs (capability-gated)
+- **Invoke host actions**: call out to host-owned operations via `host/action/invoke`
 
-The bundled `ainb-plugin-burndown` is the canonical reference: owns the Analytics screen, the `ainb usage` CLI tree, and a statusline segment. `ainb-plugin-session-reader` is the canonical pure-publisher example. `ainb-plugin-witr` is the canonical **subprocess-wrapping** example: it declares `spawn_subprocess`, detects an external binary (`witr`) on `PATH`, gates on a version check, and execs `witr --json <target>` to back its `ainb witr` CLI + `/witr` slash (its *screen* is a host-embedded `witr -i` TTY, not a `WireBuffer` render) — the template for surfacing any external tool as a plugin without vendoring its code. Each has a dedicated page under [Plugins → In-tree plugins](./overview.md#reference-plugins).
+The bundled `ainb-plugin-burndown` is the canonical reference: owns the Analytics screen, the `ainb usage` CLI tree, and a statusline segment. `ainb-plugin-session-reader` is the canonical pure-publisher example. `ainb-plugin-witr` is the canonical **subprocess-wrapping** example: it declares `spawn_subprocess`, detects an external binary (`witr`) on `PATH`, gates on a version check, and execs `witr --json <target>` to back its `ainb witr` CLI + `/witr` slash (its *screen* is a host-embedded `witr -i` TTY, not a `WireBuffer` render): the template for surfacing any external tool as a plugin without vendoring its code. Each has a dedicated page under [Plugins → In-tree plugins](/plugins/overview#reference-plugins).
 
 ## Scaffold
 
@@ -53,7 +53,7 @@ ainb-plugin-types-sessions = { path = "../ainb-plugin-types-sessions" }
 
 async-trait = "0.1"                             # required for #[async_trait] on Plugin
 
-# Common workspace deps — pull what you need:
+# Common workspace deps: pull what you need:
 tokio       = { workspace = true, features = ["macros", "rt-multi-thread", "io-std"] }
 serde       = { workspace = true, features = ["derive"] }
 serde_json  = { workspace = true }
@@ -62,7 +62,7 @@ anyhow      = { workspace = true }
 ratatui     = { workspace = true, default-features = false }
 ```
 
-Crate type is a normal Rust `lib` + `bin`. **Not** `cdylib` — that was v1.
+Crate type is a normal Rust `lib` + `bin`. **Not** `cdylib`: that was v1.
 
 The plugin crate sits inside the parent workspace; no separate `[workspace.exclude]` ceremony is needed.
 
@@ -93,11 +93,11 @@ spawn          = "lazy"
 idle_reap_secs = 600
 ```
 
-See [v2.md §1](./spec-v2.md#1-manifest) for the full schema and capability semantics.
+See [v2.md §1](/plugins/spec-v2#1-manifest) for the full schema and capability semantics.
 
 ## Implementing the `Plugin` trait
 
-The crate is named `ainb-plugin-sdk-rust` for `Cargo.toml`, but its `[lib].name` is `ainb_plugin_sdk` — that's the path you `use` from Rust code. The trait surface uses ergonomic types (`WireBuffer`, `CliOutput`); the SDK marshals to and from the wire types documented in [`v2.md`](./spec-v2.md) on your behalf.
+The crate is named `ainb-plugin-sdk-rust` for `Cargo.toml`, but its `[lib].name` is `ainb_plugin_sdk`: that's the path you `use` from Rust code. The trait surface uses ergonomic types (`WireBuffer`, `CliOutput`); the SDK marshals to and from the wire types documented in [`v2.md`](/plugins/spec-v2) on your behalf.
 
 `src/lib.rs`:
 
@@ -178,17 +178,17 @@ The SDK handles Content-Length framing, JSON-RPC envelope encode/decode, method 
 |---|---|---|
 | `manifest()` | required (no default) | At construction; SDK reads it once for `plugin/init` |
 | `render` | required (no default) | Host requests a paint of the screen at the given viewport size |
-| `on_init` | optional (default no-op) | Right after `plugin/init` — open files, kick subscriptions, publish bootstrap. `granted_capabilities` lets you refuse to start with `SdkError::plugin(...)` if a required cap was withheld |
+| `on_init` | optional (default no-op) | Right after `plugin/init`: open files, kick subscriptions, publish bootstrap. `granted_capabilities` lets you refuse to start with `SdkError::plugin(...)` if a required cap was withheld |
 | `handle_key` | optional (default no-op) | A keystroke landed on a screen this plugin owns; preempts `handle_event` |
-| `handle_event` | optional (default no-op) | A subscribed snapshot was published — `params.topic` + `params.payload` |
+| `handle_event` | optional (default no-op) | A subscribed snapshot was published: `params.topic` + `params.payload` |
 | `cli_dispatch` | optional (default `exit 2`) | `ainb <namespace> ...` was invoked; namespace + argv are passed by reference |
 | `on_shutdown` | optional (default no-op) | Host is reaping the plugin; flush state and return |
 
 Pure-publisher plugins (no screen) can satisfy `render` with `Ok(WireBuffer::new(0, 0))` since the host never requests a paint for a plugin that doesn't declare any screens.
 
-Both `handle_key` and `handle_event` are **notifications** — the plugin dispatcher serialises them inline on the read loop to preserve chunk ordering and multi-key sequence semantics.
+Both `handle_key` and `handle_event` are **notifications**: the plugin dispatcher serialises them inline on the read loop to preserve chunk ordering and multi-key sequence semantics.
 
-## `HostClient` — calling back into the host
+## `HostClient`: calling back into the host
 
 ```rust
 host.log_info("…").await;                                  // notification
@@ -224,7 +224,7 @@ Bump the wire types crate's `WIRE_VERSION` whenever you change the chunk shape. 
 # From the workspace root (ainb-tui/).
 cargo build -p ainb-plugin-mything
 
-# Stage every plugin into dist/plugins/<id>/ — this is what the dev TUI
+# Stage every plugin into dist/plugins/<id>/: this is what the dev TUI
 # loads from. On macOS, also re-signs the binary (Cargo's link-time
 # signature is path-bound and gets invalidated by the copy step; without
 # re-signing, AMFI SIGKILLs at exec with no stderr).
@@ -234,7 +234,7 @@ just stage-plugins
 cargo run --bin ainb -- tui
 ```
 
-Add an entry for your plugin to `scripts/build-plugins.sh` if it doesn't already enumerate every plugin crate (the current script iterates a hard-coded list — extend it).
+Add an entry for your plugin to `scripts/build-plugins.sh` if it doesn't already enumerate every plugin crate (the current script iterates a hard-coded list: extend it).
 
 Staged layout:
 
@@ -251,7 +251,7 @@ The host discovers plugins by walking `dist/plugins/<id>/manifest.toml` at start
 ### Logs
 
 ```bash
-# Host JSONL log — includes plugin host.log calls AND plugin stderr drain.
+# Host JSONL log: includes plugin host.log calls AND plugin stderr drain.
 tail -f ~/.agents-in-a-box/logs/agents-in-a-box-*.jsonl | jq .
 
 # Enable trace-level for a specific plugin crate:
@@ -289,11 +289,11 @@ async fn render_paints_header_cell() {
 }
 ```
 
-### Conformance — `ainb-plugin-cts-v2`
+### Conformance: `ainb-plugin-cts-v2`
 
 The CTS runs your built binary through 14 host-impersonation axes. Tests sit in `crates/ainb-plugin-cts-v2/tests/axes.rs`; each axis spawns the plugin under a synthetic host driver and asserts wire-level behaviour. Add a per-axis canary plugin under `crates/ainb-plugin-cts-v2/tests/canaries/<axis>/main.rs` if your plugin tests a path no canary covers yet.
 
-### Tripwires — end-to-end TUI tests
+### Tripwires: end-to-end TUI tests
 
 Tripwire tests in `crates/ainb-core/tests/tripwire_*.rs` drive the real `ainb tui` binary in detached tmux, send keystrokes, capture the pane, and assert on rendered output. They're the only tests that catch "plugin compiled but doesn't render". See `.claude/skills/tmux-ui-tripwire/SKILL.md` for the pattern.
 
@@ -303,13 +303,13 @@ Minimum coverage: one tripwire that proves your plugin's screen renders somethin
 
 ## Distribution
 
-Currently in-tree only. Marketplace install (`ainb plugin install <name>`) targets the v1 catalog schema and will be refreshed for v2 — TBD.
+Currently in-tree only. Marketplace install (`ainb plugin install <name>`) targets the v1 catalog schema and will be refreshed for v2: TBD.
 
 ## Pitfalls
 
 - **Don't forget to stage.** `cargo build -p ainb-plugin-mything` writes to `target/debug/` but the host loads from `dist/plugins/mything/mything`. Run `just stage-plugins` after every rebuild.
 - **macOS AMFI.** Any copied/moved binary needs re-signing or it gets SIGKILL'd silently at exec. `just stage-plugins` handles it; don't skip.
 - **Wire-version drift.** When you change the on-wire shape of a snapshot event, bump `WIRE_VERSION` in the types crate. Subscribers will latch `schema_mismatch` until they rebuild against the new constant.
-- **FIFO ordering.** The plugin SDK dispatches `plugin/handle_event` notifications inline on its read loop precisely so that chunked publishes apply in order. Don't try to spawn background tasks to process events — you'll re-order them.
+- **FIFO ordering.** The plugin SDK dispatches `plugin/handle_event` notifications inline on its read loop precisely so that chunked publishes apply in order. Don't try to spawn background tasks to process events: you'll re-order them.
 - **Capability default is deny.** Forget to add `network = true` to your manifest and `host.action_invoke("fetch", ...)` returns `RpcError { code: -32001 }`. Always grep the host log for `capability denied` first when debugging a stuck call.
 - **Idle reap.** `lifecycle.idle_reap_secs = 600` means the host will SIGTERM your plugin after 10 minutes of no requests. Set `0` to disable, or implement a periodic self-publish if the plugin needs to stay warm.

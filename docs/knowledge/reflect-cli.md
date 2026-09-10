@@ -17,7 +17,7 @@ There are **two** independent versions and they are easy to confuse:
 
 ## Install
 
-Recommended — `uv tool install` with the `[graph]` extra (pulls the full GraphRAG + vector stack):
+Recommended: `uv tool install` with the `[graph]` extra (pulls the full GraphRAG + vector stack):
 
 ```bash
 uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
@@ -63,7 +63,7 @@ reflect timeline --explain TOK
 
 The CLI is the data layer; it knows nothing about Claude Code. Knowledge content lives in a separate directory at `~/.claude/global-learnings/` (override with `$GLOBAL_LEARNINGS_PATH`), holding `documents/*.md`, `documents/*.entities.yaml` sidecars, the gitignored `nano_graphrag_cache/` index, and the rotated `metrics.jsonl` telemetry log.
 
-> **Note:** the plugin-side recall/reflect/drain code (`recall.py`, `graphml_repair.py`, `reflect_synthesis.py`) canonically reads from `~/.learnings/` and treats `~/.claude/global-learnings/` as a legacy/deprecated fallback (the self-heal and synthesis scripts glob **both** paths). Both resolve in practice; `~/.learnings/` is the current canonical root in the plugin's architecture docs. The `reflect init` default above describes the `reflect-kb` CLI's own behaviour — verify with `reflect --help` for your installed version.
+> **Note:** the plugin-side recall/reflect/drain code (`recall.py`, `graphml_repair.py`, `reflect_synthesis.py`) canonically reads from `~/.learnings/` and treats `~/.claude/global-learnings/` as a legacy/deprecated fallback (the self-heal and synthesis scripts glob **both** paths). Both resolve in practice; `~/.learnings/` is the current canonical root in the plugin's architecture docs. The `reflect init` default above describes the `reflect-kb` CLI's own behaviour: verify with `reflect --help` for your installed version.
 
 ## Plugin: skills, adapters and hooks
 
@@ -86,11 +86,11 @@ The `reflect` plugin (version `5.2.5`) wires the CLI into the agent harness. It 
 
 | Hook | Action |
 |---|---|
-| `SessionStart` | Runs `recall` and kicks off the background drain (`reflect-drain-bg.sh`) — the sole consumer of the pending-reflections queue as of plugin 4.0.0. |
+| `SessionStart` | Runs `recall` and kicks off the background drain (`reflect-drain-bg.sh`): the sole consumer of the pending-reflections queue as of plugin 4.0.0. |
 | `UserPromptSubmit` | Runs `recall` against the prompt. |
 | `PostToolUse` | Arms low-cost mini-learning capture. |
-| `Stop` | Gates ($0) and **queues** a short-session transcript for the bg-drain cascade — does not reflect synchronously. |
-| `PreCompact` | Runs `precompact_reflect.py --auto --verbose` — **auto-installed**. Hook scripts can't run an LLM, so it gates ($0) and **queues** the transcript for the bg-drain cascade rather than reflecting inline. |
+| `Stop` | Gates ($0) and **queues** a short-session transcript for the bg-drain cascade: does not reflect synchronously. |
+| `PreCompact` | Runs `precompact_reflect.py --auto --verbose`: **auto-installed**. Hook scripts can't run an LLM, so it gates ($0) and **queues** the transcript for the bg-drain cascade rather than reflecting inline. |
 
 The producer hooks (`Stop`, `PreCompact`) only enqueue; reflection itself runs later in the background drain. As of plugin 4.0.0 the drain gates + slices each transcript and invokes `/reflect` on **Sonnet** by default under hard caps. Cost-control env vars consumed by the drain:
 
@@ -111,11 +111,11 @@ Inspect drain spend with `reflect cost`. See the plugin [`CHANGELOG.md`](https:/
 ## Memory browser
 
 `reflect serve` launches a local, loopback-only web app for browsing, searching, graphing, and
-curating the same KB this CLI reads and writes — no separate index, no auth, no cloud. See the
-[memory browser guide](/knowledge/reflect-memory/serve/) for the subcommand's flags and views.
+curating the same KB this CLI reads and writes: no separate index, no auth, no cloud. See the
+[memory browser guide](/knowledge/reflect-memory/serve) for the subcommand's flags and views.
 
 ## See also
 
-- [Knowledge base overview](./overview.md)
+- [Knowledge base overview](/knowledge/overview)
 - [ainb-reflect-memory README](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/README.md)
-- [Docs hub](../README.md)
+- [Docs hub](/readme)

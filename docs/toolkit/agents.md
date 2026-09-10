@@ -31,4 +31,4 @@ access, and area of expertise.
 
 ## See also
 
-- [Docs hub](../README.md)
+- [Docs hub](/readme)

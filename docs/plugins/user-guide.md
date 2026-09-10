@@ -2,7 +2,7 @@
 title: "Plugin user guide"
 ---
 
-User-facing reference for the `ainb plugin` family of commands. New to plugins? Read [overview.md](./overview.md) first. Writing one? [authoring.md](./authoring.md). Wire contract: [spec-v2.md](./spec-v2.md).
+User-facing reference for the `ainb plugin` family of commands. New to plugins? Read [overview.md](/plugins/overview) first. Writing one? [authoring.md](/plugins/authoring). Wire contract: [spec-v2.md](/plugins/spec-v2).
 
 ## Status of the install / marketplace flow
 
@@ -18,7 +18,7 @@ just stage-plugins
 ./target/debug/ainb tui
 ```
 
-`AINB_DISABLE_PLUGINS=1 ainb tui` boots the host with the runtime disabled — useful when bisecting a plugin-induced regression.
+`AINB_DISABLE_PLUGINS=1 ainb tui` boots the host with the runtime disabled: useful when bisecting a plugin-induced regression.
 
 ## Commands that work today
 
@@ -85,9 +85,9 @@ network             = []       # bool or hostname allow-list
 
 Default for every flag is **deny** (`false` / `[]`). The runtime rejects host-fn calls against a capability the manifest doesn't grant with JSON-RPC error code `-32001` (`CAPABILITY_DENIED`).
 
-When the install flow returns, capability prompts will reappear at install time. Until then, capabilities are read straight from the on-disk manifest at runtime discovery — there is no separate `installed.toml` lockfile in the subprocess world.
+When the install flow returns, capability prompts will reappear at install time. Until then, capabilities are read straight from the on-disk manifest at runtime discovery: there is no separate `installed.toml` lockfile in the subprocess world.
 
-See [./spec-v2.md §1](./spec-v2.md#1-manifest) for full semantics.
+See [./spec-v2.md §1](/plugins/spec-v2#1-manifest) for full semantics.
 
 ## Configuration
 
@@ -97,9 +97,9 @@ The host supports four knobs for selecting which plugins load, evaluated in this
 
 | Knob | Where | Behavior |
 |---|---|---|
-| `AINB_DISABLE_PLUGINS=1` | env | Kill switch — skip discovery entirely. Runtime comes up plugin-free. |
-| `AINB_ONLY_PLUGINS=a,b` | env | Allowlist — load ONLY the named plugins; everything else skipped. |
-| `AINB_DISABLE_PLUGIN=a,b` | env | Denylist — load everything EXCEPT the named plugins. Ignored when `AINB_ONLY_PLUGINS` is set. |
+| `AINB_DISABLE_PLUGINS=1` | env | Kill switch: skip discovery entirely. Runtime comes up plugin-free. |
+| `AINB_ONLY_PLUGINS=a,b` | env | Allowlist: load ONLY the named plugins; everything else skipped. |
+| `AINB_DISABLE_PLUGIN=a,b` | env | Denylist: load everything EXCEPT the named plugins. Ignored when `AINB_ONLY_PLUGINS` is set. |
 | `[plugins].enabled = [...]` | `config.toml` | Persistent allowlist. Same shape as `AINB_ONLY_PLUGINS` but survives across runs. Env vars override config. |
 | `[plugins].disabled = [...]` | `config.toml` | Persistent denylist. Ignored when `[plugins].enabled` is non-empty. |
 
@@ -115,7 +115,7 @@ AINB_DISABLE_PLUGIN=burndown ainb tui
 # Load only session-reader (useful for a headless data pipeline).
 AINB_ONLY_PLUGINS=session-reader ainb tui
 
-# Multiple names — comma-separated, whitespace tolerated.
+# Multiple names: comma-separated, whitespace tolerated.
 AINB_ONLY_PLUGINS="burndown, session-reader" ainb tui
 ```
 
@@ -123,7 +123,7 @@ Persistent config (`~/.agents-in-a-box/config/config.toml`):
 
 ```toml
 [plugins]
-# Either list (or neither) — when both are set, `enabled` wins.
+# Either list (or neither): when both are set, `enabled` wins.
 enabled = ["session-reader"]
 # disabled = ["burndown"]
 ```
@@ -148,10 +148,10 @@ Redirects every host-managed path (`logs/`, `plugins/<name>/`, `sessions/`) unde
 
 ## Troubleshooting
 
-- **"the marketplace + installer flow is being re-cut against the subprocess ABI 2.0"** — install flow not yet ported. Use in-tree crates + `just stage-plugins` until Phase 7c lands.
-- **`ainb plugin list` returns "(no plugins registered)"** — the runtime found no manifests under `dist/plugins/`. Did you run `just stage-plugins`? Is `AINB_PLUGIN_ROOT` pointing at the right directory?
-- **Plugin exits 137 in <1 ms on macOS, no stderr** — AMFI silent-kill. The binary's codesign got invalidated by a copy. Re-run `just stage-plugins`.
-- **Analytics shows "plugin: rendering…" but never updates** — the burndown plugin crashed or session-reader never published. Run `ainb plugin watch burndown` AND `ainb plugin tail session-reader --level debug` in two terminals to see which one failed.
-- **`schema_mismatch` banner on Analytics** — the publisher and subscriber disagree on `WIRE_VERSION`. Rebuild both plugins from the same checkout (`cargo build --workspace` + `just stage-plugins`).
-- **Keystrokes feel sluggish during burndown refresh** — should be fixed by the priority-key channel landed 2026-05-15 (PR #125). If you see it on a build older than that, rebase onto `feat/plugin`.
-- **Capability errors (`-32001`)** — the plugin asked for a host action its manifest doesn't grant. The host JSONL log entry includes which capability and which method.
+- **"the marketplace + installer flow is being re-cut against the subprocess ABI 2.0"**: install flow not yet ported. Use in-tree crates + `just stage-plugins` until Phase 7c lands.
+- **`ainb plugin list` returns "(no plugins registered)"**: the runtime found no manifests under `dist/plugins/`. Did you run `just stage-plugins`? Is `AINB_PLUGIN_ROOT` pointing at the right directory?
+- **Plugin exits 137 in <1 ms on macOS, no stderr**: AMFI silent-kill. The binary's codesign got invalidated by a copy. Re-run `just stage-plugins`.
+- **Analytics shows "plugin: rendering…" but never updates**: the burndown plugin crashed or session-reader never published. Run `ainb plugin watch burndown` AND `ainb plugin tail session-reader --level debug` in two terminals to see which one failed.
+- **`schema_mismatch` banner on Analytics**: the publisher and subscriber disagree on `WIRE_VERSION`. Rebuild both plugins from the same checkout (`cargo build --workspace` + `just stage-plugins`).
+- **Keystrokes feel sluggish during burndown refresh**: should be fixed by the priority-key channel landed 2026-05-15 (PR #125). If you see it on a build older than that, rebase onto `feat/plugin`.
+- **Capability errors (`-32001`)**: the plugin asked for a host action its manifest doesn't grant. The host JSONL log entry includes which capability and which method.

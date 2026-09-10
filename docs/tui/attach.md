@@ -65,6 +65,6 @@ Use in-pane attach for quick interventions: answering prompts, confirming comman
 
 ## Next steps
 
-- [Starting a new session](start-session.md): wizard configuration options
-- [Code review diff](code-review.md): inspect file diffs before attaching
-- [Keyboard shortcuts](keyboard-shortcuts.md): all navigation bindings
+- [Starting a new session](/tui/start-session): wizard configuration options
+- [Code review diff](/tui/code-review): inspect file diffs before attaching
+- [Keyboard shortcuts](/tui/keyboard-shortcuts): all navigation bindings

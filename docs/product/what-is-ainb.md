@@ -75,8 +75,8 @@ Each component is independently useful. You can use ainb-toolkit without ever op
 
 ## Where to go next
 
-- [Install ainb](../tui/install.md)
-- [Quickstart](../tui/quickstart.md): first session in 60 seconds
-- [Concepts](concepts.md): workspaces, worktrees, and sessions
-- [Keyboard shortcuts](../tui/keyboard-shortcuts.md)
-- [CLI reference](../tui/cli.md)
+- [Install ainb](/tui/install)
+- [Quickstart](/tui/quickstart): first session in 60 seconds
+- [Concepts](/product/concepts): workspaces, worktrees, and sessions
+- [Keyboard shortcuts](/tui/keyboard-shortcuts)
+- [CLI reference](/tui/cli)

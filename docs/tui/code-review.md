@@ -54,6 +54,6 @@ ainb diff-review ./path     # review another directory or worktree
 
 ## Next steps
 
-- [Overview](overview.md): all TUI screens and shortcuts
-- [Attaching to sessions](attach.md): inspect running agent tmux sessions
-- [CLI reference](cli.md): command-line flags for diff-review
+- [Overview](/tui/overview): all TUI screens and shortcuts
+- [Attaching to sessions](/tui/attach): inspect running agent tmux sessions
+- [CLI reference](/tui/cli): command-line flags for diff-review
