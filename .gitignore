@@ -79,3 +79,4 @@ __pycache__/
 /explainers/
 .herenow/
 .impeccable/
+.tmux-dev-session.json
