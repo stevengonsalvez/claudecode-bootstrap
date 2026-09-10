@@ -1,9 +1,9 @@
 ---
 title: Sandbox testing
-description: Run the skill manager against a throwaway sandbox home — never your real ~/.claude.
+description: "Run the skill manager against a throwaway sandbox home: never your real ~/.claude."
 ---
 
-> Reproducible test harness for the SkillManager — drives the TUI +
+> Reproducible test harness for the SkillManager: drives the TUI +
 > CLI against a seeded fake `~/.claude` / `~/.codex` without touching
 > your real tool homes. Two surfaces from one design: a Rust fixture
 > for in-process integration tests, plus a bash script for manual TUI
@@ -46,7 +46,7 @@ a fixture that:
 ```
 
 The two paths share design (same seeded skills, same env-var set,
-same bare-remote shape) but not code — the Rust API uses
+same bare-remote shape) but not code: the Rust API uses
 `tempfile::tempdir()` for parallel-safe tests; the bash script
 writes to a stable cache path so a developer can leave the sandbox
 in place between TUI sessions.
@@ -62,7 +62,7 @@ in place between TUI sessions.
 `Full` (~2s) is for tripwires that need multi-tool coverage,
 conflict-flip exercises, or the upcoming provenance matcher.
 
-## Manual workflow (just — recommended)
+## Manual workflow (just: recommended)
 
 `brew install just`, then from the worktree root:
 
@@ -77,10 +77,10 @@ just --list skill-manager               # list every recipe
 
 All env vars (`HOME`, `AINB_HOME`, `AINB_TOOL_HOME_*`,
 `GIT_TERMINAL_PROMPT`, `GIT_ASKPASS`) are set inside the justfile
-itself — no `source env.sh` step. Override the sandbox root with
+itself: no `source env.sh` step. Override the sandbox root with
 `AINB_SANDBOX_ROOT=/tmp/foo just skill-manager up`.
 
-## Manual workflow (raw bash — no just)
+## Manual workflow (raw bash: no just)
 
 ```bash
 # 1. Build a sandbox (default ~/.cache/ainb-sandbox, default Minimal)
@@ -89,7 +89,7 @@ scripts/skill-manager-sandbox.sh up
 # 2. Arm the env
 source ~/.cache/ainb-sandbox/env.sh
 
-# 3. Launch ainb — press [m] to enter SkillManager
+# 3. Launch ainb: press [m] to enter SkillManager
 ./target/debug/ainb
 
 # 4. Or drive the CLI
@@ -115,7 +115,7 @@ scripts/skill-manager-sandbox.sh down
 - `--root /` refused (would clobber the filesystem).
 - `--root $HOME` refused (would clobber the user's real home).
 - `down` refuses any directory that lacks the `.ainb-sandbox-marker`
-  sentinel file — protection against accidentally wiping a wrong
+  sentinel file: protection against accidentally wiping a wrong
   path.
 - `down` on a missing root is a no-op (exit 0).
 
@@ -158,13 +158,13 @@ fn my_skill_manager_test() {
 ```
 
 `SandboxLayout::env_vars()` returns the env-var pairs the bash
-launcher writes to `env.sh` — identical contract.
+launcher writes to `env.sh`: identical contract.
 
 ## Test coverage matrix
 
 | Journey                                    | Covered by                                                                                                |
 |--------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| Fixture itself builds correctly            | `crates/ainb-skill-core/tests/sandbox_fixture_smoke.rs` — 5 tests across both tiers                       |
+| Fixture itself builds correctly            | `crates/ainb-skill-core/tests/sandbox_fixture_smoke.rs`: 5 tests across both tiers                       |
 | Refuse to seed at `$HOME`                  | `sandbox_fixture_smoke::refuses_to_seed_into_real_home`                                                   |
 | Idempotent rebuild                         | `sandbox_fixture_smoke::rebuild_into_existing_root_is_idempotent`                                         |
 | env_vars contract                          | `sandbox_fixture_smoke::env_vars_round_trip_paths`                                                        |
@@ -172,7 +172,7 @@ launcher writes to `env.sh` — identical contract.
 | Drift InSync/Outdated round-trip vs bare   | `crates/ainb-skill-core/tests/drift_tests_integration.rs`                                                 |
 | TestBackend render of SkillsScreenData     | `crates/ainb-core/tests/tripwire_core_skill_manager_sandbox_loads.rs`                                     |
 | Live tmux: press `m`, see SkillManager     | `crates/ainb-core/tests/tripwire_core_skill_manager_sandbox_e2e.rs`                                       |
-| Bash `up`/`down` safety guards (rm -rf belts) | `crates/ainb-core/tests/sandbox_script_safety_guards.rs` — 4 tests against the real script               |
+| Bash `up`/`down` safety guards (rm -rf belts) | `crates/ainb-core/tests/sandbox_script_safety_guards.rs`: 4 tests against the real script               |
 
 ## Prod-binary isolation
 
@@ -200,7 +200,7 @@ explicit `--features` flag is a self-dev-dep in
 ainb-skill-core = { path = ".", features = ["test-fixtures"] }
 ```
 
-Cargo treats this as a separate dependency edge — tests see the
+Cargo treats this as a separate dependency edge: tests see the
 fixture, production builds don't. `ainb-core` adopts the same
 pattern in its own dev-deps so the SkillManager tripwires can
 consume the fixture.
