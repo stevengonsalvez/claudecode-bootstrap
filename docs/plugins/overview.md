@@ -1,10 +1,10 @@
 ---
-title: "ainb v2 plugins — overview"
+title: "ainb v2 plugins: overview"
 ---
 
-What a v2 subprocess plugin is, conceptually. New here? Read [README.md](./README.md) first — it disambiguates from Claude Code plugins.
+What a v2 subprocess plugin is, conceptually. New here? Read [README.md](/plugins/readme) first: it disambiguates from Claude Code plugins.
 
-For the user CLI flow, jump to [user-guide.md](./user-guide.md). To write one, [authoring.md](./authoring.md). For the wire contract, [spec-v2.md](./spec-v2.md).
+For the user CLI flow, jump to [user-guide.md](/plugins/user-guide). To write one, [authoring.md](/plugins/authoring). For the wire contract, [spec-v2.md](/plugins/spec-v2).
 
 ## What is a plugin?
 
@@ -16,37 +16,37 @@ Plugins only see the host capabilities they declare in their manifest, and they 
 
 ![ainb v2 plugin architecture: the host and its runtime, the JSON-RPC method sets on each side of the wire, the six in-tree plugins, and the two ways a plugin can draw](../assets/diagrams/plugin-architecture.svg)
 
-The host (`ainb-core`) spawns each plugin as a child process and drives it over **JSON-RPC 2.0 / Content-Length-framed stdio**. Host→plugin methods: `plugin/init` (with the granted capabilities), `plugin/render` (host sends a `Viewport`, plugin returns a `WireBuffer`), `plugin/handle_key`, `plugin/handle_event`, `plugin/cli_dispatch`, `plugin/shutdown`. Plugin→host (reverse) calls: `host/snapshot/publish` + `host/snapshot/subscribe` (the **event bus**) and `host/action/invoke`. The `ainb-plugin-runtime` enforces capabilities — an ungranted host-fn call comes back as JSON-RPC `-32001` (`CAPABILITY_DENIED`).
+The host (`ainb-core`) spawns each plugin as a child process and drives it over **JSON-RPC 2.0 / Content-Length-framed stdio**. Host→plugin methods: `plugin/init` (with the granted capabilities), `plugin/render` (host sends a `Viewport`, plugin returns a `WireBuffer`), `plugin/handle_key`, `plugin/handle_event`, `plugin/cli_dispatch`, `plugin/shutdown`. Plugin→host (reverse) calls: `host/snapshot/publish` + `host/snapshot/subscribe` (the **event bus**) and `host/action/invoke`. The `ainb-plugin-runtime` enforces capabilities: an ungranted host-fn call comes back as JSON-RPC `-32001` (`CAPABILITY_DENIED`).
 
 ### Two ways a plugin screen renders
 
-- **In-process `WireBuffer`** — the host owns the terminal; the plugin paints a sparse cell grid the host blits each frame. Integrated and themeable. This is how **`burndown`** draws the Analytics dashboard.
-- **Host-embedded foreign TTY** — for an interactive program that has no machine-readable render (only its own TUI), the host *suspends* and hands the whole terminal to the external binary, resuming when it exits — the same mechanism ainb uses to attach to agent sessions. This is how **`witr`** opens its all-process browser (`witr -i`): there's no JSON for witr's live process list, so pressing `w` runs `tmux new-session -A -d -s ainb-witr "witr -i"` and attaches full-screen.
+- **In-process `WireBuffer`**: the host owns the terminal; the plugin paints a sparse cell grid the host blits each frame. Integrated and themeable. This is how **`burndown`** draws the Analytics dashboard.
+- **Host-embedded foreign TTY**: for an interactive program that has no machine-readable render (only its own TUI), the host *suspends* and hands the whole terminal to the external binary, resuming when it exits: the same mechanism ainb uses to attach to agent sessions. This is how **`witr`** opens its all-process browser (`witr -i`): there's no JSON for witr's live process list, so pressing `w` runs `tmux new-session -A -d -s ainb-witr "witr -i"` and attaches full-screen.
 
 ## What a plugin can own
 
-- **A TUI screen** — implement `Plugin::render` and paint a `WireBuffer` per frame; the host blits it onto the terminal.
-- **A CLI subcommand tree** — claim a `cli_namespaces` entry in your manifest; the host dispatches `ainb <ns> ...` invocations through `Plugin::cli_dispatch`.
-- **Snapshot topics (publish/subscribe)** — push data on a topic via `HostClient::snapshot_publish`; subscribers (other plugins or the host) get `plugin/handle_event` deliveries.
-- **A statusline segment** — own a slice of the persistent status bar.
-- **Its own state** — write under `~/.agents-in-a-box/plugins/<name>/` (gated by `write_plugin_data`).
-- **Host actions** — invoke host-owned operations via `host/action/invoke` (gated by capability).
+- **A TUI screen**: implement `Plugin::render` and paint a `WireBuffer` per frame; the host blits it onto the terminal.
+- **A CLI subcommand tree**: claim a `cli_namespaces` entry in your manifest; the host dispatches `ainb <ns> ...` invocations through `Plugin::cli_dispatch`.
+- **Snapshot topics (publish/subscribe)**: push data on a topic via `HostClient::snapshot_publish`; subscribers (other plugins or the host) get `plugin/handle_event` deliveries.
+- **A statusline segment**: own a slice of the persistent status bar.
+- **Its own state**: write under `~/.agents-in-a-box/plugins/<name>/` (gated by `write_plugin_data`).
+- **Host actions**: invoke host-owned operations via `host/action/invoke` (gated by capability).
 
 ## Reference plugins
 
 Four plugins ship in-tree as the canonical examples:
 
-- **[`burndown`](./burndown.md)** — screen-owner reference. Owns the Analytics screen (renders a ratatui dashboard into a `WireBuffer` each frame) and the `ainb usage` CLI tree; subscribes to `sessions.usage_data` from `session-reader`.
-- **[`session-reader`](./session-reader.md)** — pure-publisher reference. No screen. Scans `~/.claude/projects/**`, `~/.codex/sessions/**` (and more) and chunk-publishes usage snapshots on `sessions.usage_data` for `burndown` to render.
-- **[`witr`](./witr.md)** — subprocess-wrapper reference. The `ainb witr <target>` CLI + `/witr` slash run `witr --json <target>` and parse the ancestry JSON; its **screen** is a host-embedded foreign TTY (`w` hands the terminal to `witr -i` — see [the two render paths](#two-ways-a-plugin-screen-renders)). Declares `spawn_subprocess` + `event_bus`.
-- **[`learnings`](./learnings.md)** — read-only-browser reference. A path-scoped fs reader + `qmd` subprocess: it browses, searches and **graphs** the [`reflect`](../toolkit/plugins/reflect.md) knowledge base under `~/.learnings` (Markdown notes + `.entities.yaml` sidecars + the nano-graphrag cache + the qmd index). Opens with `m` / `/recall` / `/memory`; its Graph tab renders an entity neighbourhood, community clusters, and a deterministic radial ego local-graph. Declares `read_paths` + `spawn_subprocess` + `event_bus`.
-- **[`abtop`](./abtop.md)** — subprocess-wrapper plugin for `abtop` (top-for-agents). The `ainb abtop` CLI execs `abtop --once`; pressing `t` attaches the terminal full-screen to `abtop --exit-on-jump` (same foreign-TTY hand-off pattern as witr). First launch shows a one-time rate-limit `--setup` consent dialog. Declares `spawn_subprocess` only.
+- **[`burndown`](/plugins/burndown)**: screen-owner reference. Owns the Analytics screen (renders a ratatui dashboard into a `WireBuffer` each frame) and the `ainb usage` CLI tree; subscribes to `sessions.usage_data` from `session-reader`.
+- **[`session-reader`](/plugins/session-reader)**: pure-publisher reference. No screen. Scans `~/.claude/projects/**`, `~/.codex/sessions/**` (and more) and chunk-publishes usage snapshots on `sessions.usage_data` for `burndown` to render.
+- **[`witr`](/plugins/witr)**: subprocess-wrapper reference. The `ainb witr <target>` CLI + `/witr` slash run `witr --json <target>` and parse the ancestry JSON; its **screen** is a host-embedded foreign TTY (`w` hands the terminal to `witr -i`: see [the two render paths](#two-ways-a-plugin-screen-renders)). Declares `spawn_subprocess` + `event_bus`.
+- **[`learnings`](/plugins/learnings)**: read-only-browser reference. A path-scoped fs reader + `qmd` subprocess: it browses, searches and **graphs** the [`reflect`](/toolkit/plugins/reflect) knowledge base under `~/.learnings` (Markdown notes + `.entities.yaml` sidecars + the nano-graphrag cache + the qmd index). Opens with `m` / `/recall` / `/memory`; its Graph tab renders an entity neighbourhood, community clusters, and a deterministic radial ego local-graph. Declares `read_paths` + `spawn_subprocess` + `event_bus`.
+- **[`abtop`](/plugins/abtop)**: subprocess-wrapper plugin for `abtop` (top-for-agents). The `ainb abtop` CLI execs `abtop --once`; pressing `t` attaches the terminal full-screen to `abtop --exit-on-jump` (same foreign-TTY hand-off pattern as witr). First launch shows a one-time rate-limit `--setup` consent dialog. Declares `spawn_subprocess` only.
 
 Each links to its own page with a `/fireworks-tech-graph` diagram of how it works.
 
-> **Not a plugin:** the Inbox screen + `ainb-notifyd` daemon are sometimes mistaken for an in-tree plugin (the crate is named `ainb-plugin-notifyd`). They are **host code compiled into `ainb-core`** — no manifest, no JSON-RPC, no capability gate. They're documented under [TUI → Inbox & notifications](../tui/inbox-notifications.md), not here.
+> **Not a plugin:** the Inbox screen + `ainb-notifyd` daemon are sometimes mistaken for an in-tree plugin (the crate is named `ainb-plugin-notifyd`). They are **host code compiled into `ainb-core`**: no manifest, no JSON-RPC, no capability gate. They're documented under [TUI → Inbox & notifications](/tui/inbox-notifications), not here.
 
-![Burndown plugin — full analytics dashboard](../assets/screenshots/burndown.png)
+![Burndown plugin: full analytics dashboard](../assets/screenshots/burndown.png)
 
 *The burndown plugin rendering the full analytics dashboard against real `~/.claude/projects` data.*
 
@@ -70,7 +70,7 @@ dist/plugins/
     └── manifest.toml
 ```
 
-(`notifyd` is **not** here — it's a daemon compiled into `ainb-core`, not a staged subprocess plugin; see [TUI → Inbox & notifications](../tui/inbox-notifications.md).)
+(`notifyd` is **not** here: it's a daemon compiled into `ainb-core`, not a staged subprocess plugin; see [TUI → Inbox & notifications](/tui/inbox-notifications).)
 
 That layout is what `just stage-plugins` produces from in-tree crates, and what the host walks on startup. The `AINB_PLUGIN_ROOT` env var overrides it (defaults to `<workspace-root>/dist/plugins`).
 
@@ -93,14 +93,14 @@ network             = []       # bool or hostname allow-list
 
 Default for every flag is **deny** (`false` / `[]`). The runtime rejects host-fn calls against a capability the manifest doesn't grant with JSON-RPC error code `-32001` (`CAPABILITY_DENIED`).
 
-Full semantics: [spec-v2.md §1](./spec-v2.md#1-manifest) and [spec-v2.md §9](./spec-v2.md#9-capability-gates).
+Full semantics: [spec-v2.md §1](/plugins/spec-v2#1-manifest) and [spec-v2.md §9](/plugins/spec-v2#9-capability-gates).
 
 ## Versus the deprecated v1 wasm contract
 
-v1 used `wasm32-wasip1` cdylibs in a wasmi host runtime with linker-omitted host-fn imports for capability gating. v2 dropped wasm entirely — a normal `cargo build` binary, native code, OS-process boundary. The wasm sandbox added implementation cost without buying any safety property the OS process boundary doesn't already provide for ainb's threat model.
+v1 used `wasm32-wasip1` cdylibs in a wasmi host runtime with linker-omitted host-fn imports for capability gating. v2 dropped wasm entirely: a normal `cargo build` binary, native code, OS-process boundary. The wasm sandbox added implementation cost without buying any safety property the OS process boundary doesn't already provide for ainb's threat model.
 
 ## Next steps
 
-- **End user?** [user-guide.md](./user-guide.md) — every `ainb plugin` command.
-- **Building a plugin?** [authoring.md](./authoring.md) — Rust SDK, scaffolding, debugging.
-- **Implementing a host?** [spec-v2.md](./spec-v2.md) — the wire contract.
+- **End user?** [user-guide.md](/plugins/user-guide): every `ainb plugin` command.
+- **Building a plugin?** [authoring.md](/plugins/authoring): Rust SDK, scaffolding, debugging.
+- **Implementing a host?** [spec-v2.md](/plugins/spec-v2): the wire contract.
