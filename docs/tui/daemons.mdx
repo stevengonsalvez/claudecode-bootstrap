@@ -1,29 +1,29 @@
 ---
 title: "Daemons overlay"
-description: "Press d in the ainb TUI to open the Daemons overlay — every ainb-managed background daemon and socket in one place: the shared MCP pool, the Headroom compression proxy, the notifyd notification daemon with its approve socket, plus the R restart lever that repairs a dead approve socket."
+description: "Press d in the ainb TUI to open the Daemons overlay: every ainb-managed background daemon and socket in one place: the shared MCP pool, the Headroom compression proxy, the notifyd notification daemon with its approve socket, plus the R restart lever that repairs a dead approve socket."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-ainb runs a few background daemons on your behalf — the shared MCP server pool, the Headroom compression proxy, and the `notifyd` notification daemon that also serves the permission approve socket. Rather than make you hunt for them with `ps`, every ainb-managed daemon and socket shows up in one place: press **`d`** from anywhere in the TUI to open the **Daemons** overlay.
+ainb runs a few background daemons on your behalf: the shared MCP server pool, the Headroom compression proxy, and the `notifyd` notification daemon that also serves the permission approve socket. Rather than make you hunt for them with `ps`, every ainb-managed daemon and socket shows up in one place: press **`d`** from anywhere in the TUI to open the **Daemons** overlay.
 
 ![ainb TUI Daemons overlay showing the shared MCP pool row as down and the Headroom proxy on port 8787 as up with a saved-tokens count and a watched marker, plus the consuming-sessions line; r refreshes and esc closes](../assets/screenshots/daemons-overlay.gif)
 
-*The overlay lists each daemon with a live status dot, and for the Headroom proxy: its port (`:8787`), the tokens it has saved so far (the same figure as the [Savings tab](token-optimization.mdx) and `ainb usage savings`), and which sessions are routed through it. `r` refreshes; `R` restarts notifyd; `Esc` closes.*
+*The overlay lists each daemon with a live status dot, and for the Headroom proxy: its port (`:8787`), the tokens it has saved so far (the same figure as the [Savings tab](/tui/token-optimization) and `ainb usage savings`), and which sessions are routed through it. `r` refreshes; `R` restarts notifyd; `Esc` closes.*
 
 ## What's on it
 
-- **MCP pool** — the shared `ainb mcp daemon` that spawns each MCP server once behind a unix socket. See [Shared MCP pool](mcp-pool.mdx).
-- **Headroom proxy** — the ainb-managed compression proxy. Its row carries the live saved-token count and a **`watched`** marker when the in-loop watchdog is keeping it alive for a routed session.
-- **notifyd processes** — every running `ainb-notifyd` process, one line each, with its pid and health class. Orphaned or wedged strays are counted with a `· N to clean up (run \`ainb notifyd reap\`)` hint. notifyd owns the [Inbox](inbox-notifications.md) socket **and** the **approve socket** (`~/.agents-in-a-box/approve.sock`) that the synchronous permission round-trip blocks on.
+- **MCP pool**: the shared `ainb mcp daemon` that spawns each MCP server once behind a unix socket. See [Shared MCP pool](/tui/mcp-pool).
+- **Headroom proxy**: the ainb-managed compression proxy. Its row carries the live saved-token count and a **`watched`** marker when the in-loop watchdog is keeping it alive for a routed session.
+- **notifyd processes**: every running `ainb-notifyd` process, one line each, with its pid and health class. Orphaned or wedged strays are counted with a `· N to clean up (run \`ainb notifyd reap\`)` hint. notifyd owns the [Inbox](/tui/inbox-notifications) socket **and** the **approve socket** (`~/.agents-in-a-box/approve.sock`) that the synchronous permission round-trip blocks on.
 
 <Aside type="note">
-The Headroom watchdog isn't a separate process — it's an in-loop tick (~10 s) that re-ensures the proxy if a routed session is live but the proxy has died. Because it belongs to the Headroom proxy, it's surfaced as the `watched` attribute on that row rather than as its own daemon. Every ainb-managed daemon and socket lives on this screen — that's the invariant.
+The Headroom watchdog isn't a separate process: it's an in-loop tick (~10 s) that re-ensures the proxy if a routed session is live but the proxy has died. Because it belongs to the Headroom proxy, it's surfaced as the `watched` attribute on that row rather than as its own daemon. Every ainb-managed daemon and socket lives on this screen: that's the invariant.
 </Aside>
 
 ## The restart lever (`R`)
 
-The overlay is mostly for observing, but notifyd gets one deliberate control: **`R` restarts notifyd** — stop the owner, reap strays, respawn, and wait for the approve socket to bind. This is the **single resume/repair command** for a dead or wedged approve socket, and it is safe to run while permission prompts are mid-wait: a blocked `PermissionRequest` hook re-dials the socket every 500 ms until its deadline, so every still-waiting prompt re-registers itself the moment the fresh daemon binds. One restart repairs the socket *and* resumes the pending prompts — no hook is lost.
+The overlay is mostly for observing, but notifyd gets one deliberate control: **`R` restarts notifyd**: stop the owner, reap strays, respawn, and wait for the approve socket to bind. This is the **single resume/repair command** for a dead or wedged approve socket, and it is safe to run while permission prompts are mid-wait: a blocked `PermissionRequest` hook re-dials the socket every 500 ms until its deadline, so every still-waiting prompt re-registers itself the moment the fresh daemon binds. One restart repairs the socket *and* resumes the pending prompts: no hook is lost.
 
 The outcome (`stopped · reaped · spawned pid · socket bound`) is shown as a transient status line under the notifyd header, and the daemon list re-scans automatically so the new pid appears.
 
@@ -36,7 +36,7 @@ ainb notifyd restart --format json    # machine-readable outcome
 
 ## The full health view
 
-The overlay is the quick glance; `ainb fleet daemons` is the full table — every daemon with state, pid, uptime, last activity, and a health reason. The **approve broker** appears as its own row there: it rides notifyd's process (no pid of its own), so its liveness is the socket accepting a connection, and its health reason carries the live pending-waiter count (`serving — 2 pending requests`) so you can see blocked hooks at a glance.
+The overlay is the quick glance; `ainb fleet daemons` is the full table: every daemon with state, pid, uptime, last activity, and a health reason. The **approve broker** appears as its own row there: it rides notifyd's process (no pid of its own), so its liveness is the socket accepting a connection, and its health reason carries the live pending-waiter count (`serving: 2 pending requests`) so you can see blocked hooks at a glance.
 
 ```bash
 ainb fleet daemons                    # unified daemon health table
@@ -56,7 +56,7 @@ ainb notifyd reap      # kill orphan/wedged notifyd strays, sparing the live own
 
 ## See also
 
-- [Inbox & notifications](inbox-notifications.md) — the daemon behind the notifyd rows, and the permission approve/deny round-trip.
-- [Token optimisation — Headroom & RTK](token-optimization.mdx) — the proxy this overlay watches.
-- [Shared MCP pool](mcp-pool.mdx) — the other daemon on this screen.
-- [Keyboard shortcuts](keyboard-shortcuts.md).
+- [Inbox & notifications](/tui/inbox-notifications): the daemon behind the notifyd rows, and the permission approve/deny round-trip.
+- [Token optimisation: Headroom & RTK](/tui/token-optimization): the proxy this overlay watches.
+- [Shared MCP pool](/tui/mcp-pool): the other daemon on this screen.
+- [Keyboard shortcuts](/tui/keyboard-shortcuts).
