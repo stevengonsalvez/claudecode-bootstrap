@@ -12885,30 +12885,10 @@ impl AppState {
                                 && row.session_id == known
                         })
                         .map(|row| row.session_id.clone())
-                } else if sessions_per_cwd.get(cwd).copied() == Some(1) {
-                    recent
-                        .iter()
-                        .find(|row| {
-                            row.agent == agent
-                                && row.cwd.trim_end_matches('/') == cwd
-                                && !row.session_id.is_empty()
-                        })
-                        .map(|row| row.session_id.clone())
                 } else {
                     None
                 }
             });
-            // Remembered on the row, because the chat scope needs the same
-            // identity and re-deriving it there would be the same lookup in two
-            // places. Only overwritten when this refresh actually found one: a
-            // quiet refresh must not forget an id an earlier one learned.
-            if let (Some(found), Some(session)) = (hook_session.clone(), self.find_session_mut(id))
-            {
-                if session.provider_session_id.is_none() {
-                    session.provider_session_id = Some(found);
-                    changed = true;
-                }
-            }
             for chip in &mut chips {
                 // A bare permission request takes exactly two answers, and an
                 // empty option list would leave the operator typing free text
