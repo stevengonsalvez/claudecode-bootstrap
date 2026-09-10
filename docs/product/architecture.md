@@ -4,7 +4,7 @@ title: "Whole-system architecture"
 
 How the four components of agents-in-a-box fit together.
 
-> For component-level deep dives, see [TUI architecture](../tui/architecture.md), [plugin spec v2](../plugins/spec-v2.md), and [knowledge system overview](../knowledge/overview.md).
+> For component-level deep dives, see [TUI architecture](/tui/architecture), [plugin spec v2](/plugins/spec-v2), and [knowledge system overview](/knowledge/overview).
 
 ---
 
@@ -12,7 +12,7 @@ How the four components of agents-in-a-box fit together.
 
 ![agents-in-a-box ecosystem architecture: the ainb TUI host, the v2 plugin host and its six in-tree plugins, the nine daemons the TUI supervises, the separate toolkit and reflect-memory repos, and how it is distributed](../assets/diagrams/ecosystem-architecture.svg)
 
-Solid arrows are data/control flow, dashed arrows are writes and feedback, clay is fleet prompt delivery, and olive is the learning loop. The small hops where lines cross are jump-overs — the lines do not connect.
+Solid arrows are data/control flow, dashed arrows are writes and feedback, clay is fleet prompt delivery, and olive is the learning loop. The small hops where lines cross are jump-overs: the lines do not connect.
 
 ---
 
@@ -162,7 +162,7 @@ dist/plugins/<name>/            staged plugin binaries (built from in-tree
 | Boundary | Contract |
 |---|---|
 | TUI ↔ AI provider | None. The TUI spawns the provider CLI in a tmux PTY and reads/writes the pane. |
-| TUI ↔ plugin | [Plugin spec v2](../plugins/spec-v2.md) — framed JSON-RPC over stdio. |
+| TUI ↔ plugin | [Plugin spec v2](/plugins/spec-v2): framed JSON-RPC over stdio. |
 | TUI ↔ ainb-toolkit | None at runtime. ainb-toolkit is deployed ahead of time to `~/.<tool>/`; the TUI doesn't read it. ainb pins a release of `stevengonsalvez/ainb-toolkit` and the skill manager syncs from it. |
 | Plugin ↔ Plugin | Snapshot bus (publish/subscribe) brokered by the TUI host. See spec §6. |
 | reflect-kb ↔ anyone | CLI only. No library API. |
@@ -171,7 +171,7 @@ dist/plugins/<name>/            staged plugin binaries (built from in-tree
 
 ## See also
 
-- [TUI architecture (deeper)](../tui/architecture.md)
-- [Plugin wire spec](../plugins/spec-v2.md)
-- [Toolkit overview](../toolkit/overview.md)
-- [Knowledge system overview](../knowledge/overview.md)
+- [TUI architecture (deeper)](/tui/architecture)
+- [Plugin wire spec](/plugins/spec-v2)
+- [Toolkit overview](/toolkit/overview)
+- [Knowledge system overview](/knowledge/overview)
