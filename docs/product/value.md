@@ -30,7 +30,7 @@ One coding agent is a chat window. Five agents is an operations problem. `ainb` 
 
 ## Next steps
 
-- [Overview](what-is-ainb.md): monorepo architecture and component breakdown
-- [Install](../tui/install.md): installation methods
-- [Quickstart](../tui/quickstart.md): launch your first session in 60 seconds
-- [Concepts](concepts.md): workspaces, worktrees, and attention
+- [Overview](/product/what-is-ainb): monorepo architecture and component breakdown
+- [Install](/tui/install): installation methods
+- [Quickstart](/tui/quickstart): launch your first session in 60 seconds
+- [Concepts](/product/concepts): workspaces, worktrees, and attention
