@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-09-10
+### Added
+- docs: add concepts guide and streamline start-here walkthroughs
+
+### Fixed
+- **hangar**: retire every live ACP session at boot
+
+### Documentation
+- **fleet**: streamline fleet chat bridge documentation
+- **product**: streamline value proposition into comparison matrix
+- **tui**: clean up new-session wizard guide and eliminate em-dashes
+- **tui**: clean up overview tour and eliminate em-dashes
+- **tui**: streamline attach guide and eliminate em-dashes
+- **tui**: streamline code review diff guide and eliminate em-dashes
+- add concepts guide and streamline start-here walkthroughs
+- restructure documentation navigation into 5 core groups
+- update canonical index to mirror 5-group documentation layout
+
+### Other
+- rename the fleet's own assistant to Pal
+
+
 ## [1.25.0] - 2026-09-07
 ### Added
 - **acp**: carry the pool's turn deadline to the client
