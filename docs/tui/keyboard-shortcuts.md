@@ -42,8 +42,8 @@ Keys verified against the in-app help overlay (`?`) and the event handlers in `c
 | Key | Action |
 |-----|--------|
 | `n` | New session (local or remote) |
-| `a` | [Attach](attach.md) full-screen (TUI suspends; `Ctrl+B` `d` detaches) |
-| `A` | [In-pane attach](attach.md) — the preview pane becomes a live embedded tmux client (`Ctrl+Q` releases) |
+| `a` | [Attach](/tui/attach) full-screen (TUI suspends; `Ctrl+B` `d` detaches) |
+| `A` | [In-pane attach](/tui/attach): the preview pane becomes a live embedded tmux client (`Ctrl+Q` releases) |
 | `B` | Toggle the sessions sidebar |
 | `e` | Restart stopped session |
 | `u` | Re-authenticate credentials |
@@ -71,7 +71,7 @@ Keys verified against the in-app help overlay (`?`) and the event handlers in `c
 | Key | Action |
 |-----|--------|
 | `r` | Refresh |
-| `R` | Restart notifyd — the single resume/repair command for a dead approve socket |
+| `R` | Restart notifyd: the single resume/repair command for a dead approve socket |
 | `Esc` / `q` / `d` | Close |
 
 ## Recovery screen
@@ -85,7 +85,7 @@ Keys verified against the in-app help overlay (`?`) and the event handlers in `c
 
 | Key | Action |
 |-----|--------|
-| `g` | Open the [Code Review](code-review.md) diff for the selected session |
+| `g` | Open the [Code Review](/tui/code-review) diff for the selected session |
 | `p` | Commit & push |
 
 ### Within the Code Review diff
@@ -93,17 +93,30 @@ Keys verified against the in-app help overlay (`?`) and the event handlers in `c
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Move across the file tree (file → scroll body) |
-| `j` / `k` | Scroll the diff body |
-| `n` / `N` | Next / previous hunk (`Hunk x/y` counter) |
-| `Space` / `Enter` | Toggle a folder, or collapse/expand a file's diff block |
-| `e` / `E` | Expand / collapse all folders |
-| `z` | Reveal more context at the nearest gap |
-| `[` / `]` | Previous / next file |
-| Mouse | Wheel scrolls the diff; click a tree row to select/toggle |
-| `Tab` | Cycle Review → Commits → Markdown |
-| `Esc` / `q` | Back |
+| `←` / `→` | Switch between file tree and diff view |
+| `Tab` | Toggle focus between file tree and diff view |
+| `Space` | Expand / collapse current file |
+| `e` | Expand all files |
+| `c` | Collapse all files |
+| `n` / `N` | Next / previous hunk |
+| `[` / `]` | Next / previous file |
+| `w` | Toggle word-level diff emphasis |
+| `b` | Toggle blame view |
+| `s` | Toggle side-by-side vs inline view |
+| `Enter` | Open current file in editor |
+| `Esc` / `q` | Exit diff viewer |
 
-> The same surface is available standalone: `ainb diff-review [path]`.
+## Command-line flags
+
+| Key / Flag | Action |
+|------------|--------|
+| `ainb --worktree` | Force worktree isolation for new session |
+| `ainb --create-branch <name>` | Create and switch to new branch in worktree |
+| `ainb --repo <path>` | Target specific repository path |
+| `ainb --remote-repo <url>` | Clone and open remote repository |
+| `ainb --tool <claude\|codex>` | Select agent provider explicitly |
+| `ainb --list` | List active sessions and exit |
+| `ainb --kill <name>` | Terminate named session |
 
 ## Usage / Stats screen
 
@@ -128,6 +141,6 @@ Keys verified against the in-app help overlay (`?`) and the event handlers in `c
 
 ## See also
 
-- [Overview](overview.md)
-- [CLI reference](cli.md)
-- [Docs hub](../README.md)
+- [Overview](/tui/overview)
+- [CLI reference](/tui/cli)
+- [Docs hub](/readme)
