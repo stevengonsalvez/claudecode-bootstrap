@@ -54,4 +54,4 @@ Not yet folded into the grouped lists above: `claude-langfuse` `explain-to-me` `
 
 ## See also
 
-- [Docs hub](../README.md)
+- [Docs hub](/readme)
