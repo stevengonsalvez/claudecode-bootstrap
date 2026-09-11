@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-09-11
+### Added
+- clarify session runtime state
+
+### Fixed
+- project codex hook identity
+- refuse cwd-only hook identity
+
+### Documentation
+- **atc-plumbing**: clean link targets and remove em-dashes in atc-plumbing
+- **contributing**: clean link targets and remove em-dashes in building
+- **contributing**: clean link targets and remove em-dashes in ci-cd
+- **contributing**: clean link targets and remove em-dashes in release-process
+- **diagrams**: add OpenTelemetry to Grafana pipeline SVG diagram
+- **diagrams**: add generators for worktree, repo, inbox, otel, plugin, and obs SVGs
+- **diagrams**: add inbox approval broker SVG diagram
+- **diagrams**: add observability local and remote split SVG diagram
+- **diagrams**: add plugin decision tree SVG diagram
+- **diagrams**: add repository map SVG diagram
+- **diagrams**: add v2 plugin stdio wire protocol SVG diagram
+- **diagrams**: add worktree isolation SVG diagram
+- **diagrams**: update ecosystem architecture SVG with modern crates and daemons
+- **fleet-bridge**: clean link targets and remove em-dashes in fleet-bridge
+- **hangar**: clean link targets and remove em-dashes in architecture
+- **knowledge**: clean link targets and remove em-dashes in comparison
+- **knowledge**: clean link targets and remove em-dashes in construct
+- **knowledge**: clean link targets and remove em-dashes in hooks-and-platform
+- **knowledge**: clean link targets and remove em-dashes in overview
+- **knowledge**: clean link targets and remove em-dashes in problem-and-fit
+- **knowledge**: clean link targets and remove em-dashes in recall
+- **knowledge**: clean link targets and remove em-dashes in reflect-cli
+- **knowledge**: clean link targets and remove em-dashes in serve
+- **observability**: clean link targets and remove em-dashes in overview
+- **observability**: replace ASCII box with observability architecture SVG
+- **plugins**: clean link targets and remove em-dashes in README
+- **plugins**: clean link targets and remove em-dashes in abtop
+- **plugins**: clean link targets and remove em-dashes in authoring
+- **plugins**: clean link targets and remove em-dashes in burndown
+- **plugins**: clean link targets and remove em-dashes in changelog
+- **plugins**: clean link targets and remove em-dashes in learnings
+- **plugins**: clean link targets and remove em-dashes in overview
+- **plugins**: clean link targets and remove em-dashes in session-reader
+- **plugins**: clean link targets and remove em-dashes in spec-v2
+- **plugins**: clean link targets and remove em-dashes in user-guide
+- **plugins**: clean link targets and remove em-dashes in witr
+- **plugins**: replace ASCII decision tree with plugin decision SVG
+- **plugins**: replace ASCII plugin wire diagram with plugin wire SVG
+- **product**: clean link targets and remove em-dashes in architecture
+- **product**: clean link targets and remove em-dashes in value
+- **product**: clean link targets and remove em-dashes in what-is-ainb
+- **product**: clean redundant ASCII diagram in architecture guide
+- **product**: replace ASCII worktree diagram with worktree isolation SVG
+- **product**: surface ecosystem architecture diagram in Overview
+- **readme**: clean link targets and remove em-dashes in README
+- **reference**: clean link targets and remove em-dashes in architecture
+- **reference**: clean link targets and remove em-dashes in glossary
+- **reference**: clean link targets and remove em-dashes in otel-grafana
+- **reference**: clean link targets and remove em-dashes in repositories
+- **reference**: replace ASCII OTEL pipeline with otel pipeline SVG
+- **reference**: replace ASCII repository diagram with repository map SVG
+- **site**: restore Architecture to Start here navigation
+- **skill-manager**: clean link targets and remove em-dashes in browse
+- **skill-manager**: clean link targets and remove em-dashes in check
+- **skill-manager**: clean link targets and remove em-dashes in discovery
+- **skill-manager**: clean link targets and remove em-dashes in guide
+- **skill-manager**: clean link targets and remove em-dashes in promote
+- **skill-manager**: clean link targets and remove em-dashes in sandbox-testing
+- **skill-manager**: clean link targets and remove em-dashes in sync
+- **skill-manager**: clean link targets and remove em-dashes in usage
+- **toolkit**: clean link targets and remove em-dashes in agents
+- **toolkit**: clean link targets and remove em-dashes in ainb-fleet
+- **toolkit**: clean link targets and remove em-dashes in ainb-hooks
+- **toolkit**: clean link targets and remove em-dashes in bootstrap
+- **toolkit**: clean link targets and remove em-dashes in overview
+- **toolkit**: clean link targets and remove em-dashes in reflect
+- **toolkit**: clean link targets and remove em-dashes in skills
+- **tui**: clean link targets and remove em-dashes in architecture
+- **tui**: clean link targets and remove em-dashes in attach
+- **tui**: clean link targets and remove em-dashes in cli
+- **tui**: clean link targets and remove em-dashes in code-review
+- **tui**: clean link targets and remove em-dashes in daemons
+- **tui**: clean link targets and remove em-dashes in faq
+- **tui**: clean link targets and remove em-dashes in fleet-cost
+- **tui**: clean link targets and remove em-dashes in inbox-notifications
+- **tui**: clean link targets and remove em-dashes in keyboard-shortcuts
+- **tui**: clean link targets and remove em-dashes in mcp-pool
+- **tui**: clean link targets and remove em-dashes in overview
+- **tui**: clean link targets and remove em-dashes in quickstart
+- **tui**: clean link targets and remove em-dashes in start-session
+- **tui**: clean link targets and remove em-dashes in token-optimization
+- **tui**: clean link targets and remove em-dashes in web
+- **tui**: regenerate CLI reference from binary
+- **tui**: replace ASCII broker diagram with inbox approval broker SVG
+
+### Other
+- **git**: ignore dev server session state file
+
+
 ## [1.25.0] - 2026-09-07
 ### Added
 - **acp**: carry the pool's turn deadline to the client
