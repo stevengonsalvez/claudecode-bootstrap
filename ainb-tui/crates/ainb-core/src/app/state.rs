@@ -72,8 +72,8 @@ pub struct SessionFleetMetadata {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub direct_child_count: i64,
-    /// Provider-owned identity from an exact Fleet correlation. This lets a
-    /// legacy local row consume its own hook events without guessing by cwd.
+    /// Provider-owned identity from an exact persisted-id correlation. A
+    /// tmux-name match is metadata only: it cannot identify one pane safely.
     pub provider_session_id: Option<String>,
     /// Exact Fleet lifecycle, omitted when Fleet has no observation.
     pub lifecycle: Option<ainb_hangar_proto::fleet::LifecycleState>,
@@ -12552,14 +12552,14 @@ impl AppState {
             .filter(|row| row.provider == provider && row.cwd.trim_end_matches('/') == cwd);
         let first = by_cwd.next();
         let by_unique_cwd = first.filter(|_| by_cwd.next().is_none());
-        // Cwd can recover *display metadata* but never hook identity: two
-        // local agent rows can share one worktree while only one provider row
-        // has been observed. An exact persisted id or unique tmux target is
-        // the only bridge allowed to carry the provider session id onward.
-        let (row, provider_session_id) = if let Some(row) = by_key.or(by_unique_tmux) {
+        // Tmux and cwd can recover *display metadata* but never hook identity:
+        // a base tmux name says nothing about which pane or process the Fleet
+        // row observed, and local agent rows can share one worktree. Only a
+        // local persisted id matching the Fleet key may carry a provider id.
+        let (row, provider_session_id) = if let Some(row) = by_key {
             (row, row.provider_session_id.clone())
         } else {
-            (by_unique_cwd?, None)
+            (by_unique_tmux.or(by_unique_cwd)?, None)
         };
         (provider_session_id.is_some()
             || row.model.is_some()
@@ -12713,8 +12713,8 @@ impl AppState {
                     .flatten();
                 // Persisted identity is authoritative. Older local rows have
                 // none, so use only the Fleet ID that `fleet_metadata_for`
-                // correlated exactly by provider id or tmux target. Never
-                // infer an id from cwd.
+                // correlated exactly by its persisted provider id. Never infer
+                // an id from tmux or cwd.
                 let provider_session_id = s.provider_session_id.clone().or_else(|| {
                     fleet_metadata
                         .get(&s.id)

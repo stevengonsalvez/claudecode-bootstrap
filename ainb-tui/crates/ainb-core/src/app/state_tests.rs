@@ -2510,7 +2510,7 @@ mod tests {
     }
 
     #[test]
-    fn fleet_tmux_identity_restores_local_attention_for_legacy_session() {
+    fn fleet_tmux_base_match_never_promotes_hook_identity() {
         use crate::fleet::attention::AttentionKind;
         use crate::models::Session;
         use ainb_hangar_proto::fleet::{
@@ -2518,9 +2518,9 @@ mod tests {
             FleetSession, LifecycleState, ManagementState, TransportHealth,
         };
 
-        // Older local rows predate provider-id persistence.  A Fleet snapshot
-        // can still identify one exactly by its tmux target, so use that id
-        // rather than guessing from the shared cwd.
+        // A local row only knows its tmux SESSION name. A Fleet target also
+        // identifies a pane, and `tmux_legacy:1.1` might be a stale or child
+        // process, so a base-name match is not enough to adopt its hook id.
         let mut session = Session::new("legacy".into(), CWD.into());
         session.agent_type = SessionAgentType::Claude;
         session.tmux_session_name = Some("tmux_legacy".into());
@@ -2553,8 +2553,8 @@ mod tests {
             updated_revision: 1,
         }];
         let metadata = AppState::fleet_metadata_for(&session, &snapshot)
-            .expect("exact tmux target correlates the legacy local row");
-        assert_eq!(metadata.provider_session_id.as_deref(), Some("hook-session"));
+            .expect("tmux correlation can still supply display metadata");
+        assert_eq!(metadata.provider_session_id, None);
 
         let mut event = rec("claude", CWD, "Notification:idle_prompt", NOW - 500);
         event.session_id = "hook-session".into();
@@ -2571,8 +2571,8 @@ mod tests {
                 &[event],
             )
             .map(|chip| chip.kind),
-            Some(AttentionKind::Wait),
-            "an exact Fleet correlation must restore the hook's WAIT chip"
+            None,
+            "a base tmux-name match must not attach a stale pane's hook state"
         );
     }
 
