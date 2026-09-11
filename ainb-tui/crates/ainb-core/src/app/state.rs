@@ -72,6 +72,9 @@ pub struct SessionFleetMetadata {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub direct_child_count: i64,
+    /// Provider-owned identity from an exact persisted-id correlation. A
+    /// tmux-name match is metadata only: it cannot identify one pane safely.
+    pub provider_session_id: Option<String>,
     /// Exact Fleet lifecycle, omitted when Fleet has no observation.
     pub lifecycle: Option<ainb_hangar_proto::fleet::LifecycleState>,
 }
@@ -12549,8 +12552,17 @@ impl AppState {
             .filter(|row| row.provider == provider && row.cwd.trim_end_matches('/') == cwd);
         let first = by_cwd.next();
         let by_unique_cwd = first.filter(|_| by_cwd.next().is_none());
-        let row = by_key.or(by_unique_tmux).or(by_unique_cwd)?;
-        (row.model.is_some()
+        // Tmux and cwd can recover *display metadata* but never hook identity:
+        // a base tmux name says nothing about which pane or process the Fleet
+        // row observed, and local agent rows can share one worktree. Only a
+        // local persisted id matching the Fleet key may carry a provider id.
+        let (row, provider_session_id) = if let Some(row) = by_key {
+            (row, row.provider_session_id.clone())
+        } else {
+            (by_unique_tmux.or(by_unique_cwd)?, None)
+        };
+        (provider_session_id.is_some()
+            || row.model.is_some()
             || row.reasoning_effort.is_some()
             || row.active_work_count > 0
             || row.lifecycle != ainb_hangar_proto::fleet::LifecycleState::Unknown)
@@ -12558,6 +12570,7 @@ impl AppState {
                 model: row.model.clone(),
                 reasoning_effort: row.reasoning_effort.clone(),
                 direct_child_count: row.active_work_count,
+                provider_session_id,
                 lifecycle: (row.lifecycle != ainb_hangar_proto::fleet::LifecycleState::Unknown)
                     .then_some(row.lifecycle),
             })
@@ -12682,6 +12695,7 @@ impl AppState {
             bool,
             Option<String>,
             Option<crate::models::SessionStatus>,
+            Option<String>,
         )> = Vec::new();
         for ws in &self.workspaces {
             for s in &ws.sessions {
@@ -12697,6 +12711,15 @@ impl AppState {
                             .and_then(Self::session_status_for_fleet_lifecycle)
                     })
                     .flatten();
+                // Persisted identity is authoritative. Older local rows have
+                // none, so use only the Fleet ID that `fleet_metadata_for`
+                // correlated exactly by its persisted provider id. Never infer
+                // an id from tmux or cwd.
+                let provider_session_id = s.provider_session_id.clone().or_else(|| {
+                    fleet_metadata
+                        .get(&s.id)
+                        .and_then(|metadata| metadata.provider_session_id.clone())
+                });
                 let allow_unidentified_cwd = sessions_per_cwd
                     .get(&s.workspace_path.trim_end_matches('/').to_string())
                     .copied()
@@ -12704,7 +12727,7 @@ impl AppState {
                 let local_terminal_status = Self::local_terminal_status_for_session_identity(
                     &s.workspace_path,
                     Self::agent_hook_name(s.agent_type),
-                    s.provider_session_id.as_deref(),
+                    provider_session_id.as_deref(),
                     allow_unidentified_cwd,
                     true,
                     self.attention_baseline.get(&s.id).copied().unwrap_or(0),
@@ -12715,12 +12738,11 @@ impl AppState {
                 // Exact provider id wins. A cwd fallback is safe only if that
                 // cwd names one local session; sibling subagents otherwise
                 // receive neither a copied ASK nor a guessed answer route.
-                let exact_rows = s
-                    .provider_session_id
+                let exact_rows = provider_session_id
                     .as_deref()
                     .map(|session_id| daemon.rows_for_session_id(session_id))
                     .unwrap_or_default();
-                let daemon_rows = if s.provider_session_id.is_none()
+                let daemon_rows = if provider_session_id.is_none()
                     && exact_rows.is_empty()
                     && sessions_per_cwd.get(&cwd).copied() == Some(1)
                 {
@@ -12738,7 +12760,14 @@ impl AppState {
                     // straight at it. Its cwd is still claimed, or the daemon
                     // row for the session under the cursor would be reported as
                     // waiting somewhere else.
-                    marks.push((s.id, Vec::new(), true, None, projected_status));
+                    marks.push((
+                        s.id,
+                        Vec::new(),
+                        true,
+                        None,
+                        projected_status,
+                        provider_session_id,
+                    ));
                     continue;
                 }
                 let generating = matches!(
@@ -12753,7 +12782,7 @@ impl AppState {
                 if let Some(chip) = Self::attention_for_session_identity(
                     &s.workspace_path,
                     Self::agent_hook_name(s.agent_type),
-                    s.provider_session_id.as_deref(),
+                    provider_session_id.as_deref(),
                     allow_unidentified_cwd,
                     true,
                     generating,
@@ -12781,7 +12810,14 @@ impl AppState {
                     crate::models::SessionStatus::Error(reason) => Some(reason.clone()),
                     _ => None,
                 };
-                marks.push((s.id, chips, false, failure, projected_status));
+                marks.push((
+                    s.id,
+                    chips,
+                    false,
+                    failure,
+                    projected_status,
+                    provider_session_id,
+                ));
             }
         }
 
@@ -12816,7 +12852,7 @@ impl AppState {
             })
             .collect();
         self.attention_local_since.retain(|key, _| still_open.contains(key));
-        for (id, mut chips, attached, failure, projected_status) in marks {
+        for (id, mut chips, attached, failure, projected_status, provider_session_id) in marks {
             if attached {
                 self.attention_baseline.insert(id, now_ms);
             }
@@ -12876,7 +12912,7 @@ impl AppState {
             let hook_session = self.find_session(id).and_then(|session| {
                 let cwd = session.workspace_path.trim_end_matches('/');
                 let agent = Self::agent_hook_name(session.agent_type)?;
-                if let Some(known) = session.provider_session_id.as_deref() {
+                if let Some(known) = provider_session_id.as_deref() {
                     recent
                         .iter()
                         .find(|row| {

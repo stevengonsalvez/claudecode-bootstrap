@@ -2509,6 +2509,73 @@ mod tests {
         );
     }
 
+    #[test]
+    fn fleet_tmux_base_match_never_promotes_hook_identity() {
+        use crate::fleet::attention::AttentionKind;
+        use crate::models::Session;
+        use ainb_hangar_proto::fleet::{
+            AttentionState, FleetCapabilities, FleetConfidence, FleetProvider, FleetProvenance,
+            FleetSession, LifecycleState, ManagementState, TransportHealth,
+        };
+
+        // A local row only knows its tmux SESSION name. A Fleet target also
+        // identifies a pane, and `tmux_legacy:1.1` might be a stale or child
+        // process, so a base-name match is not enough to adopt its hook id.
+        let mut session = Session::new("legacy".into(), CWD.into());
+        session.agent_type = SessionAgentType::Claude;
+        session.tmux_session_name = Some("tmux_legacy".into());
+        let snapshot = [FleetSession {
+            session_key: "claude:hook-session".into(),
+            provider: FleetProvider::Claude,
+            provider_session_id: Some("hook-session".into()),
+            tmux_target: Some("tmux_legacy:1.1".into()),
+            process_start_fingerprint: None,
+            cwd: CWD.into(),
+            display_name: None,
+            lifecycle: LifecycleState::TurnComplete,
+            active_work_count: 0,
+            attention: AttentionState::Waiting,
+            current_request_fingerprint: None,
+            current_request: None,
+            management: ManagementState::Managed,
+            transport_health: TransportHealth::Healthy,
+            capabilities: FleetCapabilities::default(),
+            provenance: FleetProvenance::Authoritative,
+            confidence: FleetConfidence::High,
+            discovered_at: NOW - 2_000,
+            last_observed_at: NOW - 1_000,
+            lifecycle_updated_at: NOW - 1_000,
+            attention_updated_at: NOW - 1_000,
+            model: None,
+            reasoning_effort: None,
+            model_updated_at: 0,
+            version: 1,
+            updated_revision: 1,
+        }];
+        let metadata = AppState::fleet_metadata_for(&session, &snapshot)
+            .expect("tmux correlation can still supply display metadata");
+        assert_eq!(metadata.provider_session_id, None);
+
+        let mut event = rec("claude", CWD, "Notification:idle_prompt", NOW - 500);
+        event.session_id = "hook-session".into();
+        assert_eq!(
+            AppState::attention_for_session_identity(
+                CWD,
+                Some("claude"),
+                metadata.provider_session_id.as_deref(),
+                false,
+                true,
+                false,
+                0,
+                NOW,
+                &[event],
+            )
+            .map(|chip| chip.kind),
+            None,
+            "a base tmux-name match must not attach a stale pane's hook state"
+        );
+    }
+
     // ========================================================================
     // Attention merge: the daemon's rows landing on session rows
     // ========================================================================

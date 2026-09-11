@@ -2068,6 +2068,7 @@ mod tests {
                 model: Some("gpt-5.6".to_string()),
                 reasoning_effort: Some("high".to_string()),
                 direct_child_count: 2,
+                provider_session_id: None,
                 lifecycle: None,
             },
         );
