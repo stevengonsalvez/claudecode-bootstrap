@@ -21,5 +21,6 @@ test "$(plutil -extract SUFeedURL raw "$plist")" = "https://github.com/stevengon
 test "$(plutil -extract SUPublicEDKey raw "$plist")" = "$public_key"
 test "$(plutil -extract SUEnableAutomaticChecks raw "$plist")" = "true"
 test "$(plutil -extract SURequireSignedFeed raw "$plist")" = "true"
+test "$(plutil -extract SUVerifyUpdateBeforeExtraction raw "$plist")" = "true"
 ! strings "$binary" | rg -F -- '--fleet-test-read-range'
 ! strings "$binary" | rg -F -- '--fleet-test-open-window'
