@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-09-11
+### Added
+- label session lifecycle
+- show model effort in sidebar
+
+### Fixed
+- keep hook identity exact
+- restore legacy session attention
+
+
 ## [1.28.0] - 2026-09-11
 ### Added
 - clarify session runtime state
