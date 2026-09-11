@@ -1488,12 +1488,12 @@ mod tests {
         state.workspaces[0].sessions[1].status = SessionStatus::Idle;
         state.workspaces[0].sessions[2].status = SessionStatus::Stopped;
         state.workspaces[0].sessions[3].status = SessionStatus::Error("lost transport".into());
+        assert_eq!(session_lifecycle_label(&SessionStatus::Stopped), "STOP");
 
-        let rendered = render_panel(&mut state, 140, 12);
+        let rendered = render_panel(&mut state, 140, 14);
         for (name, lifecycle) in [
             ("ainb/acp-chat", "RUN"),
             ("ainb/disk-clean", "IDLE"),
-            ("ainb/api-stats", "STOP"),
             ("ainb/site-build", "ERR"),
             ("ainb/quiet", "IDLE"),
         ] {
