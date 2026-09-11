@@ -357,7 +357,7 @@ jobs:
         with:
           ref: v${{ needs.prepare.outputs.version }}
 
-      - name: Archive unsigned universal Fleet app
+      - name: Archive universal Fleet app
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -391,6 +391,8 @@ jobs:
           test "$(plutil -extract CFBundleShortVersionString raw "$app_path/Contents/Info.plist")" = "$VERSION"
           test "$(plutil -extract CFBundleVersion raw "$app_path/Contents/Info.plist")" = "$VERSION"
           test "$(plutil -extract SUPublicEDKey raw "$app_path/Contents/Info.plist")" = "$SPARKLE_PUBLIC_ED_KEY"
+          codesign --force --deep --sign - "$app_path"
+          codesign --verify --deep --strict "$app_path"
 
           mkdir -p "$staging_path" "$update_path"
           ditto "$app_path" "$staging_path/AINBFleet.app"

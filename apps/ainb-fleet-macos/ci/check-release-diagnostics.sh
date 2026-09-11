@@ -22,5 +22,7 @@ test "$(plutil -extract SUPublicEDKey raw "$plist")" = "$public_key"
 test "$(plutil -extract SUEnableAutomaticChecks raw "$plist")" = "true"
 test "$(plutil -extract SURequireSignedFeed raw "$plist")" = "true"
 test "$(plutil -extract SUVerifyUpdateBeforeExtraction raw "$plist")" = "true"
+codesign --force --deep --sign - "${binary%/Contents/MacOS/AINBFleet}"
+codesign --verify --deep --strict "${binary%/Contents/MacOS/AINBFleet}"
 ! strings "$binary" | rg -F -- '--fleet-test-read-range'
 ! strings "$binary" | rg -F -- '--fleet-test-open-window'

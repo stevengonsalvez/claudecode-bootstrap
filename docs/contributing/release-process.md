@@ -22,7 +22,7 @@ Prerelease tags do not ship Fleet, because the app's stable update feed must not
 offer a prerelease to ordinary users.
 
 Stable releases stop before tagging if a Sparkle update secret is absent. They
-archive an unsigned universal app, create an EdDSA-signed Sparkle appcast,
+archive an ad-hoc-signed universal app, create an EdDSA-signed Sparkle appcast,
 attach both to the GitHub release, and write `Casks/ainb-fleet.rb` into
 `stevengonsalvez/homebrew-agents-in-a-box`.
 
