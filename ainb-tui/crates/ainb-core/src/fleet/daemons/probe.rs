@@ -121,6 +121,27 @@ impl DaemonKind {
             Self::ReleaseChecker => "release checker",
         }
     }
+
+    /// What the row's liveness verdict represents.
+    ///
+    /// Most rows represent a resident OS process, even when its PID cannot be
+    /// read (for example, a manually-started Headroom proxy). These three do
+    /// not: the approve broker shares notifyd's process, ATC is a timer-backed
+    /// heartbeat verdict, and the release checker is a scheduled one-shot.
+    /// Keeping this on the kind, rather than inferring it from a missing PID,
+    /// prevents a stopped process row from being mislabeled as derived.
+    #[must_use]
+    pub const fn runtime_type(self) -> &'static str {
+        match self {
+            Self::ApproveBroker | Self::Atc | Self::ReleaseChecker => "derived",
+            Self::Bridge
+            | Self::Notifyd
+            | Self::FleetDaemon
+            | Self::McpPool
+            | Self::HangarDaemon
+            | Self::HeadroomProxy => "process",
+        }
+    }
 }
 
 /// Coarse runtime state of a daemon. The whole point of the feature: distinguish

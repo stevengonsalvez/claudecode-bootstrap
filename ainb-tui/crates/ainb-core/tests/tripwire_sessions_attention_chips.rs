@@ -1,7 +1,7 @@
 //! Tripwire: a session that needs a human wears its chip on its own row.
 //!
 //! The sessions screen is the ONE attention surface. Phase 1 of that is the
-//! chip strip: `ASK` / `APPROVE` / `ERR` / `DONE` with an age, replacing the
+//! chip strip: `ASK` / `WAIT` / `APPROVE` / `ERR` / `DONE` with an age, replacing the
 //! `[?]` `[!]` `[✓]` markers, plus a header badge counting only the states that
 //! are actually blocking an agent.
 //!
@@ -216,7 +216,8 @@ fn seed_session_registry(home: &Path, rows: &[Fixture]) {
                     "worktree_path": row.worktree,
                     "workspace_name": row.workspace,
                     "created_at": "2026-09-04T00:00:00Z",
-                    "agent_type": "Claude",
+                    "agent_type": "Codex",
+                    "codex_thread_id": format!("chipwire-{}", row.workspace),
                     "skip_permissions": true,
                 }),
             )
@@ -253,7 +254,7 @@ fn seed_hooks(home: &Path, rows: &[Fixture]) {
         };
         let envelope = Envelope {
             protocol_version: 1,
-            agent: "claude".into(),
+            agent: "codex".into(),
             raw_event: raw_event.into(),
             session_id: format!("chipwire-{}", row.workspace),
             cwd: row.worktree.to_string_lossy().into_owned(),
@@ -311,9 +312,8 @@ fn waiting_sessions_wear_their_chips_and_the_badge_counts_only_the_blocking_ones
     seed_isolated_home(home);
 
     let pid = std::process::id();
-    // Three rows, three states. The DONE row is the one that proves the badge
-    // is "what is BLOCKING an agent" and not "what is open" — it renders a chip
-    // and is deliberately not counted.
+    // Two blocking rows and one terminal lifecycle event. `Stop` turns the
+    // session idle; it is not an attention chip and must not inflate the badge.
     let fixtures: Vec<Fixture> = [
         ("acp-chat", Some("Notification:idle_prompt"), 40),
         ("api-stats", Some("PermissionRequest"), 3 * 60),
@@ -384,7 +384,7 @@ fn waiting_sessions_wear_their_chips_and_the_badge_counts_only_the_blocking_ones
         "s",
         Instant::now() + Duration::from_secs(90),
         |c| c.contains("Workspaces ("),
-        |c| c.contains("ASK") && c.contains("APPROVE") && c.contains("DONE"),
+        |c| c.contains("WAIT") && c.contains("APPROVE"),
     );
     let Some(capture) = chipped else {
         panic!(
@@ -393,23 +393,22 @@ fn waiting_sessions_wear_their_chips_and_the_badge_counts_only_the_blocking_ones
         );
     };
 
-    // The badge counts the ASK and the APPROVE, and NOT the DONE.
+    // The badge counts the WAIT and the APPROVE, and not the stopped session.
     assert!(
         capture.contains("2 need you"),
         "the header badge must count only the blocking rows:\n{capture}"
     );
     assert!(
         !capture.contains("3 need you") && !capture.contains("4 need you"),
-        "a DONE row must not be counted as blocking:\n{capture}"
+        "an idle session must not be counted as blocking:\n{capture}"
     );
 
     // Each chip lands on its OWN row, carrying the age of its own hook event —
     // a three-minute-old approval must not read as brand new just because the
     // TUI started a second ago.
     for (workspace, chip, seeded) in [
-        ("acp-chat", "ASK", Duration::from_secs(40)),
+        ("acp-chat", "WAIT", Duration::from_secs(40)),
         ("api-stats", "APPROVE", Duration::from_secs(3 * 60)),
-        ("site-build", "DONE", Duration::from_secs(60)),
     ] {
         let row = capture
             .lines()
@@ -434,6 +433,10 @@ fn waiting_sessions_wear_their_chips_and_the_badge_counts_only_the_blocking_ones
             "the {workspace} row must be present, not a degraded one:\n{capture}"
         );
     }
+    assert!(
+        !capture.contains("DONE"),
+        "a Stop hook reports IDLE, never the unrelated DONE attention state:\n{capture}"
+    );
     assert!(
         !capture.contains("(broken)"),
         "every seeded row must resolve to a real workspace:\n{capture}"

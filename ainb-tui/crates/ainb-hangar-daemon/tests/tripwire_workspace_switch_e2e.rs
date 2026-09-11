@@ -135,8 +135,8 @@ fn workspace_switch_e2e() {
         sess.capture()
     );
 
-    // 1. Open Settings.
-    sess.send_key(",");
+    // 1. Open Settings. Re-send the nav key until Settings renders: a lone
+    // keypress can be dropped on a loaded CI runner.
     // Match on section titles that ONLY the Settings screen renders
     // (`Providers` + `LLM Keys`). The earlier `Daemon`+`Workspaces` predicate
     // was not Settings-unique: `Daemon` is a permanent tab-strip label present
@@ -144,9 +144,11 @@ fn workspace_switch_e2e() {
     // paints `Workspaces` over the issue list — so the poll could return the
     // pre-switch issue-list frame and the negative assert below would fire.
     let settings = sess
-        .poll_capture(Instant::now() + Duration::from_secs(15), |c| {
-            c.contains("Providers") && c.contains("LLM Keys")
-        })
+        .switch_tab_until(
+            ",",
+            Instant::now() + Duration::from_secs(15 * common::budget_scale()),
+            |c| c.contains("Providers") && c.contains("LLM Keys"),
+        )
         .expect("settings never rendered");
     // NEGATIVE: not on the issue list anymore.
     assert!(

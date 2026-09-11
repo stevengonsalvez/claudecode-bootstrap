@@ -63,6 +63,19 @@ pub enum SessionContextAction {
     Delete,
 }
 
+/// Fleet-only metadata for one local session row.
+///
+/// Absent fields mean Hangar has never observed them. The UI must omit those
+/// fields, never replace them with a guessed provider default.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionFleetMetadata {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub direct_child_count: i64,
+    /// Exact Fleet lifecycle, omitted when Fleet has no observation.
+    pub lifecycle: Option<ainb_hangar_proto::fleet::LifecycleState>,
+}
+
 /// Ephemeral state for the keyboard-accessible right-click context menu.
 #[derive(Debug, Clone, Copy)]
 pub struct SessionContextMenu {
@@ -3763,6 +3776,14 @@ pub struct AppState {
     /// must cost a frame nothing.
     pub daemon_attention: crate::fleet::attention_poll::Shared,
 
+    /// Last Hangar Fleet snapshot, refreshed beside daemon attention off the
+    /// render path.
+    pub fleet_snapshot: crate::fleet::attention_poll::SnapshotShared,
+
+    /// Snapshot metadata matched to local session identities. This avoids
+    /// assigning a child sharing a cwd to its parent by accident.
+    pub fleet_metadata: HashMap<Uuid, SessionFleetMetadata>,
+
     /// Whether the attention poller thread is alive, so the render loop can
     /// start one without having to remember whether it already did.
     pub attention_poll_running: Arc<std::sync::atomic::AtomicBool>,
@@ -4280,6 +4301,8 @@ impl Default for AppState {
             daemon_attention: Arc::new(Mutex::new(
                 crate::fleet::attention::DaemonAttention::default(),
             )),
+            fleet_snapshot: Arc::new(Mutex::new(Vec::new())),
+            fleet_metadata: HashMap::new(),
             attention_poll_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             session_log: Arc::new(crate::fleet::session_log::Shared::default()),
             session_log_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -11929,7 +11952,7 @@ impl AppState {
     /// event for this session's `(cwd, agent)` whose `ts` is strictly
     /// newer than `baseline_ms` — unless the agent is currently
     /// `generating` (suppressed; the `●` busy dot covers it) or the only
-    /// match is a `Finished` turn past its short TTL. Returns `None`
+    /// match is a terminal lifecycle event. Returns `None`
     /// (blank — no marker) when nothing qualifies, which is the common
     /// case for an idle session with no pending hook event.
     /// The one-line message a hook payload carried, if it carried one.
@@ -11979,7 +12002,7 @@ impl AppState {
     const fn chip_for_alert(kind: ainb_plugin_notifyd::AlertKind) -> AttentionKind {
         match kind {
             ainb_plugin_notifyd::AlertKind::NeedsPermission => AttentionKind::Approve,
-            ainb_plugin_notifyd::AlertKind::WaitingOnUser => AttentionKind::Ask,
+            ainb_plugin_notifyd::AlertKind::WaitingOnUser => AttentionKind::Wait,
             ainb_plugin_notifyd::AlertKind::Finished => AttentionKind::Done,
         }
     }
@@ -11992,10 +12015,36 @@ impl AppState {
         now_ms: i64,
         recent: &[ainb_plugin_notifyd::NotificationRecord],
     ) -> Option<SessionAttention> {
-        use ainb_plugin_notifyd::{AlertKind, classify_attention};
-        // A DONE chip is informational; retire it after this.
-        const FINISHED_TTL_MS: i64 = 5 * 60 * 1000;
+        Self::attention_for_session_identity(
+            session_cwd,
+            agent,
+            None,
+            true,
+            false,
+            generating,
+            baseline_ms,
+            now_ms,
+            recent,
+        )
+    }
 
+    /// Identity-safe hook attention lookup.
+    ///
+    /// A provider session id is exact. Without one, only a hook row that also
+    /// lacks an id may use the (already unique-checked) cwd fallback; otherwise
+    /// a sibling agent in the same worktree would receive another's WAIT.
+    fn attention_for_session_identity(
+        session_cwd: &str,
+        agent: Option<&str>,
+        provider_session_id: Option<&str>,
+        allow_unidentified_cwd: bool,
+        cwd_fallback_requires_unidentified_id: bool,
+        generating: bool,
+        baseline_ms: i64,
+        now_ms: i64,
+        recent: &[ainb_plugin_notifyd::NotificationRecord],
+    ) -> Option<SessionAttention> {
+        use ainb_plugin_notifyd::{AlertKind, classify_attention};
         if generating {
             return None;
         }
@@ -12011,6 +12060,15 @@ impl AppState {
             if rec.agent != agent || rec.cwd.trim_end_matches('/') != cwd {
                 continue;
             }
+            if let Some(provider_session_id) = provider_session_id {
+                if rec.session_id != provider_session_id {
+                    continue;
+                }
+            } else if !allow_unidentified_cwd
+                || (cwd_fallback_requires_unidentified_id && !rec.session_id.is_empty())
+            {
+                continue;
+            }
             // The subtype rides in the payload, not in `raw_event`: Claude has
             // no distinct permission hook, so a blocked approval and an idle
             // prompt are both a bare `Notification` and only this tells them
@@ -12023,10 +12081,9 @@ impl AppState {
             let Some(kind) = classify_attention(&rec.raw_event, subtype.as_deref()) else {
                 continue;
             };
-            // Newest qualifying event wins. A long-finished turn isn't
-            // worth a marker — and it supersedes any older question, so
-            // we stop rather than fall back to a staler event.
-            if kind == AlertKind::Finished && now_ms.saturating_sub(rec.ts) > FINISHED_TTL_MS {
+            // Terminal lifecycle events clear attention immediately. They
+            // supersede any older question and must not coexist with it.
+            if kind == AlertKind::Finished {
                 return None;
             }
             // `rec.ts` — the hook's own instant — is the chip's age, not "when
@@ -12075,6 +12132,60 @@ impl AppState {
         None
     }
 
+    /// Latest local terminal lifecycle hook for a session.
+    ///
+    /// Hooks are the authority when Hangar has not observed the row yet: Stop
+    /// leaves a live process idle, while SessionEnd closes the provider session.
+    fn local_terminal_status_for_session(
+        session_cwd: &str,
+        agent: Option<&str>,
+        baseline_ms: i64,
+        recent: &[ainb_plugin_notifyd::NotificationRecord],
+    ) -> Option<crate::models::SessionStatus> {
+        Self::local_terminal_status_for_session_identity(
+            session_cwd,
+            agent,
+            None,
+            true,
+            false,
+            baseline_ms,
+            recent,
+        )
+    }
+
+    /// Identity-safe terminal lifecycle lookup; mirrors attention lookup.
+    fn local_terminal_status_for_session_identity(
+        session_cwd: &str,
+        agent: Option<&str>,
+        provider_session_id: Option<&str>,
+        allow_unidentified_cwd: bool,
+        cwd_fallback_requires_unidentified_id: bool,
+        baseline_ms: i64,
+        recent: &[ainb_plugin_notifyd::NotificationRecord],
+    ) -> Option<crate::models::SessionStatus> {
+        let agent = agent?;
+        let cwd = session_cwd.trim_end_matches('/');
+        let newest = recent.iter().find(|record| {
+            if record.ts <= baseline_ms
+                || record.agent != agent
+                || record.cwd.trim_end_matches('/') != cwd
+            {
+                return false;
+            }
+            provider_session_id.map(|id| record.session_id == id).unwrap_or(
+                allow_unidentified_cwd
+                    && (!cwd_fallback_requires_unidentified_id || record.session_id.is_empty()),
+            )
+        })?;
+        match newest.raw_event.as_str() {
+            "SessionEnd" => Some(crate::models::SessionStatus::Stopped),
+            "Stop" | "agentStop" | "agent-turn-complete" | "task_complete" => {
+                Some(crate::models::SessionStatus::Idle)
+            }
+            _ => None,
+        }
+    }
+
     /// Recent user-facing hook events across the fleet, newest-first, or
     /// `None` when the notifications store doesn't exist yet (daemon
     /// never ran) or can't be read. Floored at app start so pre-existing
@@ -12090,9 +12201,9 @@ impl AppState {
     /// The window is purely time-based (`now − LOOKBACK`), **not** floored
     /// at app start — so opening ainb immediately surfaces sessions that
     /// were already waiting before launch. Stale `[✓]` turns don't pile up
-    /// because the `Finished` marker self-retires on its own short TTL (see
-    /// [`Self::attention_for_session`]); only genuinely-pending `[?]` / `[!]`
-    /// from the window survive.
+    /// because terminal lifecycle events clear their older attention
+    /// immediately (see [`Self::attention_for_session`]); only genuinely
+    /// pending `[?]` / `[!]` from the window survive.
     fn recent_attention_events(
         &self,
         now_ms: i64,
@@ -12375,15 +12486,103 @@ impl AppState {
 
     /// One session's `provider:<agent session>` chat key, when it has one.
     fn session_chat_key(session: &crate::models::Session) -> Option<String> {
-        let provider = match session.agent_type {
-            crate::models::SessionAgentType::Codex => "codex",
-            crate::models::SessionAgentType::Copilot => "copilot",
-            _ => "claude",
+        use ainb_hangar_proto::fleet::FleetProvider;
+
+        let provider = match Self::fleet_provider_for(session.agent_type) {
+            Some(FleetProvider::Codex) => "codex",
+            Some(FleetProvider::Copilot) => "copilot",
+            Some(FleetProvider::Antigravity) => "antigravity",
+            Some(FleetProvider::Claude | FleetProvider::Acp | FleetProvider::Unknown) | None => {
+                "claude"
+            }
         };
         session
             .provider_session_id
             .as_ref()
             .map(|agent_session| format!("{provider}:{agent_session}"))
+    }
+
+    /// Fleet provider for a local agent type, when Fleet models that provider.
+    const fn fleet_provider_for(
+        agent: crate::models::SessionAgentType,
+    ) -> Option<ainb_hangar_proto::fleet::FleetProvider> {
+        use ainb_hangar_proto::fleet::FleetProvider;
+
+        match agent {
+            crate::models::SessionAgentType::Claude => Some(FleetProvider::Claude),
+            crate::models::SessionAgentType::Codex => Some(FleetProvider::Codex),
+            crate::models::SessionAgentType::Copilot => Some(FleetProvider::Copilot),
+            crate::models::SessionAgentType::Antigravity => Some(FleetProvider::Antigravity),
+            crate::models::SessionAgentType::Shell
+            | crate::models::SessionAgentType::Ssh
+            | crate::models::SessionAgentType::Gemini
+            | crate::models::SessionAgentType::Kiro => None,
+        }
+    }
+
+    /// Metadata from the exact Fleet row for one local session.
+    ///
+    /// A provider session id is authoritative. Tmux target is the next-safe
+    /// match. Cwd is only accepted when it identifies exactly one provider
+    /// session, because parent and child agents commonly share a worktree.
+    fn fleet_metadata_for(
+        session: &crate::models::Session,
+        snapshot: &[ainb_hangar_proto::fleet::FleetSession],
+    ) -> Option<SessionFleetMetadata> {
+        let provider = Self::fleet_provider_for(session.agent_type)?;
+        let exact_key = Self::session_chat_key(session);
+        let by_key = exact_key
+            .as_deref()
+            .and_then(|key| snapshot.iter().find(|row| row.session_key == key));
+        let mut tmux_rows = session.tmux_session_name.as_deref().into_iter().flat_map(|tmux| {
+            snapshot.iter().filter(move |row| {
+                row.provider == provider
+                    && row.tmux_target.as_deref().and_then(|target| target.split(':').next())
+                        == Some(tmux)
+            })
+        });
+        let first_tmux = tmux_rows.next();
+        let by_unique_tmux = first_tmux.filter(|_| tmux_rows.next().is_none());
+        let cwd = session.workspace_path.trim_end_matches('/');
+        let mut by_cwd = snapshot
+            .iter()
+            .filter(|row| row.provider == provider && row.cwd.trim_end_matches('/') == cwd);
+        let first = by_cwd.next();
+        let by_unique_cwd = first.filter(|_| by_cwd.next().is_none());
+        let row = by_key.or(by_unique_tmux).or(by_unique_cwd)?;
+        (row.model.is_some()
+            || row.reasoning_effort.is_some()
+            || row.active_work_count > 0
+            || row.lifecycle != ainb_hangar_proto::fleet::LifecycleState::Unknown)
+            .then(|| SessionFleetMetadata {
+                model: row.model.clone(),
+                reasoning_effort: row.reasoning_effort.clone(),
+                direct_child_count: row.active_work_count,
+                lifecycle: (row.lifecycle != ainb_hangar_proto::fleet::LifecycleState::Unknown)
+                    .then_some(row.lifecycle),
+            })
+    }
+
+    const fn session_status_for_fleet_lifecycle(
+        lifecycle: ainb_hangar_proto::fleet::LifecycleState,
+    ) -> Option<crate::models::SessionStatus> {
+        use crate::models::SessionStatus;
+        use ainb_hangar_proto::fleet::LifecycleState;
+
+        match lifecycle {
+            LifecycleState::Starting | LifecycleState::Running => Some(SessionStatus::Running),
+            LifecycleState::TurnComplete | LifecycleState::Idle => Some(SessionStatus::Idle),
+            LifecycleState::Exited => Some(SessionStatus::Stopped),
+            LifecycleState::Unknown => None,
+        }
+    }
+
+    /// Hangar metadata for the selected session, if identity correlation was
+    /// unambiguous and Hangar observed at least one requested field.
+    #[must_use]
+    pub fn selected_fleet_metadata(&self) -> Option<&SessionFleetMetadata> {
+        self.get_selected_session()
+            .and_then(|session| self.fleet_metadata.get(&session.id))
     }
 
     /// Hold each LOCAL chip at the instant it was FIRST seen.
@@ -12434,9 +12633,38 @@ impl AppState {
             .lock()
             .map(|cell| cell.clone())
             .unwrap_or_else(|poisoned| poisoned.into_inner().clone());
-        // Every cwd a row on screen consumed, so the rows that matched nothing
-        // can be counted rather than dropped.
-        let mut claimed: HashSet<String> = HashSet::new();
+        let snapshot = self
+            .fleet_snapshot
+            .lock()
+            .map(|cell| cell.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone());
+        let fleet_metadata: HashMap<Uuid, SessionFleetMetadata> = self
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.sessions.iter())
+            .filter_map(|session| {
+                Self::fleet_metadata_for(session, &snapshot).map(|metadata| (session.id, metadata))
+            })
+            .collect();
+        let metadata_changed = self.fleet_metadata != fleet_metadata;
+        if metadata_changed {
+            self.fleet_metadata = fleet_metadata.clone();
+        }
+        // Exact daemon attention ids consumed by a local row. Keeping this as
+        // ids rather than cwds prevents a parent's ASK leaking onto every
+        // child sharing its worktree, and still lets cwd-less Codex rows land
+        // through their provider-session identity.
+        let mut claimed_attention_ids: HashSet<String> = HashSet::new();
+        let sessions_per_cwd: HashMap<String, usize> = self
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.sessions.iter())
+            .fold(HashMap::new(), |mut counts, session| {
+                *counts
+                    .entry(session.workspace_path.trim_end_matches('/').to_string())
+                    .or_default() += 1;
+                counts
+            });
         // How long a failure keeps lighting a chip. Read once per refresh
         // rather than per session: it is a lock-free `Arc` clone, but the whole
         // pass has to agree on one window or two rows of the same age would
@@ -12448,27 +12676,86 @@ impl AppState {
                 * 1000;
 
         // Phase 1 — read-only compute (no mutable borrow of self).
-        let mut marks: Vec<(Uuid, Vec<SessionAttention>, bool, Option<String>)> = Vec::new();
+        let mut marks: Vec<(
+            Uuid,
+            Vec<SessionAttention>,
+            bool,
+            Option<String>,
+            Option<crate::models::SessionStatus>,
+        )> = Vec::new();
         for ws in &self.workspaces {
             for s in &ws.sessions {
+                // Snapshot metadata remains useful while a daemon is briefly
+                // down, but lifecycle must be live: a retained old EXITED may
+                // never override a fresh pane or hook observation.
+                let fleet_status = daemon
+                    .reachable
+                    .then(|| {
+                        fleet_metadata
+                            .get(&s.id)
+                            .and_then(|metadata| metadata.lifecycle)
+                            .and_then(Self::session_status_for_fleet_lifecycle)
+                    })
+                    .flatten();
+                let allow_unidentified_cwd = sessions_per_cwd
+                    .get(&s.workspace_path.trim_end_matches('/').to_string())
+                    .copied()
+                    == Some(1);
+                let local_terminal_status = Self::local_terminal_status_for_session_identity(
+                    &s.workspace_path,
+                    Self::agent_hook_name(s.agent_type),
+                    s.provider_session_id.as_deref(),
+                    allow_unidentified_cwd,
+                    true,
+                    self.attention_baseline.get(&s.id).copied().unwrap_or(0),
+                    &recent,
+                );
+                let projected_status = fleet_status.or(local_terminal_status);
+                let cwd = s.workspace_path.trim_end_matches('/').to_string();
+                // Exact provider id wins. A cwd fallback is safe only if that
+                // cwd names one local session; sibling subagents otherwise
+                // receive neither a copied ASK nor a guessed answer route.
+                let exact_rows = s
+                    .provider_session_id
+                    .as_deref()
+                    .map(|session_id| daemon.rows_for_session_id(session_id))
+                    .unwrap_or_default();
+                let daemon_rows = if s.provider_session_id.is_none()
+                    && exact_rows.is_empty()
+                    && sessions_per_cwd.get(&cwd).copied() == Some(1)
+                {
+                    daemon.rows_for_unidentified_cwd(&cwd)
+                } else {
+                    exact_rows
+                };
+                for row in daemon_rows {
+                    if let Some(attention_id) = row.daemon_attention_id() {
+                        claimed_attention_ids.insert(attention_id.to_string());
+                    }
+                }
                 if s.is_attached {
                     // An attached session never nags: the operator is looking
                     // straight at it. Its cwd is still claimed, or the daemon
                     // row for the session under the cursor would be reported as
                     // waiting somewhere else.
-                    claimed.insert(s.workspace_path.trim_end_matches('/').to_string());
-                    marks.push((s.id, Vec::new(), true, None));
+                    marks.push((s.id, Vec::new(), true, None, projected_status));
                     continue;
                 }
-                let generating = matches!(s.status, crate::models::SessionStatus::Running);
+                let generating = matches!(
+                    projected_status.as_ref().unwrap_or(&s.status),
+                    crate::models::SessionStatus::Running
+                );
                 // Default 0: with no per-session clear point yet, any event in
                 // the lookback window can mark — so pre-launch waiters show up.
                 // Attaching advances this to "now" (see below).
                 let baseline = self.attention_baseline.get(&s.id).copied().unwrap_or(0);
                 let mut chips = Vec::new();
-                if let Some(chip) = Self::attention_for_session(
+                if let Some(chip) = Self::attention_for_session_identity(
                     &s.workspace_path,
                     Self::agent_hook_name(s.agent_type),
+                    s.provider_session_id.as_deref(),
+                    allow_unidentified_cwd,
+                    true,
                     generating,
                     baseline,
                     now_ms,
@@ -12483,10 +12770,7 @@ impl AppState {
                 // and an agent can be mid-turn and blocked on an approval at the
                 // same time — suppressing it there is how an operator ends up
                 // watching a spinner that is waiting on them.
-                let cwd = s.workspace_path.trim_end_matches('/').to_string();
-                let daemon_rows = daemon.rows_for(&cwd);
                 if !daemon_rows.is_empty() {
-                    claimed.insert(cwd.clone());
                     chips.extend(daemon_rows.iter().cloned());
                 }
                 // The REASON, not a boolean. `SessionStatus::Error` has always
@@ -12497,14 +12781,14 @@ impl AppState {
                     crate::models::SessionStatus::Error(reason) => Some(reason.clone()),
                     _ => None,
                 };
-                marks.push((s.id, chips, false, failure));
+                marks.push((s.id, chips, false, failure, projected_status));
             }
         }
 
         // Phase 2 — apply. Bumping an attached session's baseline, resolving
         // the ERR chip's first-observed instant, and writing the chips are
         // separate self borrows, taken in turn.
-        let mut changed = false;
+        let mut changed = metadata_changed;
         let reachable = daemon.reachable;
         // The Pal pane's start offer is one per process, so a report from a
         // previous outage has to be retired when that outage ends. Done HERE,
@@ -12532,11 +12816,24 @@ impl AppState {
             })
             .collect();
         self.attention_local_since.retain(|key, _| still_open.contains(key));
-        for (id, mut chips, attached, failure) in marks {
+        for (id, mut chips, attached, failure, projected_status) in marks {
             if attached {
                 self.attention_baseline.insert(id, now_ms);
             }
             self.stamp_local_since(id, &mut chips);
+            if let Some(status) = projected_status {
+                if let Some(session) = self.find_session_mut(id) {
+                    // A local error carries the only readable failure reason.
+                    // Do not erase it with a Fleet lifecycle projection that
+                    // has no recovery/error detail of its own.
+                    if !matches!(session.status, crate::models::SessionStatus::Error(_))
+                        && session.status != status
+                    {
+                        session.set_status(status);
+                        changed = true;
+                    }
+                }
+            }
             if let Some(reason) = failure {
                 // ERR is a SECOND, independent chip, not a competitor: a
                 // session that failed and then asked a question is both, and
@@ -12579,22 +12876,19 @@ impl AppState {
             let hook_session = self.find_session(id).and_then(|session| {
                 let cwd = session.workspace_path.trim_end_matches('/');
                 let agent = Self::agent_hook_name(session.agent_type)?;
-                recent
-                    .iter()
-                    .find(|row| row.agent == agent && row.cwd.trim_end_matches('/') == cwd)
-                    .map(|row| row.session_id.clone())
-            });
-            // Remembered on the row, because the chat scope needs the same
-            // identity and re-deriving it there would be the same lookup in two
-            // places. Only overwritten when this refresh actually found one: a
-            // quiet refresh must not forget an id an earlier one learned.
-            if let (Some(found), Some(session)) = (hook_session.clone(), self.find_session_mut(id))
-            {
-                if session.provider_session_id.as_deref() != Some(found.as_str()) {
-                    session.provider_session_id = Some(found);
-                    changed = true;
+                if let Some(known) = session.provider_session_id.as_deref() {
+                    recent
+                        .iter()
+                        .find(|row| {
+                            row.agent == agent
+                                && row.cwd.trim_end_matches('/') == cwd
+                                && row.session_id == known
+                        })
+                        .map(|row| row.session_id.clone())
+                } else {
+                    None
                 }
-            }
+            });
             for chip in &mut chips {
                 // A bare permission request takes exactly two answers, and an
                 // empty option list would leave the operator typing free text
@@ -12620,7 +12914,7 @@ impl AppState {
                 }
             }
         }
-        let elsewhere = daemon.elsewhere(&claimed);
+        let elsewhere = daemon.elsewhere(&claimed_attention_ids);
         if self.attention_elsewhere != elsewhere {
             self.attention_elsewhere = elsewhere;
             changed = true;
@@ -12775,7 +13069,11 @@ impl AppState {
         // is the first point at which the sessions surface is actually being
         // rendered, so a `ainb` invocation that never opens the TUI never dials
         // the socket. `spawn` is idempotent.
-        crate::fleet::attention_poll::spawn(&self.daemon_attention, &self.attention_poll_running);
+        crate::fleet::attention_poll::spawn(
+            &self.daemon_attention,
+            &self.fleet_snapshot,
+            &self.attention_poll_running,
+        );
         self.refresh_attention_markers(chrono::Utc::now().timestamp_millis());
 
         // Update shell session preview (only the selected workspace's shell)

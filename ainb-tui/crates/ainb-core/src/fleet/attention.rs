@@ -2,7 +2,7 @@
 //
 // The TUI used to carry five competing "an agent needs you" surfaces, each with
 // its own words for the same four states. This module is the single vocabulary
-// they collapse onto: ASK, APPROVE, ERR, DONE — the same four-code collapse the
+// they collapse onto: ASK, WAIT, APPROVE, ERR, DONE.
 // hangar Inbox uses, so the two surfaces cannot drift apart.
 //
 // PURE. No IO, no clock, no daemon. The clock arrives as `now_ms` and the rows
@@ -21,6 +21,8 @@ use std::fmt;
 pub enum AttentionKind {
     /// A structured question is waiting on a human. Blocks the agent.
     Ask,
+    /// An agent explicitly reported unstructured input wait. Blocks the agent.
+    Wait,
     /// A permission / approval request is waiting on a human. Blocks the agent.
     Approve,
     /// The session failed and a human has to see it. Does NOT block a turn —
@@ -31,6 +33,29 @@ pub enum AttentionKind {
     Done,
 }
 
+/// Shared visual tone for a rendered attention chip.
+///
+/// Kept separate from the word so every surface can share semantic colour
+/// without coupling this pure vocabulary to a particular palette library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttentionTone {
+    Blocking,
+    Error,
+    Complete,
+}
+
+/// Semantic colour class for one attention kind.
+#[must_use]
+pub const fn tone(kind: AttentionKind) -> AttentionTone {
+    match kind {
+        AttentionKind::Ask | AttentionKind::Wait | AttentionKind::Approve => {
+            AttentionTone::Blocking
+        }
+        AttentionKind::Err => AttentionTone::Error,
+        AttentionKind::Done => AttentionTone::Complete,
+    }
+}
+
 impl AttentionKind {
     /// The chip word. Never abbreviated, at any terminal width: an abbreviated
     /// chip is a chip an operator has to decode, and these four words are the
@@ -39,6 +64,7 @@ impl AttentionKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Ask => "ASK",
+            Self::Wait => "WAIT",
             Self::Approve => "APPROVE",
             Self::Err => "ERR",
             Self::Done => "DONE",
@@ -52,7 +78,7 @@ impl AttentionKind {
     /// `ERR` and `DONE` are open states that block nobody.
     #[must_use]
     pub const fn blocks(self) -> bool {
-        matches!(self, Self::Ask | Self::Approve)
+        matches!(self, Self::Ask | Self::Wait | Self::Approve)
     }
 }
 
@@ -260,6 +286,15 @@ impl SessionAttention {
         }
     }
 
+    /// Exact daemon attention id, when this chip came from the daemon.
+    #[must_use]
+    pub fn daemon_attention_id(&self) -> Option<&str> {
+        match &self.answerable {
+            Answerable::Daemon { attention_id } => Some(attention_id),
+            _ => None,
+        }
+    }
+
     /// Attach the one-line question the `ask` tab leads with.
     #[must_use]
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
@@ -307,6 +342,17 @@ impl SessionAttention {
 ///    (notifyd re-classifying an unchanged pane, the daemon re-listing an
 ///    unanswered row) must not reset that clock to zero on every refresh.
 pub fn normalise(mut chips: Vec<SessionAttention>) -> Vec<SessionAttention> {
+    // A terminal lifecycle event retires only older-or-same markers. A newer
+    // daemon request remains authoritative, while the old "ASK + DONE"
+    // contradiction never renders and an unrelated later ERR stays readable.
+    if let Some(done_at) = chips
+        .iter()
+        .filter(|chip| chip.kind == AttentionKind::Done)
+        .map(|chip| chip.since_ms)
+        .max()
+    {
+        chips.retain(|chip| chip.kind != AttentionKind::Done && chip.since_ms > done_at);
+    }
     chips.sort_by(|a, b| {
         a.kind
             .cmp(&b.kind)
@@ -336,8 +382,8 @@ const fn daemon_first(source: AttentionSource) -> u8 {
 #[must_use]
 pub fn chip_for_daemon_kind(kind: &str) -> Option<AttentionKind> {
     Some(match kind {
-        // All three are "a human has to answer something".
-        "ask_user_question" | "waiting" | "codex_request_user" => AttentionKind::Ask,
+        "ask_user_question" | "codex_request_user" => AttentionKind::Ask,
+        "waiting" => AttentionKind::Wait,
         "approval" => AttentionKind::Approve,
         // An escalation is an error a human must see; it is not a question, so
         // it does not go in the blocking count.
@@ -387,13 +433,20 @@ pub fn format_age(now_ms: i64, since_ms: i64) -> String {
 /// waiting" from "the daemon did not answer", and those need opposite chips.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DaemonAttention {
-    /// Open rows, keyed by the working directory they were raised in.
+    /// Open rows keyed by their provider-owned session id.
     ///
-    /// Keyed by cwd because that is the only identity the host row and the
-    /// daemon row share: an ainb session knows its worktree path, and the
-    /// daemon's row carries the cwd the hook fired in. The daemon's
-    /// `session_id` is the PROVIDER's, which the host tree never learns.
+    /// This is the primary correlation key. A parent and child commonly share
+    /// a cwd, while their provider session ids remain distinct.
+    pub by_session_id: std::collections::HashMap<String, Vec<SessionAttention>>,
+    /// Open rows keyed by working directory for a deliberately guarded
+    /// fallback when no exact provider-session match exists.
     pub by_cwd: std::collections::HashMap<String, Vec<SessionAttention>>,
+    /// Cwd fallback rows that carried no provider session id. A known daemon
+    /// id may never be guessed onto an uncorrelated local session by cwd.
+    pub by_cwd_without_session_id: std::collections::HashMap<String, Vec<SessionAttention>>,
+    /// One entry per daemon attention id, retained so rows with no cwd still
+    /// count as elsewhere rather than vanishing from the surface.
+    pub all: std::collections::HashMap<String, SessionAttention>,
     /// `true` when the last poll reached the daemon, whatever it returned.
     pub reachable: bool,
     /// Why the last poll failed, for the one banner line the header shows.
@@ -416,8 +469,35 @@ impl DaemonAttention {
     /// The daemon answered, with these rows.
     #[must_use]
     pub fn up(by_cwd: std::collections::HashMap<String, Vec<SessionAttention>>) -> Self {
-        Self {
+        let all = by_cwd
+            .values()
+            .flatten()
+            .filter_map(|row| {
+                row.daemon_attention_id()
+                    .map(|attention_id| (attention_id.to_string(), row.clone()))
+            })
+            .collect();
+        Self::up_indexed(
+            std::collections::HashMap::new(),
+            by_cwd.clone(),
             by_cwd,
+            all,
+        )
+    }
+
+    /// The daemon answered with exact-session and cwd indexes.
+    #[must_use]
+    pub fn up_indexed(
+        by_session_id: std::collections::HashMap<String, Vec<SessionAttention>>,
+        by_cwd: std::collections::HashMap<String, Vec<SessionAttention>>,
+        by_cwd_without_session_id: std::collections::HashMap<String, Vec<SessionAttention>>,
+        all: std::collections::HashMap<String, SessionAttention>,
+    ) -> Self {
+        Self {
+            by_session_id,
+            by_cwd,
+            by_cwd_without_session_id,
+            all,
             reachable: true,
             error: None,
             not_running: false,
@@ -450,8 +530,33 @@ impl DaemonAttention {
         error: String,
         not_running: bool,
     ) -> Self {
+        let all = previous
+            .values()
+            .flatten()
+            .filter_map(|row| {
+                row.daemon_attention_id()
+                    .map(|attention_id| (attention_id.to_string(), row.clone()))
+            })
+            .collect();
         Self {
+            by_session_id: std::collections::HashMap::new(),
+            by_cwd_without_session_id: previous.clone(),
             by_cwd: previous,
+            all,
+            reachable: false,
+            error: Some(error),
+            not_running,
+        }
+    }
+
+    /// Carry every index across a failed poll.
+    #[must_use]
+    pub fn down_cached(previous: Self, error: String, not_running: bool) -> Self {
+        Self {
+            by_session_id: previous.by_session_id,
+            by_cwd: previous.by_cwd,
+            by_cwd_without_session_id: previous.by_cwd_without_session_id,
+            all: previous.all,
             reachable: false,
             error: Some(error),
             not_running,
@@ -464,18 +569,33 @@ impl DaemonAttention {
         self.by_cwd.get(cwd.trim_end_matches('/')).map_or(&[], Vec::as_slice)
     }
 
+    /// Daemon rows for an exact provider session id.
+    #[must_use]
+    pub fn rows_for_session_id(&self, session_id: &str) -> &[SessionAttention] {
+        self.by_session_id.get(session_id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Legacy cwd rows with no provider session id to correlate exactly.
+    #[must_use]
+    pub fn rows_for_unidentified_cwd(&self, cwd: &str) -> &[SessionAttention] {
+        self.by_cwd_without_session_id
+            .get(cwd.trim_end_matches('/'))
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// Daemon rows whose cwd matched no session row on this screen.
     ///
     /// Reported rather than dropped: the sessions screen is the ONE attention
     /// surface, so a request it cannot place still has to be counted somewhere
-    /// the operator can see. `claimed` is every cwd a row on screen consumed.
+    /// the operator can see. `claimed` contains the exact attention ids a row
+    /// on screen consumed, avoiding double counting the same row's id and cwd
+    /// indexes.
     #[must_use]
     pub fn elsewhere(&self, claimed: &std::collections::HashSet<String>) -> usize {
-        self.by_cwd
+        self.all
             .iter()
-            .filter(|(cwd, _)| !claimed.contains(*cwd))
-            .map(|(_, rows)| rows.iter().filter(|row| row.kind.blocks()).count())
-            .sum()
+            .filter(|(attention_id, row)| !claimed.contains(*attention_id) && row.kind.blocks())
+            .count()
     }
 }
 
@@ -635,8 +755,9 @@ mod tests {
     }
 
     #[test]
-    fn only_ask_and_approve_block() {
+    fn only_ask_wait_and_approve_block() {
         assert!(AttentionKind::Ask.blocks());
+        assert!(AttentionKind::Wait.blocks());
         assert!(AttentionKind::Approve.blocks());
         assert!(!AttentionKind::Err.blocks());
         assert!(!AttentionKind::Done.blocks());
@@ -794,6 +915,28 @@ mod tests {
     }
 
     #[test]
+    fn done_suppresses_open_attention_from_another_producer() {
+        let merged = normalise(vec![
+            SessionAttention::local(AttentionKind::Ask, 1_000),
+            SessionAttention::daemon(AttentionKind::Done, 2_000, "turn-finished".into()),
+        ]);
+        assert!(merged.is_empty(), "a terminal event clears the old request");
+    }
+
+    #[test]
+    fn newer_request_or_error_survives_an_older_done() {
+        let merged = normalise(vec![
+            SessionAttention::local(AttentionKind::Done, 1_000),
+            SessionAttention::daemon(AttentionKind::Ask, 2_000, "fresh".into()),
+            SessionAttention::local(AttentionKind::Err, 3_000),
+        ]);
+        assert_eq!(
+            merged.iter().map(|chip| chip.kind).collect::<Vec<_>>(),
+            vec![AttentionKind::Ask, AttentionKind::Err]
+        );
+    }
+
+    #[test]
     fn rows_for_ignores_a_trailing_slash_on_either_side() {
         let mut by_cwd = std::collections::HashMap::new();
         by_cwd.insert(
@@ -915,6 +1058,7 @@ mod tests {
     fn every_chip_word_is_spelled_out() {
         for kind in [
             AttentionKind::Ask,
+            AttentionKind::Wait,
             AttentionKind::Approve,
             AttentionKind::Err,
             AttentionKind::Done,
