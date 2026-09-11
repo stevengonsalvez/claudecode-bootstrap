@@ -647,6 +647,7 @@ impl SessionListComponent {
                     let tree_prefix = if is_last_session { "└─" } else { "├─" };
 
                     let status_indicator = session.status.indicator();
+                    let lifecycle_label = session_lifecycle_label(&session.status);
 
                     // Mode indicator (controlled by show_container_status config).
                     // 1-cell Nerd Font glyphs (dev-docker / fa-desktop) instead of
@@ -734,6 +735,13 @@ impl SessionListComponent {
                         Span::styled(
                             format!(" {} ", status_indicator),
                             Style::default().fg(state_color),
+                        ),
+                        // Lifecycle reports process/turn state only. It is
+                        // intentionally separate from ASK/WAIT/APPROVE chips,
+                        // which report an attention request and answer route.
+                        Span::styled(
+                            format!("{lifecycle_label} "),
+                            Style::default().fg(state_color).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(mode_indicator.to_string(), Style::default().fg(MUTED_GRAY)),
                         // Coding-agent chip — brand colour carries identity
@@ -1215,6 +1223,17 @@ fn session_list_name(session: &Session) -> String {
         .unwrap_or_else(|| session.branch_name.clone())
 }
 
+/// Compact process/turn lifecycle word for the sidebar. This is deliberately
+/// not an attention state: a RUN row can still carry ASK or WAIT separately.
+const fn session_lifecycle_label(status: &SessionStatus) -> &'static str {
+    match status {
+        SessionStatus::Running => "RUN",
+        SessionStatus::Idle => "IDLE",
+        SessionStatus::Stopped => "STOP",
+        SessionStatus::Error(_) => "ERR",
+    }
+}
+
 /// Compact observed runtime metadata shown before a session's label.
 ///
 /// The field intentionally has no guessed fallback. A missing model or effort
@@ -1460,6 +1479,30 @@ mod tests {
             rendered.contains("ASK 40s"),
             "attention survives: {rendered}"
         );
+    }
+
+    #[test]
+    fn sidebar_shows_lifecycle_words_separate_from_attention() {
+        let mut state = chip_state();
+        state.workspaces[0].sessions[0].status = SessionStatus::Running;
+        state.workspaces[0].sessions[1].status = SessionStatus::Idle;
+        state.workspaces[0].sessions[2].status = SessionStatus::Stopped;
+        state.workspaces[0].sessions[3].status = SessionStatus::Error("lost transport".into());
+
+        let rendered = render_panel(&mut state, 140, 12);
+        for (name, lifecycle) in [
+            ("ainb/acp-chat", "RUN"),
+            ("ainb/disk-clean", "IDLE"),
+            ("ainb/api-stats", "STOP"),
+            ("ainb/site-build", "ERR"),
+            ("ainb/quiet", "IDLE"),
+        ] {
+            let row = rendered
+                .lines()
+                .find(|line| line.contains(name))
+                .unwrap_or_else(|| panic!("{name} session row renders: {rendered}"));
+            assert!(row.contains(lifecycle), "{name} shows {lifecycle}: {row}");
+        }
     }
 
     #[test]
