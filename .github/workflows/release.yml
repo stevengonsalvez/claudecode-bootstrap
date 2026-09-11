@@ -53,6 +53,29 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Require macOS distribution secrets
+        if: ${{ github.event.inputs.prerelease != 'true' }}
+        env:
+          APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+          APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          missing=()
+          for name in APPLE_DEVELOPER_ID_CERTIFICATE APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD APPLE_NOTARY_ISSUER_ID APPLE_NOTARY_KEY_ID APPLE_NOTARY_PRIVATE_KEY APPLE_TEAM_ID SPARKLE_PRIVATE_ED_KEY SPARKLE_PUBLIC_ED_KEY; do
+            if [ -z "${!name}" ]; then
+              missing+=("${name}")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required macOS distribution secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
       - name: Generate changelog
         id: changelog
         run: |
@@ -323,9 +346,111 @@ jobs:
             ${{ env.WORKING_DIR }}/out/*.tar.gz
             ${{ env.WORKING_DIR }}/out/*.sha256
 
+  fleet_macos:
+    name: Build signed Fleet macOS app
+    needs: prepare
+    if: ${{ github.event.inputs.prerelease != 'true' }}
+    timeout-minutes: 45
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+      APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+      SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+
+      - name: Import Developer ID certificate
+        run: |
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          keychain_path="$RUNNER_TEMP/ainb-release.keychain-db"
+          printf '%s' "$APPLE_DEVELOPER_ID_CERTIFICATE" | base64 -D > "$certificate_path"
+          security create-keychain -p "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychain -d user -s "$keychain_path" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
+
+      - name: Archive signed universal Fleet app
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          xcodebuild archive \
+            -project apps/ainb-fleet-macos/AINBFleet.xcodeproj \
+            -scheme AINBFleet \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/AINBFleet.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/ainb-fleet-derived-data" \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY='Developer ID Application' \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            ENABLE_HARDENED_RUNTIME=YES \
+            OTHER_CODE_SIGN_FLAGS='--timestamp' \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$VERSION" \
+            SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY"
+
+      - name: Package, notarize, staple, and sign update feed
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          app_path="$RUNNER_TEMP/AINBFleet.xcarchive/Products/Applications/AINBFleet.app"
+          staging_path="$RUNNER_TEMP/fleet-dmg"
+          update_path="$RUNNER_TEMP/fleet-updates"
+          dmg_path="$update_path/AINBFleet-${VERSION}.dmg"
+          notary_key_path="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          appcast_tool=$(find "$RUNNER_TEMP/ainb-fleet-derived-data" -type f -name generate_appcast -perm -u+x -print -quit)
+
+          test -d "$app_path"
+          test -n "$appcast_tool"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          lipo "$app_path/Contents/MacOS/AINBFleet" -verify_arch arm64 x86_64
+          test "$(plutil -extract CFBundleShortVersionString raw "$app_path/Contents/Info.plist")" = "$VERSION"
+          test "$(plutil -extract CFBundleVersion raw "$app_path/Contents/Info.plist")" = "$VERSION"
+          test "$(plutil -extract SUPublicEDKey raw "$app_path/Contents/Info.plist")" = "$SPARKLE_PUBLIC_ED_KEY"
+
+          mkdir -p "$staging_path" "$update_path"
+          ditto "$app_path" "$staging_path/AINBFleet.app"
+          hdiutil create -volname 'AINB Fleet' -srcfolder "$staging_path" -ov -format UDZO "$dmg_path"
+
+          printf '%s' "$APPLE_NOTARY_PRIVATE_KEY" | base64 -D > "$notary_key_path"
+          xcrun notarytool submit "$dmg_path" --key "$notary_key_path" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait
+          xcrun stapler staple "$dmg_path"
+          xcrun stapler validate "$dmg_path"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
+
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$appcast_tool" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/stevengonsalvez/agents-in-a-box/releases/download/v${VERSION}/" \
+            "$update_path"
+          test -s "$update_path/appcast.xml"
+          grep -q 'sparkle:edSignature=' "$update_path/appcast.xml"
+
+      - name: Upload Fleet release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-macos
+          path: |
+            ${{ runner.temp }}/fleet-updates/AINBFleet-*.dmg
+            ${{ runner.temp }}/fleet-updates/appcast.xml
+
   release:
     name: Create Release
-    needs: [prepare, build]
+    needs: [prepare, build, fleet_macos]
+    if: ${{ always() && needs.prepare.result == 'success' && needs.build.result == 'success' && (needs.fleet_macos.result == 'success' || needs.fleet_macos.result == 'skipped') }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
@@ -435,6 +560,14 @@ jobs:
             > to load formula ... from untrusted tap" without the middle line.
             > It is a trust gate, not a broken formula.
 
+            ### Fleet macOS app
+            ```bash
+            brew tap stevengonsalvez/agents-in-a-box
+            brew install --cask ainb-fleet
+            ```
+            Fleet checks the signed release feed automatically. Use Settings,
+            Check for Updates to check immediately.
+
             ### Manual Install
             1. Download the appropriate archive for your platform from the assets below
             2. Extract: `tar -xzf ainb-*.tar.gz`
@@ -457,7 +590,8 @@ jobs:
 
   homebrew:
     name: Update Homebrew Tap
-    needs: [prepare, build, release]
+    needs: [prepare, build, fleet_macos, release]
+    if: ${{ needs.fleet_macos.result == 'success' && needs.release.result == 'success' }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
@@ -480,7 +614,7 @@ jobs:
         with:
           path: artifacts
 
-      - name: Update Formula
+      - name: Update Formula and Fleet Cask
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
 
@@ -489,6 +623,11 @@ jobs:
           LINUX_SHA=$(cat artifacts/x86_64-unknown-linux-gnu/*.sha256 | awk '{print $1}')
           if [ -z "$MAC_SHA" ] || [ -z "$INTEL_SHA" ] || [ -z "$LINUX_SHA" ]; then
             echo "Error: Failed to extract SHA256 values"
+            exit 1
+          fi
+          FLEET_SHA=$(shasum -a 256 artifacts/fleet-macos/AINBFleet-*.dmg | awk '{print $1}')
+          if [ -z "$FLEET_SHA" ]; then
+            echo "Error: Failed to extract Fleet cask SHA256 value"
             exit 1
           fi
 
@@ -564,13 +703,36 @@ jobs:
           sed -i "s/INTEL_SHA_PLACEHOLDER/${INTEL_SHA}/g" tap/Formula/ainb.rb
           sed -i "s/LINUX_SHA_PLACEHOLDER/${LINUX_SHA}/g" tap/Formula/ainb.rb
 
+          mkdir -p tap/Casks
+          cat > tap/Casks/ainb-fleet.rb << 'CASK'
+          cask "ainb-fleet" do
+            version "VERSION_PLACEHOLDER"
+            sha256 "FLEET_SHA_PLACEHOLDER"
+
+            url "https://github.com/stevengonsalvez/agents-in-a-box/releases/download/v#{version}/AINBFleet-#{version}.dmg"
+            name "AINB Fleet"
+            desc "Menu bar control plane for AINB sessions"
+            homepage "https://github.com/stevengonsalvez/agents-in-a-box"
+
+            auto_updates true
+            depends_on macos: ">= :sonoma"
+
+            app "AINBFleet.app"
+          end
+          CASK
+
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" tap/Casks/ainb-fleet.rb
+          sed -i "s/FLEET_SHA_PLACEHOLDER/${FLEET_SHA}/g" tap/Casks/ainb-fleet.rb
+
           echo "Updated tap/Formula/ainb.rb to version ${VERSION}"
           cat tap/Formula/ainb.rb
+          echo "Updated tap/Casks/ainb-fleet.rb to version ${VERSION}"
+          cat tap/Casks/ainb-fleet.rb
 
       - name: Commit and push Formula update
         working-directory: tap
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          git add Formula/ainb.rb
-          git commit -m "chore: update ainb formula to v${VERSION}" || echo "No changes to commit"
+          git add Formula/ainb.rb Casks/ainb-fleet.rb
+          git commit -m "chore: update ainb releases to v${VERSION}" || echo "No changes to commit"
           git push
