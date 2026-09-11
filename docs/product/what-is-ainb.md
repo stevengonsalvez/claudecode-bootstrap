@@ -37,37 +37,11 @@ If you have ever had two Claude Code sessions stomp on each other's branches, lo
 
 ---
 
-## How the four components compose
+## Ecosystem map
 
-```
-   ┌─────────────────────────────────────────────────────────────┐
-   │                       ainb TUI host                         │
-   │                                                             │
-   │   Rust · ratatui · tokio · 34 crates · Unix-only            │
-   │                                                             │
-   │   tmux ←─ session persistence                               │
-   │   git  ←─ worktree-per-session isolation                    │
-   │   ┌────────────────────────────────────────────────┐        │
-   │   │  Plugin runtime (v2 ABI)                       │        │
-   │   │   ↔ burndown / session-reader / your plugin    │        │
-   │   └────────────────────────────────────────────────┘        │
-   └─────────────────────────────────────────────────────────────┘
-        │                              │
-        ▼                              ▼
-   ┌──────────────────────┐    ┌────────────────────────────────────┐
-   │  Claude · Codex      │    │  ainb-toolkit (external repo)      │
-   │  Gemini · Copilot    │    │  github.com/stevengonsalvez/       │
-   │  Kiro · shell · SSH  │    │  ainb-toolkit: deployed via        │
-   └──────────────────────┘    │  bootstrap.js to:                  │
-                               │  ~/.claude, ~/.codex,              │
-                               │  ~/.copilot, ~/.gemini, …)         │
-                               └────────────────────────────────────┘
+![agents-in-a-box ecosystem architecture: the ainb TUI host, the v2 plugin host and its six in-tree plugins, the nine daemons the TUI supervises, the separate toolkit and reflect-memory repos, and how it is distributed](../assets/diagrams/ecosystem-architecture.svg)
 
-   ┌──────────────────────────────────────────────────────────────┐
-   │  reflect-kb · GraphRAG + QMD · captured learnings across all │
-   │  the above, queryable via /reflect, /recall, /ingest         │
-   └──────────────────────────────────────────────────────────────┘
-```
+Solid arrows are supervision. Dashed arrows are read and write data flows.
 
 Each component is independently useful. You can use ainb-toolkit without ever opening the TUI; you can use the TUI without ever writing a plugin; you can use `reflect-kb` standalone.
 
