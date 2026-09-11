@@ -743,27 +743,46 @@ impl SessionListComponent {
                         Span::styled(format!(" {} ", agent_icon), agent_style),
                         Span::styled(pill_r, Style::default().fg(agent_color).bg(row_bg)),
                         Span::raw(" "),
-                        Span::styled(
-                            session_list_name(session),
-                            Style::default().fg(branch_color).add_modifier(
-                                if is_selected_session {
-                                    Modifier::BOLD
-                                } else {
-                                    Modifier::empty()
-                                },
-                            ),
-                        ),
-                        Span::styled(changes_text, Style::default().fg(WARNING_ORANGE)),
                     ];
+                    // Model/effort belongs on the row rather than the selected
+                    // session footer: scanning the roster should answer what is
+                    // running where. It yields on narrow panes because an
+                    // attention chip must never be clipped to make room for
+                    // metadata.
+                    if let Some(metadata) = session_model_effort_label(state, session) {
+                        let fixed_width: usize = session_spans.iter().map(Span::width).sum();
+                        let required = fixed_width
+                            .saturating_add(Span::raw(metadata.as_str()).width())
+                            .saturating_add(Span::raw(session_list_name(session)).width().min(4))
+                            .saturating_add(Span::raw(changes_text.as_str()).width())
+                            .saturating_add(chip_strip_width(session_alert, now_ms, None))
+                            .saturating_add(CHIP_RIGHT_MARGIN);
+                        if required <= row_width {
+                            session_spans
+                                .push(Span::styled(metadata, Style::default().fg(MUTED_GRAY)));
+                        }
+                    }
                     // The name is the span that gives way when the chip strip
                     // needs the room. Its index is captured rather than searched
                     // for, so reordering the row above can never silently
                     // truncate the branch decoration instead.
-                    const NAME_SPAN_INDEX: usize = 9;
-                    debug_assert_eq!(
-                        session_spans[NAME_SPAN_INDEX].content,
+                    let name_span_index = session_spans.len();
+                    session_spans.push(Span::styled(
                         session_list_name(session),
-                        "NAME_SPAN_INDEX must track the session-name span"
+                        Style::default().fg(branch_color).add_modifier(if is_selected_session {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                    ));
+                    session_spans.push(Span::styled(
+                        changes_text,
+                        Style::default().fg(WARNING_ORANGE),
+                    ));
+                    debug_assert_eq!(
+                        session_spans[name_span_index].content,
+                        session_list_name(session),
+                        "name_span_index must track the session-name span"
                     );
                     // The chip whose answer is still in flight, if it is on
                     // THIS row. Asked per CHIP, so an answer sent on one
@@ -777,7 +796,7 @@ impl SessionListComponent {
                         session_alert,
                         now_ms,
                         row_width,
-                        NAME_SPAN_INDEX,
+                        name_span_index,
                         sending,
                     );
                     let session_line = Line::from(session_spans);
@@ -1196,6 +1215,23 @@ fn session_list_name(session: &Session) -> String {
         .unwrap_or_else(|| session.branch_name.clone())
 }
 
+/// Compact observed runtime metadata shown before a session's label.
+///
+/// The field intentionally has no guessed fallback. A missing model or effort
+/// means no Fleet observation exists yet, not that a provider default is known.
+fn session_model_effort_label(state: &AppState, session: &Session) -> Option<String> {
+    let metadata = state.fleet_metadata.get(&session.id)?;
+    match (
+        metadata.model.as_deref(),
+        metadata.reasoning_effort.as_deref(),
+    ) {
+        (Some(model), Some(effort)) => Some(format!("{model}/{effort} · ")),
+        (Some(model), None) => Some(format!("{model} · ")),
+        (None, Some(effort)) => Some(format!("effort:{effort} · ")),
+        (None, None) => None,
+    }
+}
+
 fn context_action_label(action: SessionContextAction) -> &'static str {
     match action {
         SessionContextAction::Attach => "Attach",
@@ -1364,6 +1400,66 @@ mod tests {
         state.selected_workspace_index = Some(0);
         state.selected_session_index = Some(0);
         state
+    }
+
+    #[test]
+    fn sidebar_shows_observed_model_and_effort_on_each_session_row() {
+        let mut state = chip_state();
+        let first = state.workspaces[0].sessions[0].id;
+        let second = state.workspaces[0].sessions[1].id;
+        state.fleet_metadata.insert(
+            first,
+            crate::app::state::SessionFleetMetadata {
+                model: Some("gpt-5.6-terra".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                ..Default::default()
+            },
+        );
+        state.fleet_metadata.insert(
+            second,
+            crate::app::state::SessionFleetMetadata {
+                model: Some("claude-opus-5".to_string()),
+                reasoning_effort: Some("medium".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let rendered = render_panel(&mut state, 120, 9);
+        let first_row = rendered
+            .lines()
+            .find(|line| line.contains("ainb/acp-chat"))
+            .expect("first observed session row");
+        let second_row = rendered
+            .lines()
+            .find(|line| line.contains("ainb/disk-clean"))
+            .expect("second observed session row");
+        assert!(first_row.contains("gpt-5.6-terra/high"), "{first_row}");
+        assert!(second_row.contains("claude-opus-5/medium"), "{second_row}");
+        assert!(
+            first_row.find("gpt-5.6-terra/high") < first_row.find("ainb/acp-chat"),
+            "metadata stays next to the agent marker, before the session label: {first_row}"
+        );
+    }
+
+    #[test]
+    fn sidebar_hides_model_effort_before_clipping_attention_at_narrow_width() {
+        let mut state = chip_state();
+        let first = state.workspaces[0].sessions[0].id;
+        state.fleet_metadata.insert(
+            first,
+            crate::app::state::SessionFleetMetadata {
+                model: Some("gpt-5.6-terra".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let rendered = render_panel(&mut state, 42, 9);
+        assert!(!rendered.contains("gpt-5.6-terra/high"), "{rendered}");
+        assert!(
+            rendered.contains("ASK 40s"),
+            "attention survives: {rendered}"
+        );
     }
 
     #[test]
