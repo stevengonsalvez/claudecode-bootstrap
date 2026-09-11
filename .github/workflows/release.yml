@@ -53,26 +53,20 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Require macOS distribution secrets
+      - name: Require Sparkle update secrets
         if: ${{ github.event.inputs.prerelease != 'true' }}
         env:
-          APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
-          APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           missing=()
-          for name in APPLE_DEVELOPER_ID_CERTIFICATE APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD APPLE_NOTARY_ISSUER_ID APPLE_NOTARY_KEY_ID APPLE_NOTARY_PRIVATE_KEY APPLE_TEAM_ID SPARKLE_PRIVATE_ED_KEY SPARKLE_PUBLIC_ED_KEY; do
+          for name in SPARKLE_PRIVATE_ED_KEY SPARKLE_PUBLIC_ED_KEY; do
             if [ -z "${!name}" ]; then
               missing+=("${name}")
             fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing required macOS distribution secrets: %s\n' "${missing[*]}"
+            printf 'Missing required Sparkle update secrets: %s\n' "${missing[*]}"
             exit 1
           fi
 
@@ -347,7 +341,7 @@ jobs:
             ${{ env.WORKING_DIR }}/out/*.sha256
 
   fleet_macos:
-    name: Build signed Fleet macOS app
+    name: Build Fleet macOS app
     needs: prepare
     if: ${{ github.event.inputs.prerelease != 'true' }}
     timeout-minutes: 45
@@ -355,12 +349,6 @@ jobs:
     permissions:
       contents: read
     env:
-      APPLE_DEVELOPER_ID_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
-      APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-      APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
       SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
 
@@ -369,19 +357,7 @@ jobs:
         with:
           ref: v${{ needs.prepare.outputs.version }}
 
-      - name: Import Developer ID certificate
-        run: |
-          certificate_path="$RUNNER_TEMP/developer-id.p12"
-          keychain_path="$RUNNER_TEMP/ainb-release.keychain-db"
-          printf '%s' "$APPLE_DEVELOPER_ID_CERTIFICATE" | base64 -D > "$certificate_path"
-          security create-keychain -p "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
-          security import "$certificate_path" -k "$keychain_path" -P "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security list-keychain -d user -s "$keychain_path" login.keychain-db
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" "$keychain_path"
-
-      - name: Archive signed universal Fleet app
+      - name: Archive unsigned universal Fleet app
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -394,16 +370,12 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/ainb-fleet-derived-data" \
             ARCHS='arm64 x86_64' \
             ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY='Developer ID Application' \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ENABLE_HARDENED_RUNTIME=YES \
-            OTHER_CODE_SIGN_FLAGS='--timestamp' \
+            CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$VERSION" \
             SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY"
 
-      - name: Package, notarize, staple, and sign update feed
+      - name: Package and sign update feed
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -411,12 +383,10 @@ jobs:
           staging_path="$RUNNER_TEMP/fleet-dmg"
           update_path="$RUNNER_TEMP/fleet-updates"
           dmg_path="$update_path/AINBFleet-${VERSION}.dmg"
-          notary_key_path="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
           appcast_tool=$(find "$RUNNER_TEMP/ainb-fleet-derived-data" -type f -name generate_appcast -perm -u+x -print -quit)
 
           test -d "$app_path"
           test -n "$appcast_tool"
-          codesign --verify --deep --strict --verbose=2 "$app_path"
           lipo "$app_path/Contents/MacOS/AINBFleet" -verify_arch arm64 x86_64
           test "$(plutil -extract CFBundleShortVersionString raw "$app_path/Contents/Info.plist")" = "$VERSION"
           test "$(plutil -extract CFBundleVersion raw "$app_path/Contents/Info.plist")" = "$VERSION"
@@ -425,12 +395,6 @@ jobs:
           mkdir -p "$staging_path" "$update_path"
           ditto "$app_path" "$staging_path/AINBFleet.app"
           hdiutil create -volname 'AINB Fleet' -srcfolder "$staging_path" -ov -format UDZO "$dmg_path"
-
-          printf '%s' "$APPLE_NOTARY_PRIVATE_KEY" | base64 -D > "$notary_key_path"
-          xcrun notarytool submit "$dmg_path" --key "$notary_key_path" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait
-          xcrun stapler staple "$dmg_path"
-          xcrun stapler validate "$dmg_path"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 
           printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$appcast_tool" \
             --ed-key-file - \
@@ -565,8 +529,10 @@ jobs:
             brew tap stevengonsalvez/agents-in-a-box
             brew install --cask ainb-fleet
             ```
-            Fleet checks the signed release feed automatically. Use Settings,
-            Check for Updates to check immediately.
+            Fleet checks the cryptographically signed Sparkle feed automatically.
+            Use Settings, Check for Updates to check immediately. Fleet is unsigned,
+            so first launch can require right-click Open or Open Anyway in System
+            Settings > Privacy & Security.
 
             ### Manual Install
             1. Download the appropriate archive for your platform from the assets below
@@ -718,6 +684,11 @@ jobs:
             depends_on macos: ">= :sonoma"
 
             app "AINBFleet.app"
+
+            caveats <<~EOS
+              AINB Fleet is unsigned. On first launch, right-click AINBFleet.app and choose Open.
+              Or choose Open Anyway in System Settings > Privacy & Security.
+            EOS
           end
           CASK
 
