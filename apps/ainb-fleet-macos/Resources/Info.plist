@@ -30,6 +30,16 @@
 		</dict>
 	</array>
 	<key>NSPrincipalClass</key>
-    <string>NSApplication</string>
+	<string>NSApplication</string>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/stevengonsalvez/agents-in-a-box/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
 </dict>
 </plist>

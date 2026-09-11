@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FleetSettingsView: View {
     @Binding var presentation: FleetPresentationPreferences
+    let updater: FleetUpdater
     @State private var notifications = FleetNotificationCenter()
     @State private var notificationPreferences = FleetNotificationPreferences()
     @State private var notificationStatus = ""
@@ -38,6 +39,10 @@ struct FleetSettingsView: View {
                     }
                 }
                 if !notificationStatus.isEmpty { Text(notificationStatus).foregroundStyle(.secondary) }
+            }
+            Section("Updates") {
+                Button("Check for Updates") { updater.checkForUpdates() }
+                    .accessibilityIdentifier("fleet.updates.check")
             }
             Text("Launch at login requires a signed production app identity.").foregroundStyle(.secondary)
         }

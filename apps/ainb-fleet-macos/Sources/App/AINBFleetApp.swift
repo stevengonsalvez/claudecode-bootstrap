@@ -43,18 +43,22 @@ struct AINBFleetApp: App {
     @StateObject private var presentation: FleetPresentationStore
     @NSApplicationDelegateAdaptor(FleetAppDelegate.self) private var appDelegate
     private let desktop: FleetDesktopController
+    private let updater: FleetUpdater
 
     init() {
         let store = FleetStore(readVersions: FleetAppConfiguration.readVersions)
         let presentation = FleetPresentationStore(defaults: FleetAppConfiguration.presentationDefaults)
-        let desktop = FleetDesktopController(store: store, presentation: presentation)
+        let updater = FleetUpdater()
+        let desktop = FleetDesktopController(store: store, presentation: presentation, updater: updater)
         _store = StateObject(wrappedValue: store)
         _presentation = StateObject(wrappedValue: presentation)
         self.desktop = desktop
+        self.updater = updater
         FleetDesktopController.shared = desktop
         Task { @MainActor in
             store.start()
             desktop.launch()
+            updater.start()
             if FleetAppConfiguration.isUITest {
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -62,7 +66,7 @@ struct AINBFleetApp: App {
     }
 
     var body: some Scene {
-        Settings { EmptyView() }
+        Settings { FleetSettingsView(presentation: $presentation.preferences, updater: updater) }
             .commands {
                 CommandGroup(replacing: .appTermination) {
                     Button("Quit Fleet") { NSApp.terminate(nil) }
