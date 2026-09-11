@@ -53,6 +53,8 @@
 		A100000000000000000000115 /* FleetChatPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000114 /* FleetChatPresentationTests.swift */; };
 		A100000000000000000000131 /* FleetTranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000130 /* FleetTranscriptPresentation.swift */; };
 		A100000000000000000000133 /* FleetTranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000132 /* FleetTranscriptPresentationTests.swift */; };
+		A100000000000000000000141 /* FleetUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000140 /* FleetUpdater.swift */; };
+		A100000000000000000000142 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000143 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,6 +114,7 @@
 		A100000000000000000000114 /* FleetChatPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetChatPresentationTests.swift; sourceTree = "<group>"; };
 		A100000000000000000000130 /* FleetTranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/FleetChat/FleetTranscriptPresentation.swift; sourceTree = SOURCE_ROOT; };
 		A100000000000000000000132 /* FleetTranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetTranscriptPresentationTests.swift; sourceTree = "<group>"; };
+		A100000000000000000000140 /* FleetUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetUpdater.swift; sourceTree = "<group>"; };
 		A1000000000000000000004D /* FleetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FleetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000031 /* AINBFleet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AINBFleet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000032 /* FleetRPCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FleetRPCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -122,6 +125,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A100000000000000000000142 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +164,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000021 /* AINBFleetApp.swift */,
+				A100000000000000000000140 /* FleetUpdater.swift */,
 				A100000000000000000000104 /* FleetDesktopController.swift */,
 				A100000000000000000000106 /* FleetProviderIcon.swift */,
 				A1000000000000000000002F /* FleetStore.swift */,
@@ -276,6 +281,9 @@
 			);
 			dependencies = (
 			);
+			packageProductDependencies = (
+				A100000000000000000000143 /* Sparkle */,
+			);
 			name = AINBFleet;
 			productName = AINBFleet;
 			productReference = A10000000000000000000031 /* AINBFleet.app */;
@@ -347,6 +355,9 @@
 				Base,
 			);
 			mainGroup = A10000000000000000000051;
+			packageReferences = (
+				A100000000000000000000144 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = A10000000000000000000055 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -389,12 +400,32 @@
 		};
 /* End PBXTargetDependency section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A100000000000000000000144 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A100000000000000000000143 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000000000000000000144 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000071 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000011 /* AINBFleetApp.swift in Sources */,
+				A100000000000000000000141 /* FleetUpdater.swift in Sources */,
 				A10000000000000000000013 /* ContentLengthCodec.swift in Sources */,
 				A10000000000000000000014 /* FleetWire.swift in Sources */,
 				A10000000000000000000015 /* FleetProjectionReducer.swift in Sources */,
@@ -480,18 +511,19 @@
 		A10000000000000000000083 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 0.1.0;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.ainb.fleet;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				SPARKLE_PUBLIC_ED_KEY = "";
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 6.0;
@@ -501,17 +533,19 @@
 		A10000000000000000000084 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 0.1.0;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.ainb.fleet;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				SPARKLE_PUBLIC_ED_KEY = "";
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_VERSION = 6.0;
 			};

@@ -70,12 +70,14 @@ final class FleetDesktopController: NSObject {
 
     private let store: FleetStore
     private let presentation: FleetPresentationStore
+    private let updater: FleetUpdater
     private let navigation = FleetNotchNavigation()
     private var notchPanel: NSWindow?
 
-    init(store: FleetStore, presentation: FleetPresentationStore) {
+    init(store: FleetStore, presentation: FleetPresentationStore, updater: FleetUpdater) {
         self.store = store
         self.presentation = presentation
+        self.updater = updater
         super.init()
     }
 
@@ -116,6 +118,7 @@ final class FleetDesktopController: NSObject {
             let contentView = NSHostingView(rootView: FleetNotchView(
                 store: store,
                 presentation: presentation,
+                updater: updater,
                 navigation: navigation,
                 setExpanded: { [weak self] in self?.setNotchExpanded($0) }
             ))
@@ -171,6 +174,7 @@ final class FleetAppDelegate: NSObject, NSApplicationDelegate {
 private struct FleetNotchView: View {
     @ObservedObject var store: FleetStore
     @ObservedObject var presentation: FleetPresentationStore
+    let updater: FleetUpdater
     @ObservedObject var navigation: FleetNotchNavigation
     let setExpanded: (Bool) -> Void
     @State private var search = ""
@@ -330,7 +334,7 @@ private struct FleetNotchView: View {
             case .usage:
                 FleetUsageView(store: store, period: $usagePeriod)
             case .settings:
-                FleetRuntimeSettingsView(store: store, presentation: presentation.binding)
+                FleetRuntimeSettingsView(store: store, presentation: presentation.binding, updater: updater)
             }
         }
     }
@@ -2097,6 +2101,7 @@ enum FleetHeatmapLayout {
 private struct FleetRuntimeSettingsView: View {
     @ObservedObject var store: FleetStore
     @Binding var presentation: FleetPresentationPreferences
+    let updater: FleetUpdater
 
     var body: some View {
         ScrollView {
@@ -2137,7 +2142,7 @@ private struct FleetRuntimeSettingsView: View {
                         .font(.caption).foregroundStyle(FleetNotchPalette.muted)
                 }
                 Divider()
-                FleetSettingsView(presentation: $presentation)
+                FleetSettingsView(presentation: $presentation, updater: updater)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.vertical, 2)
