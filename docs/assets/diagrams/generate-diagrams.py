@@ -32,6 +32,13 @@ ROOT = Path(__file__).resolve().parents[3]
 DIAGRAMS = ROOT / "docs/assets/diagrams"
 OUT_ECO = DIAGRAMS / "ecosystem-architecture.svg"
 OUT_PLUGIN = DIAGRAMS / "plugin-architecture.svg"
+OUT_WORKTREE = DIAGRAMS / "worktree-isolation.svg"
+OUT_REPO = DIAGRAMS / "repository-map.svg"
+OUT_INBOX = DIAGRAMS / "inbox-broker.svg"
+OUT_OTEL = DIAGRAMS / "otel-pipeline.svg"
+OUT_PLUGIN_WIRE = DIAGRAMS / "plugin-wire.svg"
+OUT_OBS = DIAGRAMS / "observability-split.svg"
+OUT_PLUGIN_DECISION = DIAGRAMS / "plugin-decision.svg"
 
 # ---------------------------------------------------------------- live facts
 
@@ -193,6 +200,15 @@ def arrow(x1, y1, x2, y2, cls="line", dash=False):
     parts.append(
         f'<path d="M{x1} {y1} L{x2} {y2}" class="{cls}" fill="none"'
         f' stroke="{LIGHT[cls]}" stroke-width="1.6"{d} marker-end="url(#{marker})"/>'
+    )
+
+
+def path_arrow(d: str, cls: str = "line", dash: bool = False, marker: str = "arr"):
+    da = ' stroke-dasharray="5 4"' if dash else ""
+    m = f' marker-end="url(#{marker})"' if marker else ""
+    parts.append(
+        f'<path d="{d}" class="{cls}" fill="none"'
+        f' stroke="{LIGHT[cls]}" stroke-width="1.6"{da}{m}/>'
     )
 
 
@@ -429,6 +445,393 @@ def build_plugin_diagram() -> tuple[str, dict]:
                         "in-tree plugins and the two render modes"), {"plugins": plugins}
 
 
+def build_worktree_diagram() -> str:
+    w, h = 920, 340
+    parts.clear()
+
+    text(PAD, 40, "git worktree isolation", 20, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="48" width="180" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 195, 40, "each session runs on its own branch in an isolated worktree directory", 12.5, "mute")
+
+    # Root repo box
+    rw = 440
+    rx = (w - rw) // 2
+    box(rx, 70, rw, 58, "card")
+    text(rx + rw // 2, 94, "Repository root checkout", 14, "ink", 700, anchor="middle")
+    text(rx + rw // 2, 114, "/path/to/project on branch 'main'", 11.5, "mute", anchor="middle")
+
+    # Three branches
+    cards = [
+        ("Worktree 1 · Claude Code", "agents/fix-ci", "ainb-session-1"),
+        ("Worktree 2 · Codex", "agents/auth", "ainb-session-2"),
+        ("Worktree 3 · Gemini", "agents/eval", "ainb-session-3"),
+    ]
+    cw = 264
+    gap = (w - PAD * 2 - len(cards) * cw) // (len(cards) - 1)
+    y_card = 175
+
+    for i, (title, branch, session) in enumerate(cards):
+        cx = PAD + i * (cw + gap)
+        box(cx, y_card, cw, 100, "card")
+        parts.append(
+            f'<rect x="{cx}" y="{y_card}" width="3" height="100" rx="1.5"'
+            f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+        )
+        text(cx + 14, y_card + 24, title, 13, "ink", 700)
+        text(cx + 14, y_card + 46, f"Branch: {branch}", 11.5, "accent", 600)
+        text(cx + 14, y_card + 66, f"tmux: {session}", 11, "mute")
+        text(cx + 14, y_card + 86, "Own git index · HEAD · unstaged files", 10, "mute")
+
+        target_x = cx + cw // 2
+        path_arrow(f"M {w // 2} 128 V 150 H {target_x} V {y_card - 4}")
+
+    text(PAD, 310, "Guarantees: zero index.lock contention, parallel non-blocking commits, auto-cleanup on finish", 11.5, "mute")
+    return wrap(w, h, "ainb git worktree isolation: root repository checkout branching to isolated session worktrees")
+
+
+def build_repository_diagram() -> str:
+    w, h = 960, 420
+    parts.clear()
+
+    text(PAD, 40, "agents-in-a-box repository topology", 20, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="48" width="230" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 245, 40, "how the three repositories compose across the ecosystem", 12.5, "mute")
+
+    colw = (w - PAD * 2 - 40) // 2
+    left, right = PAD, PAD + colw + 40
+    y = 66
+
+    # Repo 1: agents-in-a-box
+    section(left, y, colw, 180, "1", "agents-in-a-box", "Monorepo: TUI host + CLI + daemons")
+    chip(left + 18, y + 56, colw - 36, 34, "34-crate Rust workspace", "ratatui · tokio · Unix-only")
+    chip(left + 18, y + 96, colw - 36, 34, "9 supervised daemons", "notifyd · hangar · mcp-pool · headroom...")
+    chip(left + 18, y + 136, colw - 36, 34, "User interfaces", "TUI · CLI (--format json) · ainb web · ainb.app")
+
+    # Repo 2: ainb-toolkit
+    section(right, y, colw, 180, "2", "ainb-toolkit", "External repo: portable skills + agents")
+    chip(right + 18, y + 56, colw - 36, 34, "94 skills · 16 agents", "universal · engineering · swarm · meta")
+    chip(right + 18, y + 96, colw - 36, 34, "bootstrap engine (bootstrap.js)", "deploys to 10 tool homes from one source")
+    chip(right + 18, y + 136, colw - 36, 34, "Tool homes", "Claude · Codex · Copilot · Gemini · Cursor · AGY...")
+
+    # Connection arrows
+    arrow(left + colw, y + 74, right - 4, y + 74, "line")
+    text(w // 2, y + 67, "pinned source", 9.5, "mute", anchor="middle")
+
+    arrow(right, y + 132, left + colw + 4, y + 132, "alt")
+    text(w // 2, y + 125, "catalog asset", 9.5, "alt", anchor="middle")
+
+    # Repo 3: reflect-memory
+    y2 = y + 196
+    section(left, y2, w - PAD * 2, 120, "3", "ainb-reflect-memory", "External repo: long-term memory & GraphRAG")
+    grid(left + 18, y2 + 50, [
+        ("QMD vector search", "fast keyword & semantic hits via hnswlib"),
+        ("nano-graphrag", "cross-project entity-relation graph & Louvain"),
+        ("reflect CLI", "capture (/reflect) · retrieve (/recall) · /ingest"),
+        ("Installation", "uv tool install ...[graph] via ainb reflect bootstrap"),
+    ], 2, (w - PAD * 2 - 45) // 2, 28, gap=6)
+
+    text(PAD, 398, "Solid: pinned external dependency.   Green: release catalog distribution.", 11.5, "mute")
+    return wrap(w, h, "agents-in-a-box repository topology: monorepo, ainb-toolkit, and ainb-reflect-memory")
+
+
+def build_inbox_diagram() -> str:
+    w, h = 920, 270
+    parts.clear()
+
+    text(PAD, 40, "Attention Inbox and approval broker", 20, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="48" width="220" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 235, 40, "permission requests and alerts routed directly to the operator", 12.5, "mute")
+
+    cw = 240
+    y = 70
+    h_card = 145
+
+    # Box 1: Agent
+    box(PAD, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{PAD}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 14, y + 24, "AI Agent Sessions", 13, "ink", 700)
+    text(PAD + 14, y + 46, "Claude Code · Codex · Copilot", 11.5, "accent", 600)
+    text(PAD + 14, y + 74, "PreToolUse hooks intercept", 11, "mute")
+    text(PAD + 14, y + 92, "dangerous operations", 11, "mute")
+    text(PAD + 14, y + 120, "Blocked awaiting answer", 10.5, "mute")
+
+    # Arrow 1 -> 2
+    x1_end = PAD + cw
+    x2_start = PAD + cw + 75
+    arrow(x1_end, y + 45, x2_start - 4, y + 45)
+    text(x1_end + 37, y + 38, "PermissionRequest", 9.5, "mute", anchor="middle")
+
+    # Box 2: Daemons
+    bx = x2_start
+    box(bx, y, cw + 20, h_card, "card")
+    parts.append(
+        f'<rect x="{bx}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(bx + 14, y + 24, "Supervised Daemons", 13, "ink", 700)
+    text(bx + 14, y + 46, "approve-broker · notifyd", 11.5, "accent", 600)
+    text(bx + 14, y + 74, "Persisted in SQLite queue", 11, "mute")
+    text(bx + 14, y + 92, "Priority classification", 11, "mute")
+    text(bx + 14, y + 120, "Telegram / Slack / Discord bridge", 10.5, "mute")
+
+    # Arrow 2 -> 3
+    x2_end = bx + cw + 20
+    x3_start = x2_end + 75
+    arrow(x2_end, y + 45, x3_start - 4, y + 45)
+    text(x2_end + 37, y + 38, "AWAIT prompt", 9.5, "mute", anchor="middle")
+
+    # Box 3: Human Operator
+    ox = x3_start
+    box(ox, y, cw - 20, h_card, "card")
+    parts.append(
+        f'<rect x="{ox}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(ox + 14, y + 24, "Human Operator", 13, "ink", 700)
+    text(ox + 14, y + 46, "TUI Inbox & Fleet Screen", 11.5, "accent", 600)
+    text(ox + 14, y + 74, "Approve (y) / Deny (n)", 11, "mute")
+    text(ox + 14, y + 92, "One keystroke resolution", 11, "mute")
+    text(ox + 14, y + 120, "Zero pane hopping required", 10.5, "mute")
+
+    # Return Arrow 3 -> 1
+    arrow(ox, y + 105, x1_end + 4, y + 105, "alt")
+    text((ox + x1_end) // 2, y + 122, "Response delivered back to unblock agent hook", 10, "alt", anchor="middle")
+
+    text(PAD, 245, "Centralized approval ledger prevents runaway agent execution across parallel sessions.", 11.5, "mute")
+    return wrap(w, h, "ainb attention inbox and approval broker flow")
+
+
+def build_otel_diagram() -> str:
+    w, h = 880, 250
+    parts.clear()
+
+    text(PAD, 40, "OpenTelemetry to Grafana Cloud pipeline", 20, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="48" width="240" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 255, 40, "stream metrics, logs, and traces from sessions to Grafana dashboards", 12.5, "mute")
+
+    cw = 220
+    y = 70
+    h_card = 125
+
+    # 1: Coding sessions
+    box(PAD, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{PAD}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 14, y + 24, "Coding Sessions", 13, "ink", 700)
+    text(PAD + 14, y + 46, "Claude Code · Codex", 11.5, "accent", 600)
+    text(PAD + 14, y + 74, "Native OTLP export", 11, "mute")
+    text(PAD + 14, y + 94, "HTTP :4318 / gRPC :4317", 11, "mute")
+
+    # Arrow 1 -> 2
+    x1_end = PAD + cw
+    x2_start = PAD + cw + 70
+    arrow(x1_end, y + 62, x2_start - 4, y + 62)
+    text(x1_end + 35, y + 54, "local OTLP", 10, "mute", anchor="middle")
+
+    # 2: Alloy
+    ax = x2_start
+    box(ax, y, cw + 30, h_card, "card")
+    parts.append(
+        f'<rect x="{ax}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(ax + 14, y + 24, "Grafana Alloy", 13, "ink", 700)
+    text(ax + 14, y + 46, "Local collector daemon", 11.5, "accent", 600)
+    text(ax + 14, y + 74, "Supervised in tmux by ainb", 11, "mute")
+    text(ax + 14, y + 94, "Injects Basic-auth credentials", 11, "mute")
+
+    # Arrow 2 -> 3
+    x2_end = ax + cw + 30
+    x3_start = x2_end + 70
+    arrow(x2_end, y + 62, x3_start - 4, y + 62)
+    text(x2_end + 35, y + 54, "HTTPS + Auth", 10, "mute", anchor="middle")
+
+    # 3: Grafana Cloud
+    gx = x3_start
+    gw = w - PAD - gx
+    box(gx, y, gw, h_card, "card")
+    parts.append(
+        f'<rect x="{gx}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(gx + 14, y + 24, "Grafana Cloud", 13, "ink", 700)
+    text(gx + 14, y + 46, "Central telemetry stack", 11.5, "accent", 600)
+    text(gx + 14, y + 74, "Prometheus metrics", 11, "mute")
+    text(gx + 14, y + 94, "Loki logs · Tempo traces", 11, "mute")
+
+    text(PAD, 226, "Setup is automated via the ainb onboarding wizard and ainb config otel.", 11.5, "mute")
+    return wrap(w, h, "OpenTelemetry to Grafana Cloud pipeline: Claude Code to Alloy to Grafana Cloud")
+
+
+def build_plugin_wire_diagram() -> str:
+    w, h = 920, 270
+    parts.clear()
+
+    text(PAD, 40, "ainb v2 plugin stdio wire protocol", 20, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="48" width="220" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 235, 40, "host runtime and child plugin communicate via Content-Length JSON-RPC 2.0", 12.5, "mute")
+
+    cw = 340
+    y = 70
+    h_card = 145
+
+    # Box 1: Host
+    box(PAD, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{PAD}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 14, y + 24, "ainb Host Runtime", 13, "ink", 700)
+    text(PAD + 14, y + 46, "ainb-plugin-runtime crate", 11.5, "accent", 600)
+    text(PAD + 14, y + 74, "Dedicated tokio task per plugin", 11, "mute")
+    text(PAD + 14, y + 94, "Request and response ledger", 11, "mute")
+    text(PAD + 14, y + 114, "Capability-gated access (-32001 on deny)", 10.5, "mute")
+
+    # Middle streams
+    x1_end = PAD + cw
+    x2_start = w - PAD - cw
+    mid_x = (x1_end + x2_start) // 2
+
+    arrow(x1_end, y + 45, x2_start - 4, y + 45)
+    text(mid_x, y + 37, "stdin (requests & notifies)", 9.5, "mute", anchor="middle")
+
+    arrow(x2_start, y + 95, x1_end + 4, y + 95, "alt")
+    text(mid_x, y + 87, "stdout (responses & reverse calls)", 9.5, "alt", anchor="middle")
+
+    text(mid_x, y + 130, "Content-Length: N\\r\\n\\r\\n{json}", 9, "mute", anchor="middle")
+
+    # Box 2: Plugin
+    px = x2_start
+    box(px, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{px}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(px + 14, y + 24, "Plugin Child Process", 13, "ink", 700)
+    text(px + 14, y + 46, "ainb-plugin-sdk-rust crate", 11.5, "accent", 600)
+    text(px + 14, y + 74, "Native binary in dist/plugins/<name>/", 11, "mute")
+    text(px + 14, y + 94, "Plugin trait event and render dispatcher", 11, "mute")
+    text(px + 14, y + 114, "HostClient for callbacks (log, storage, frames)", 10.5, "mute")
+
+    text(PAD, 245, "Child process isolation ensures plugin panics never take down the host TUI.", 11.5, "mute")
+    return wrap(w, h, "ainb v2 plugin stdio wire protocol: host runtime to plugin subprocess over framed JSON-RPC")
+
+
+def build_observability_diagram() -> str:
+    w, h = 880, 240
+    parts.clear()
+
+    text(PAD, 36, "ainb Observability Architecture", 18, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="44" width="220" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 235, 36, "zero-config local runtime analytics paired with off-box historical tracing", 11.5, "mute")
+
+    cw = 390
+    y = 66
+    h_card = 135
+
+    # Left card: Local
+    box(PAD, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{PAD}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 14, y + 24, "Local, in-the-moment (TUI views)", 13, "ink", 700)
+    text(PAD + 14, y + 44, "zero configuration required: inspect right now", 11, "accent", 600)
+    text(PAD + 14, y + 70, "burndown: live session token usage & cost burn", 11, "mute")
+    text(PAD + 14, y + 90, "abtop: live agent processes, CPU%, RSS, and status", 11, "mute")
+    text(PAD + 14, y + 110, "witr: command causality, blast radius, and lineage", 11, "mute")
+
+    # Right card: Remote
+    rx = w - PAD - cw
+    box(rx, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{rx}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="altfill" fill="{LIGHT["alt"]}"/>'
+    )
+    text(rx + 14, y + 24, "Remote, historical (OTEL + Grafana)", 13, "ink", 700)
+    text(rx + 14, y + 44, "persisted telemetry: trend analysis & auditing", 11, "alt", 600)
+    text(rx + 14, y + 70, "Grafana Alloy: local tmux collector (:4317/:4318)", 11, "mute")
+    text(rx + 14, y + 90, "Grafana Cloud: dashboards, cost rollups, latency p95", 11, "mute")
+    text(rx + 14, y + 110, "Traces & audit: tool calls, prompt tokens, agent runs", 11, "mute")
+
+    text(PAD, 220, "TUI plugins provide immediate answers; OTLP shipping persists across sessions.", 11.5, "mute")
+    return wrap(w, h, "ainb observability architecture: local TUI plugins and remote OpenTelemetry Grafana pipeline")
+
+
+def build_plugin_decision_diagram() -> str:
+    w, h = 820, 260
+    parts.clear()
+
+    text(PAD, 34, "Plugin Extension Decision Tree", 18, "ink", 800)
+    parts.append(
+        f'<rect x="{PAD}" y="42" width="220" height="3" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 235, 34, "disambiguating ainb TUI plugins vs Claude Code plugins", 11.5, "mute")
+
+    # Question root box
+    qw = 340
+    qx = (w - qw) // 2
+    box(qx, 58, qw, 42, "card")
+    text(w // 2, 84, "Are you trying to extend... ?", 12.5, "ink", 700, anchor="middle")
+
+    # Branches
+    branch_y = 100
+    arrow(qx + 50, branch_y, PAD + 180, 126)
+    arrow(qx + qw - 50, branch_y, w - PAD - 180, 126, "alt")
+
+    # Left card: TUI
+    cw = 360
+    y = 130
+    h_card = 110
+    box(PAD, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{PAD}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="accentfill" fill="{LIGHT["accent"]}"/>'
+    )
+    text(PAD + 14, y + 24, "The ainb Terminal UI", 13, "ink", 700)
+    text(PAD + 14, y + 44, "ainb v2 native executable plugin", 11, "accent", 600)
+    text(PAD + 14, y + 68, "Communicates over framed JSON-RPC stdio", 10.5, "mute")
+    text(PAD + 14, y + 88, "Guide: /plugins/authoring", 10.5, "mute")
+
+    # Right card: Claude Code
+    rx = w - PAD - cw
+    box(rx, y, cw, h_card, "card")
+    parts.append(
+        f'<rect x="{rx}" y="{y}" width="3" height="{h_card}" rx="1.5"'
+        f' class="altfill" fill="{LIGHT["alt"]}"/>'
+    )
+    text(rx + 14, y + 24, "Claude Code CLI or Desktop", 13, "ink", 700)
+    text(rx + 14, y + 44, "Claude Code plugin (hooks & slash commands)", 11, "alt", 600)
+    text(rx + 14, y + 68, "Examples: plugins/ainb-fleet, ainb-hooks, reflect", 10.5, "mute")
+    text(rx + 14, y + 88, "Reference: upstream Anthropic plugin docs", 10.5, "mute")
+
+    return wrap(w, h, "ainb vs Claude Code plugin decision tree")
+
+
 if __name__ == "__main__":
     svg, facts = build()
     OUT_ECO.write_text(svg)
@@ -437,5 +840,26 @@ if __name__ == "__main__":
     psvg, pfacts = build_plugin_diagram()
     OUT_PLUGIN.write_text(psvg)
     print(f"  plugin diagram: {pfacts['plugins']}")
-    for f in (OUT_ECO, OUT_PLUGIN):
+
+    OUT_WORKTREE.write_text(build_worktree_diagram())
+    OUT_REPO.write_text(build_repository_diagram())
+    OUT_INBOX.write_text(build_inbox_diagram())
+    OUT_OTEL.write_text(build_otel_diagram())
+    OUT_PLUGIN_WIRE.write_text(build_plugin_wire_diagram())
+    OUT_OBS.write_text(build_observability_diagram())
+    OUT_PLUGIN_DECISION.write_text(build_plugin_decision_diagram())
+
+    all_files = [
+        OUT_ECO,
+        OUT_PLUGIN,
+        OUT_WORKTREE,
+        OUT_REPO,
+        OUT_INBOX,
+        OUT_OTEL,
+        OUT_PLUGIN_WIRE,
+        OUT_OBS,
+        OUT_PLUGIN_DECISION,
+    ]
+    for f in all_files:
         print(f"wrote {f.relative_to(ROOT)} ({f.stat().st_size} bytes)", file=sys.stderr)
+

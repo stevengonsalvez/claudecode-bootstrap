@@ -72,20 +72,7 @@ Markers are matched to sessions by **working directory + agent**: each hook even
 
 Fleet-managed Claude sessions get a **synchronous, first-class permission gate**: when Claude fires a `PermissionRequest` hook, the hook process *blocks* on notifyd's approve socket until a human approves or denies it: from the fleet panel, the CLI, or not at all (timeout ⇒ deny). The answer flows straight back to Claude as the hook's `hookSpecificOutput` permission decision, so approving in the TUI is exactly as authoritative as pressing `y` in the Claude session itself.
 
-```
-┌────────┐ PermissionRequest ┌───────────┐  AWAIT   ┌────────────────┐
-│ Claude │──────────────────▶│ hook proc │─────────▶│ approve.sock   │
-│ session│                   │ (blocks)  │          │ (notifyd)      │
-└────────┘                   └───────────┘          └────────────────┘
-     ▲                             │                        ▲
-     │  hookSpecificOutput         │ decision               │ DECIDE
-     │  allow / deny               ▼                        │
-     └─────────────────────────────┘             ┌──────────┴───────┐
-                                                 │ fleet panel y/n  │
-                                                 │ ainb fleet       │
-                                                 │   approve/deny   │
-                                                 └──────────────────┘
-```
+![ainb attention inbox and approval broker flow](../assets/diagrams/inbox-broker.svg)
 
 - **Fleet panel (TUI)**: press `f` on the home screen. A session blocked on approval shows the gold **`APRV`** badge (a freshly booting one shows blue **`STRT`**); select the row and press **`y`** to approve or **`n`** to deny.
 - **CLI**: `ainb fleet approve` with no argument lists the sessions currently waiting (with tool, context, and wait time; `--format json` for scripting). `ainb fleet approve <session-id>` / `ainb fleet deny <session-id> [--reason "…"]` delivers the decision; a no-waiter miss exits non-zero.

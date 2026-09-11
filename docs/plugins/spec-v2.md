@@ -12,16 +12,7 @@ A plugin **conforms to v2** if it satisfies every MUST clause below. The `ainb-p
 
 A v2 plugin is a **native executable** spawned by the host as a child process. Host and plugin exchange JSON-RPC 2.0 over framed stdio. The plugin's stdin is the request stream from the host; its stdout is the response stream + reverse-call requests; its stderr is captured as host log output.
 
-```text
-┌──────────────────────────────┐         ┌──────────────────────────────┐
-│           ainb host          │         │       plugin process         │
-│  (ainb-plugin-runtime)       │◀───────▶│  (ainb-plugin-sdk-rust)      │
-│                              │  framed │                              │
-│  - per-plugin tokio task     │   JSON  │  - stdio dispatcher          │
-│  - request/response ledger   │   RPC   │  - Plugin trait impl         │
-│  - subscriber fan-out        │  stdio  │  - HostClient for callbacks  │
-└──────────────────────────────┘         └──────────────────────────────┘
-```
+![ainb v2 plugin stdio wire protocol](../assets/diagrams/plugin-wire.svg)
 
 Versus the deprecated v1 wasm contract: no wasm, no wasmi, no linker-omitted host-fn imports, no `wasm32-wasip1` target. A v2 plugin is a regular `cargo build`'d binary.
 

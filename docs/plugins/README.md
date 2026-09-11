@@ -45,20 +45,7 @@ If you want to **add behaviour to Claude Code itself**, you want a Claude Code p
 
 ## Quick decision tree
 
-```
-                  Are you trying to extend...
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-        the ainb TUI?                  Claude Code itself?
-              │                               │
-              ▼                               ▼
-        ainb v2 plugin                  Claude Code plugin
-              │                               │
-              ▼                               ▼
-   /docs/plugins/authoring.md      /plugins/ainb-fleet/ (example)
-                                   + upstream Anthropic docs
-```
+![Plugin extension decision tree](../assets/diagrams/plugin-decision.svg)
 
 ---
 

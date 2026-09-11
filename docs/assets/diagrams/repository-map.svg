@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" role="img" aria-label="agents-in-a-box repository topology: monorepo, ainb-toolkit, and ainb-reflect-memory">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;}@media (prefers-color-scheme: dark){.bg{fill:#0F0F18;}.ink{fill:#DCDCE6;}.mute{fill:#9A9AB0;}.accent{fill:#E08A63;}.accentfill{fill:#E08A63;}.card{fill:#191923;stroke:#2E2E3E;}.chip{fill:#20202C;stroke:#2E2E3E;}.line{stroke:#7A7A92;}.alt{stroke:#8FA86B;}.linefill{fill:#7A7A92;}.altfill{fill:#8FA86B;}}</style>
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="linefill" fill="#8A857C"/></marker>
+    <marker id="arrAlt" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="altfill" fill="#5F7048"/></marker>
+  </defs>
+  <rect width="960" height="420" class="bg" fill="#FAF9F5"/>
+  <text x="36" y="40" font-size="20" class="ink" fill="#141413" text-anchor="start" font-weight="800">agents-in-a-box repository topology</text>
+  <rect x="36" y="48" width="230" height="3" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="281" y="40" font-size="12.5" class="mute" fill="#6B655B" text-anchor="start">how the three repositories compose across the ecosystem</text>
+  <rect x="36" y="66" width="424" height="180" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="66" width="4" height="180" rx="2" class="accentfill" fill="#C25A38"/>
+  <text x="54" y="94" font-size="15" class="accent" fill="#C25A38" text-anchor="start" font-weight="800">1</text>
+  <text x="74" y="94" font-size="15" class="ink" fill="#141413" text-anchor="start" font-weight="700">agents-in-a-box</text>
+  <text x="54" y="114" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Monorepo: TUI host + CLI + daemons</text>
+  <rect x="54" y="122" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="65" y="142" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">34-crate Rust workspace</text>
+  <text x="65" y="157" font-size="10" class="mute" fill="#6B655B" text-anchor="start">ratatui · tokio · Unix-only</text>
+  <rect x="54" y="162" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="65" y="182" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">9 supervised daemons</text>
+  <text x="65" y="197" font-size="10" class="mute" fill="#6B655B" text-anchor="start">notifyd · hangar · mcp-pool · headroom...</text>
+  <rect x="54" y="202" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="65" y="222" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">User interfaces</text>
+  <text x="65" y="237" font-size="10" class="mute" fill="#6B655B" text-anchor="start">TUI · CLI (--format json) · ainb web · ainb.app</text>
+  <rect x="500" y="66" width="424" height="180" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="500" y="66" width="4" height="180" rx="2" class="accentfill" fill="#C25A38"/>
+  <text x="518" y="94" font-size="15" class="accent" fill="#C25A38" text-anchor="start" font-weight="800">2</text>
+  <text x="538" y="94" font-size="15" class="ink" fill="#141413" text-anchor="start" font-weight="700">ainb-toolkit</text>
+  <text x="518" y="114" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">External repo: portable skills + agents</text>
+  <rect x="518" y="122" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="529" y="142" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">94 skills · 16 agents</text>
+  <text x="529" y="157" font-size="10" class="mute" fill="#6B655B" text-anchor="start">universal · engineering · swarm · meta</text>
+  <rect x="518" y="162" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="529" y="182" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">bootstrap engine (bootstrap.js)</text>
+  <text x="529" y="197" font-size="10" class="mute" fill="#6B655B" text-anchor="start">deploys to 10 tool homes from one source</text>
+  <rect x="518" y="202" width="388" height="34" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="529" y="222" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">Tool homes</text>
+  <text x="529" y="237" font-size="10" class="mute" fill="#6B655B" text-anchor="start">Claude · Codex · Copilot · Gemini · Cursor · AGY...</text>
+  <path d="M460 140 L496 140" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="480" y="133" font-size="9.5" class="mute" fill="#6B655B" text-anchor="middle">pinned source</text>
+  <path d="M500 198 L464 198" class="alt" fill="none" stroke="#5F7048" stroke-width="1.6" marker-end="url(#arrAlt)"/>
+  <text x="480" y="191" font-size="9.5" class="alt" fill="#5F7048" text-anchor="middle">catalog asset</text>
+  <rect x="36" y="262" width="888" height="120" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="262" width="4" height="120" rx="2" class="accentfill" fill="#C25A38"/>
+  <text x="54" y="290" font-size="15" class="accent" fill="#C25A38" text-anchor="start" font-weight="800">3</text>
+  <text x="74" y="290" font-size="15" class="ink" fill="#141413" text-anchor="start" font-weight="700">ainb-reflect-memory</text>
+  <text x="54" y="310" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">External repo: long-term memory &amp; GraphRAG</text>
+  <rect x="54" y="312" width="421" height="28" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="65" y="332" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">QMD vector search</text>
+  <text x="65" y="347" font-size="10" class="mute" fill="#6B655B" text-anchor="start">fast keyword &amp; semantic hits via hnswlib</text>
+  <rect x="481" y="312" width="421" height="28" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="492" y="332" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">nano-graphrag</text>
+  <text x="492" y="347" font-size="10" class="mute" fill="#6B655B" text-anchor="start">cross-project entity-relation graph &amp; Louvain</text>
+  <rect x="54" y="346" width="421" height="28" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="65" y="366" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">reflect CLI</text>
+  <text x="65" y="381" font-size="10" class="mute" fill="#6B655B" text-anchor="start">capture (/reflect) · retrieve (/recall) · /ingest</text>
+  <rect x="481" y="346" width="421" height="28" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="492" y="366" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">Installation</text>
+  <text x="492" y="381" font-size="10" class="mute" fill="#6B655B" text-anchor="start">uv tool install ...[graph] via ainb reflect bootstrap</text>
+  <text x="36" y="398" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Solid: pinned external dependency.   Green: release catalog distribution.</text>
+</svg>

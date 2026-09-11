@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 250" width="880" height="250" role="img" aria-label="OpenTelemetry to Grafana Cloud pipeline: Claude Code to Alloy to Grafana Cloud">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;}@media (prefers-color-scheme: dark){.bg{fill:#0F0F18;}.ink{fill:#DCDCE6;}.mute{fill:#9A9AB0;}.accent{fill:#E08A63;}.accentfill{fill:#E08A63;}.card{fill:#191923;stroke:#2E2E3E;}.chip{fill:#20202C;stroke:#2E2E3E;}.line{stroke:#7A7A92;}.alt{stroke:#8FA86B;}.linefill{fill:#7A7A92;}.altfill{fill:#8FA86B;}}</style>
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="linefill" fill="#8A857C"/></marker>
+    <marker id="arrAlt" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="altfill" fill="#5F7048"/></marker>
+  </defs>
+  <rect width="880" height="250" class="bg" fill="#FAF9F5"/>
+  <text x="36" y="40" font-size="20" class="ink" fill="#141413" text-anchor="start" font-weight="800">OpenTelemetry to Grafana Cloud pipeline</text>
+  <rect x="36" y="48" width="240" height="3" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="291" y="40" font-size="12.5" class="mute" fill="#6B655B" text-anchor="start">stream metrics, logs, and traces from sessions to Grafana dashboards</text>
+  <rect x="36" y="70" width="220" height="125" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="70" width="3" height="125" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="50" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Coding Sessions</text>
+  <text x="50" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Claude Code · Codex</text>
+  <text x="50" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Native OTLP export</text>
+  <text x="50" y="164" font-size="11" class="mute" fill="#6B655B" text-anchor="start">HTTP :4318 / gRPC :4317</text>
+  <path d="M256 132 L322 132" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="291" y="124" font-size="10" class="mute" fill="#6B655B" text-anchor="middle">local OTLP</text>
+  <rect x="326" y="70" width="250" height="125" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="326" y="70" width="3" height="125" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="340" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Grafana Alloy</text>
+  <text x="340" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Local collector daemon</text>
+  <text x="340" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Supervised in tmux by ainb</text>
+  <text x="340" y="164" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Injects Basic-auth credentials</text>
+  <path d="M576 132 L642 132" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="611" y="124" font-size="10" class="mute" fill="#6B655B" text-anchor="middle">HTTPS + Auth</text>
+  <rect x="646" y="70" width="198" height="125" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="646" y="70" width="3" height="125" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="660" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Grafana Cloud</text>
+  <text x="660" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Central telemetry stack</text>
+  <text x="660" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Prometheus metrics</text>
+  <text x="660" y="164" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Loki logs · Tempo traces</text>
+  <text x="36" y="226" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Setup is automated via the ainb onboarding wizard and ainb config otel.</text>
+</svg>

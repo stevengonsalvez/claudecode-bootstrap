@@ -16,16 +16,7 @@ in its own public repo; the `ainb` tool consumes both as external sources.
 
 ## How they fit together
 
-```
-┌────────────────────────────┐        pinned external source        ┌──────────────────────────┐
-│ agents-in-a-box            │  ─────────────────────────────────▶  │ ainb-toolkit             │
-│  • ainb (Rust TUI/CLI)     │   gh:stevengonsalvez/ainb-toolkit    │  • skills/  agents/      │
-│  • v2 plugin system        │       @<tag>/skills/<name>           │  • workflows/ utilities/ │
-│  • docs (this site)        │                                      │  • bootstrap.js          │
-│                            │  ◀─ catalog-index.json (release CI)  │  • external-deps.yaml    │
-└────────────────────────────┘     clone @tag → xtask → asset       │  • catalog.yaml          │
-                                                                    └──────────────────────────┘
-```
+![agents-in-a-box repository topology](../assets/diagrams/repository-map.svg)
 
 - **Browsing & installing skills**: `ainb skill browse "" --catalog ainb` reads
   the `catalog-index.json` published as an agents-in-a-box release asset. Each

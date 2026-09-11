@@ -20,13 +20,7 @@ read the answer now, no setup. OpenTelemetry is the **off-box, historical**
 path: a local Grafana Alloy collector forwards Claude Code / Codex telemetry to
 Grafana Cloud for cost dashboards, latency percentiles, and trace retention.
 
-```
-┌─ Local (now) ────────────┐     ┌─ Remote (history) ───────────────┐
-│ burndown  usage + cost   │     │ OTEL → Alloy → Grafana Cloud      │
-│ abtop     live processes │     │ cost, latency p95, traces, prompts│
-│ witr      causality      │     │                                   │
-└──────────────────────────┘     └───────────────────────────────────┘
-```
+![ainb observability architecture](../assets/diagrams/observability-split.svg)
 
 Start with the [OpenTelemetry guide](/reference/otel-grafana) for the
 Grafana Cloud setup and example dashboards.
