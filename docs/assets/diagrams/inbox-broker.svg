@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 270" width="920" height="270" role="img" aria-label="ainb attention inbox and approval broker flow">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;}@media (prefers-color-scheme: dark){.bg{fill:#0F0F18;}.ink{fill:#DCDCE6;}.mute{fill:#9A9AB0;}.accent{fill:#E08A63;}.accentfill{fill:#E08A63;}.card{fill:#191923;stroke:#2E2E3E;}.chip{fill:#20202C;stroke:#2E2E3E;}.line{stroke:#7A7A92;}.alt{stroke:#8FA86B;}.linefill{fill:#7A7A92;}.altfill{fill:#8FA86B;}}</style>
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="linefill" fill="#8A857C"/></marker>
+    <marker id="arrAlt" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="altfill" fill="#5F7048"/></marker>
+  </defs>
+  <rect width="920" height="270" class="bg" fill="#FAF9F5"/>
+  <text x="36" y="40" font-size="20" class="ink" fill="#141413" text-anchor="start" font-weight="800">Attention Inbox and approval broker</text>
+  <rect x="36" y="48" width="220" height="3" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="271" y="40" font-size="12.5" class="mute" fill="#6B655B" text-anchor="start">permission requests and alerts routed directly to the operator</text>
+  <rect x="36" y="70" width="240" height="145" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="70" width="3" height="145" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="50" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">AI Agent Sessions</text>
+  <text x="50" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Claude Code · Codex · Copilot</text>
+  <text x="50" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">PreToolUse hooks intercept</text>
+  <text x="50" y="162" font-size="11" class="mute" fill="#6B655B" text-anchor="start">dangerous operations</text>
+  <text x="50" y="190" font-size="10.5" class="mute" fill="#6B655B" text-anchor="start">Blocked awaiting answer</text>
+  <path d="M276 115 L347 115" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="313" y="108" font-size="9.5" class="mute" fill="#6B655B" text-anchor="middle">PermissionRequest</text>
+  <rect x="351" y="70" width="260" height="145" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="351" y="70" width="3" height="145" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="365" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Supervised Daemons</text>
+  <text x="365" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">approve-broker · notifyd</text>
+  <text x="365" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Persisted in SQLite queue</text>
+  <text x="365" y="162" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Priority classification</text>
+  <text x="365" y="190" font-size="10.5" class="mute" fill="#6B655B" text-anchor="start">Telegram / Slack / Discord bridge</text>
+  <path d="M611 115 L682 115" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="648" y="108" font-size="9.5" class="mute" fill="#6B655B" text-anchor="middle">AWAIT prompt</text>
+  <rect x="686" y="70" width="220" height="145" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="686" y="70" width="3" height="145" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="700" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Human Operator</text>
+  <text x="700" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">TUI Inbox &amp; Fleet Screen</text>
+  <text x="700" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Approve (y) / Deny (n)</text>
+  <text x="700" y="162" font-size="11" class="mute" fill="#6B655B" text-anchor="start">One keystroke resolution</text>
+  <text x="700" y="190" font-size="10.5" class="mute" fill="#6B655B" text-anchor="start">Zero pane hopping required</text>
+  <path d="M686 175 L280 175" class="alt" fill="none" stroke="#5F7048" stroke-width="1.6" marker-end="url(#arrAlt)"/>
+  <text x="481" y="192" font-size="10" class="alt" fill="#5F7048" text-anchor="middle">Response delivered back to unblock agent hook</text>
+  <text x="36" y="245" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Centralized approval ledger prevents runaway agent execution across parallel sessions.</text>
+</svg>
