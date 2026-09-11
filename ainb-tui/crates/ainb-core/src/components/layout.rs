@@ -718,7 +718,7 @@ impl LayoutComponent {
         let desc = |d: &'static str| Span::styled(d, Style::default().fg(MUTED_GRAY));
         let line = Line::from(vec![
             key("⇧M", GOLD),
-            desc(" keymap  "),
+            desc(" expand/collapse  "),
             key("?/H", CORNFLOWER_BLUE),
             desc(" help  "),
             key("q", CORNFLOWER_BLUE),
@@ -824,6 +824,8 @@ impl LayoutComponent {
             key("t", GOLD),
             desc(" abtop"),
             sep(),
+            key("⇧M", GOLD),
+            desc(" expand/collapse "),
             key("?/H", CORNFLOWER_BLUE),
             desc(" help "),
             key("q", CORNFLOWER_BLUE),
@@ -933,6 +935,8 @@ impl LayoutComponent {
             Line::from(vec![
                 key("Tab", GOLD),
                 desc(" focus  "),
+                key("⇧M", GOLD),
+                desc(" expand/collapse  "),
                 key("?/H", CORNFLOWER_BLUE),
                 desc(" help  "),
                 key("q", CORNFLOWER_BLUE),
@@ -1299,6 +1303,54 @@ impl LayoutComponent {
 impl Default for LayoutComponent {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod menu_bar_render_tests {
+    use super::*;
+    use crate::app::state::AppState;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn painted_menu_bar(width: u16, shown: bool) -> String {
+        let mut state = AppState::default();
+        state.app_config.ui_preferences.show_session_menu_bar = shown;
+        let component = LayoutComponent::new();
+        let height = session_menu_bar_height(shown);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| component.render_menu_bar(frame, frame.area(), &state))
+            .expect("draw menu bar");
+
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.height)
+            .map(|row| {
+                (0..buffer.area.width)
+                    .map(|col| buffer[(col, row)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn expanded_menu_bar_advertises_shift_m_at_narrow_and_wide_widths() {
+        for width in [80, 200] {
+            let painted = painted_menu_bar(width, true);
+            assert!(
+                painted.contains("⇧M expand/collapse"),
+                "Shift+M keymap control missing at {width} columns:\n{painted}"
+            );
+        }
+    }
+
+    #[test]
+    fn collapsed_menu_bar_names_shift_m_action() {
+        let painted = painted_menu_bar(80, false);
+        assert!(
+            painted.contains("⇧M expand/collapse"),
+            "collapsed keymap hint does not name Shift+M action:\n{painted}"
+        );
     }
 }
 

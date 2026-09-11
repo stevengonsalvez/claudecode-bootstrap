@@ -3176,6 +3176,10 @@ impl InteractiveSession {
         session.container_id = None; // No Docker container
         session.status = SessionStatus::Running; // If tmux session exists, it's running
         session.created_at = self.created_at;
+        // Codex's daemon-owned thread is the hook/session identity. Project
+        // this authoritative ID so attention matches it exactly; never infer
+        // one from another session sharing the worktree.
+        session.provider_session_id = self.codex_thread_id.clone();
 
         session
     }

@@ -8,12 +8,12 @@
   <text x="36" y="44" font-size="26" class="ink" fill="#141413" text-anchor="start" font-weight="800">agents-in-a-box</text>
   <rect x="36" y="54" width="238" height="4" rx="2" class="accentfill" fill="#C25A38"/>
   <text x="294" y="44" font-size="15" class="mute" fill="#6B655B" text-anchor="start">Ecosystem architecture</text>
-  <text x="1624" y="44" font-size="12" class="mute" fill="#6B655B" text-anchor="end">ainb v1.22.13 · 34-crate Rust workspace</text>
+  <text x="1624" y="44" font-size="12" class="mute" fill="#6B655B" text-anchor="end">ainb v1.25.0 · 34-crate Rust workspace</text>
   <rect x="36" y="84" width="780" height="292" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
   <rect x="36" y="84" width="4" height="292" rx="2" class="accentfill" fill="#C25A38"/>
   <text x="54" y="112" font-size="15" class="accent" fill="#C25A38" text-anchor="start" font-weight="800">1</text>
   <text x="74" y="112" font-size="15" class="ink" fill="#141413" text-anchor="start" font-weight="700">ainb TUI host</text>
-  <text x="54" y="132" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">one binary · 28 screens · 41 CLI commands · Unix only</text>
+  <text x="54" y="132" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">one binary · 26 screens · 41 CLI commands · Unix only</text>
   <rect x="54" y="148" width="367" height="48" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
   <text x="65" y="168" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">git worktrees</text>
   <text x="65" y="183" font-size="10" class="mute" fill="#6B655B" text-anchor="start">a branch and a directory per session</text>
@@ -80,7 +80,7 @@
   <text x="65" y="548" font-size="10" class="mute" fill="#6B655B" text-anchor="start">one MCP server, shared</text>
   <rect x="366" y="513" width="303" height="44" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
   <text x="377" y="533" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">hangar-daemon</text>
-  <text x="377" y="548" font-size="10" class="mute" fill="#6B655B" text-anchor="start">boards · tasks · 144 RPC methods</text>
+  <text x="377" y="548" font-size="10" class="mute" fill="#6B655B" text-anchor="start">boards · tasks · 146 RPC methods</text>
   <rect x="678" y="513" width="303" height="44" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
   <text x="689" y="533" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">headroom-proxy</text>
   <text x="689" y="548" font-size="10" class="mute" fill="#6B655B" text-anchor="start">context compression</text>
@@ -96,8 +96,8 @@
   <text x="65" y="664" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">94 skills · 16 agents</text>
   <text x="65" y="679" font-size="10" class="mute" fill="#6B655B" text-anchor="start">written once, deployed everywhere</text>
   <rect x="54" y="694" width="744" height="44" rx="7" class="chip" fill="#F4F1EA" stroke="#E4E0D8" stroke-width="1"/>
-  <text x="65" y="714" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">9 tool homes</text>
-  <text x="65" y="729" font-size="10" class="mute" fill="#6B655B" text-anchor="start">claude · codex · copilot · gemini · cursor · amazonq · claude-desktop · cline · roo</text>
+  <text x="65" y="714" font-size="12" class="ink" fill="#141413" text-anchor="start" font-weight="600">10 tool homes</text>
+  <text x="65" y="729" font-size="10" class="mute" fill="#6B655B" text-anchor="start">claude · codex · copilot · agy · gemini · cursor · amazonq · claude-desktop · cline · roo</text>
   <rect x="844" y="580" width="780" height="168" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
   <rect x="844" y="580" width="4" height="168" rx="2" class="accentfill" fill="#C25A38"/>
   <text x="862" y="608" font-size="15" class="accent" fill="#C25A38" text-anchor="start" font-weight="800">5</text>

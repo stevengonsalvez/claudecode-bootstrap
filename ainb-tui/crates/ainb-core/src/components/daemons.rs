@@ -1319,6 +1319,7 @@ fn render_table(frame: &mut Frame, area: Rect, snapshot: &Snapshot, state: &Daem
         // two characters of every name, so long ones truncated.
         Cell::from(""),
         Cell::from("DAEMON"),
+        Cell::from("TYPE"),
         Cell::from("STATE"),
         Cell::from("PID"),
         Cell::from("UPTIME"),
@@ -1384,6 +1385,7 @@ fn render_table(frame: &mut Frame, area: Rect, snapshot: &Snapshot, state: &Daem
                 } else {
                     Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD)
                 }),
+                Cell::from(d.kind.runtime_type()).style(Style::default().fg(MUTED_GRAY)),
                 Cell::from(glyph).style(glyph_style),
                 Cell::from(pid),
                 Cell::from(uptime),
@@ -1404,13 +1406,14 @@ fn render_table(frame: &mut Frame, area: Rect, snapshot: &Snapshot, state: &Daem
     // 2-char marker inside that cell truncated the daemon's name.
     let widths = [
         Constraint::Length(1),
-        Constraint::Length(15),
-        Constraint::Length(10),
-        Constraint::Length(8),
-        Constraint::Length(8),
-        Constraint::Length(17),
         Constraint::Length(14),
-        Constraint::Length(4),
+        Constraint::Length(7),
+        Constraint::Length(9),
+        Constraint::Length(7),
+        Constraint::Length(7),
+        Constraint::Length(13),
+        Constraint::Length(13),
+        Constraint::Length(3),
         Constraint::Min(20),
     ];
 
@@ -2130,6 +2133,7 @@ mod tests {
         let out = render_to_string(&mut state, 120, 12);
         assert!(out.contains("Daemons"), "title missing: {out}");
         assert!(out.contains("DAEMON"), "header missing");
+        assert!(out.contains("TYPE"), "header missing");
         assert!(out.contains("HEALTH"), "header missing");
         // Every daemon's display name renders as a row.
         assert!(out.contains("phone bridge"), "bridge row missing");
@@ -2141,6 +2145,33 @@ mod tests {
         assert!(out.contains("running"), "running state missing");
         assert!(out.contains("stopped"), "stopped state missing");
         assert!(out.contains("Telegram (@bot)"), "channel missing");
+    }
+
+    #[test]
+    fn shows_process_and_derived_rows_without_conflating_a_missing_pid() {
+        let mut atc = status(DaemonKind::Atc, DaemonState::Running, true, Some("tower"));
+        atc.pid = None;
+        let mut hangar = status(DaemonKind::HangarDaemon, DaemonState::Stopped, false, None);
+        hangar.pid = None;
+        let mut state = seeded_state(vec![atc, hangar]);
+
+        let lines = render_to_lines(&mut state, 160, 12);
+        let atc_line = lines.iter().find(|line| line.contains("ATC")).expect("ATC row");
+        let hangar_line =
+            lines.iter().find(|line| line.contains("hangar daemon")).expect("hangar row");
+
+        assert!(
+            atc_line.contains("derived"),
+            "ATC must say derived: {atc_line}"
+        );
+        assert!(
+            hangar_line.contains("process"),
+            "hangar must stay a process: {hangar_line}"
+        );
+        assert!(
+            hangar_line.contains("-"),
+            "missing process PID stays explicit: {hangar_line}"
+        );
     }
 
     #[test]

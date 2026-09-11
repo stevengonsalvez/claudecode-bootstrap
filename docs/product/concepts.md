@@ -31,21 +31,7 @@ Running multiple agents in the same git working directory causes index lock race
 
 `ainb` enforces worktree-per-session isolation:
 
-```
-┌───────────────────────────────────────────────────────────┐
-│                    Repository Root                        │
-│             (/path/to/project on branch 'main')           │
-└─────────────────────────────┬─────────────────────────────┘
-                              │
-               ┌──────────────┴──────────────┐
-               ▼                             ▼
-  ┌─────────────────────────┐   ┌─────────────────────────┐
-  │   Worktree 1            │   │   Worktree 2            │
-  │   Branch: agents/fix-ci │   │   Branch: agents/auth   │
-  │   Agent: Claude Code    │   │   Agent: Codex          │
-  │   tmux: ainb-session-1  │   │   tmux: ainb-session-2  │
-  └─────────────────────────┘   └─────────────────────────┘
-```
+![git worktree isolation](../assets/diagrams/worktree-isolation.svg)
 
 Each worktree has its own index, HEAD, and unstaged files. When a session finishes, `ainb` cleans up the worktree directory without losing committed work on the branch.
 

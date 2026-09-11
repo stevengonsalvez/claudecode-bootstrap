@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 340" width="920" height="340" role="img" aria-label="ainb git worktree isolation: root repository checkout branching to isolated session worktrees">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;}@media (prefers-color-scheme: dark){.bg{fill:#0F0F18;}.ink{fill:#DCDCE6;}.mute{fill:#9A9AB0;}.accent{fill:#E08A63;}.accentfill{fill:#E08A63;}.card{fill:#191923;stroke:#2E2E3E;}.chip{fill:#20202C;stroke:#2E2E3E;}.line{stroke:#7A7A92;}.alt{stroke:#8FA86B;}.linefill{fill:#7A7A92;}.altfill{fill:#8FA86B;}}</style>
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="linefill" fill="#8A857C"/></marker>
+    <marker id="arrAlt" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="altfill" fill="#5F7048"/></marker>
+  </defs>
+  <rect width="920" height="340" class="bg" fill="#FAF9F5"/>
+  <text x="36" y="40" font-size="20" class="ink" fill="#141413" text-anchor="start" font-weight="800">git worktree isolation</text>
+  <rect x="36" y="48" width="180" height="3" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="231" y="40" font-size="12.5" class="mute" fill="#6B655B" text-anchor="start">each session runs on its own branch in an isolated worktree directory</text>
+  <rect x="240" y="70" width="440" height="58" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <text x="460" y="94" font-size="14" class="ink" fill="#141413" text-anchor="middle" font-weight="700">Repository root checkout</text>
+  <text x="460" y="114" font-size="11.5" class="mute" fill="#6B655B" text-anchor="middle">/path/to/project on branch 'main'</text>
+  <rect x="36" y="175" width="264" height="100" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="175" width="3" height="100" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="50" y="199" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Worktree 1 · Claude Code</text>
+  <text x="50" y="221" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Branch: agents/fix-ci</text>
+  <text x="50" y="241" font-size="11" class="mute" fill="#6B655B" text-anchor="start">tmux: ainb-session-1</text>
+  <text x="50" y="261" font-size="10" class="mute" fill="#6B655B" text-anchor="start">Own git index · HEAD · unstaged files</text>
+  <path d="M 460 128 V 150 H 168 V 171" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect x="328" y="175" width="264" height="100" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="328" y="175" width="3" height="100" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="342" y="199" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Worktree 2 · Codex</text>
+  <text x="342" y="221" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Branch: agents/auth</text>
+  <text x="342" y="241" font-size="11" class="mute" fill="#6B655B" text-anchor="start">tmux: ainb-session-2</text>
+  <text x="342" y="261" font-size="10" class="mute" fill="#6B655B" text-anchor="start">Own git index · HEAD · unstaged files</text>
+  <path d="M 460 128 V 150 H 460 V 171" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect x="620" y="175" width="264" height="100" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="620" y="175" width="3" height="100" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="634" y="199" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Worktree 3 · Gemini</text>
+  <text x="634" y="221" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">Branch: agents/eval</text>
+  <text x="634" y="241" font-size="11" class="mute" fill="#6B655B" text-anchor="start">tmux: ainb-session-3</text>
+  <text x="634" y="261" font-size="10" class="mute" fill="#6B655B" text-anchor="start">Own git index · HEAD · unstaged files</text>
+  <path d="M 460 128 V 150 H 752 V 171" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="36" y="310" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Guarantees: zero index.lock contention, parallel non-blocking commits, auto-cleanup on finish</text>
+</svg>

@@ -6,12 +6,7 @@ Ship Claude Code (and Codex) metrics, logs, and traces to Grafana Cloud via a
 local [Grafana Alloy](https://grafana.com/docs/alloy/) collector. Wired into
 both the `ainb` CLI and the first-run TUI onboarding wizard.
 
-```
-┌────────────┐  OTLP            ┌──────────────┐            ┌──────────────┐
-│ Claude Code│ ──:4318/:4317──▶ │ Grafana Alloy│ ──OTLP───▶ │ Grafana Cloud│
-│  (+ Codex) │                  │  (local tmux)│  + auth    │              │
-└────────────┘                  └──────────────┘            └──────────────┘
-```
+![OpenTelemetry to Grafana Cloud pipeline](../assets/diagrams/otel-pipeline.svg)
 
 ## What you need
 

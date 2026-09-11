@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ainb_hangar_proto::events::AttentionRow as WireRow;
+use ainb_hangar_proto::{events::AttentionRow as WireRow, fleet::FleetSession};
 
 use super::attention::{AttentionOption, DaemonAttention, SessionAttention, chip_for_daemon_kind};
 
@@ -31,17 +31,24 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// The cell the render loop reads and the worker writes.
 pub type Shared = Arc<Mutex<DaemonAttention>>;
 
+/// Last Fleet snapshot observed off the render path.
+///
+/// This owns only metadata that attention/list cannot provide: the observed
+/// model, reasoning effort, and direct-child count for the selected session.
+pub type SnapshotShared = Arc<Mutex<Vec<FleetSession>>>;
+
 /// Start the poller, or return `None` when one is already running.
 ///
 /// Idempotent by an atomic flag rather than by a handle, because the caller is
 /// a render loop that would otherwise have to remember whether it had started
 /// one — and starting a second poller means two threads dialling one socket and
 /// writing one cell in an order neither controls.
-pub fn spawn(shared: &Shared, running: &Arc<AtomicBool>) {
+pub fn spawn(shared: &Shared, snapshot_shared: &SnapshotShared, running: &Arc<AtomicBool>) {
     if running.swap(true, Ordering::AcqRel) {
         return;
     }
     let shared = Arc::clone(shared);
+    let snapshot_shared = Arc::clone(snapshot_shared);
     let worker_flag = Arc::clone(running);
     let spawn_err_flag = Arc::clone(running);
     let spawned = std::thread::Builder::new().name("ainb-attention-poll".into()).spawn(move || {
@@ -64,14 +71,21 @@ pub fn spawn(shared: &Shared, running: &Arc<AtomicBool>) {
             // failed poll so a transient socket error greys the chips
             // rather than making them disappear — a request that vanishes
             // because one read timed out is a request nobody answers.
-            let mut last_good: HashMap<String, Vec<SessionAttention>> = HashMap::new();
+            let mut last_good = DaemonAttention::default();
+            let mut last_snapshot: Vec<FleetSession> = Vec::new();
             loop {
                 let next = poll_once(&last_good).await;
                 if next.reachable {
-                    last_good.clone_from(&next.by_cwd);
+                    last_good = next.clone();
                 }
                 if let Ok(mut cell) = shared.lock() {
                     *cell = next;
+                }
+                if let Some(snapshot) = poll_snapshot_once().await {
+                    last_snapshot = snapshot;
+                }
+                if let Ok(mut cell) = snapshot_shared.lock() {
+                    *cell = last_snapshot.clone();
                 }
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
@@ -83,11 +97,26 @@ pub fn spawn(shared: &Shared, running: &Arc<AtomicBool>) {
     }
 }
 
+/// Read Fleet metadata without changing attention reachability.
+///
+/// Metadata is additive. A failed snapshot must preserve the last good values
+/// instead of blanking model and effort while the daemon is briefly busy.
+async fn poll_snapshot_once() -> Option<Vec<FleetSession>> {
+    let client = crate::fleet::bridge::daemon::DaemonClient::from_env().ok()?;
+    match client.fleet_snapshot().await {
+        Ok(snapshot) => Some(snapshot.sessions),
+        Err(error) => {
+            tracing::debug!(%error, "fleet snapshot poll failed");
+            None
+        }
+    }
+}
+
 /// One poll. Never panics; every failure becomes a named, reportable reason.
 ///
 /// `last_good` is what the daemon reported when it last answered, handed back
 /// on a failure so the surface greys its chips instead of losing them.
-async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> DaemonAttention {
+async fn poll_once(last_good: &DaemonAttention) -> DaemonAttention {
     let client = match crate::fleet::bridge::daemon::DaemonClient::from_env() {
         Ok(client) => client,
         // Not an error worth a banner: no hangar home configured is the normal
@@ -98,7 +127,7 @@ async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> Daemon
         // answer to "is there a daemon at all", and the Pal pane's offer to
         // start one is only honest if that answer is.
         Err(error) => {
-            return DaemonAttention::down(
+            return DaemonAttention::down_cached(
                 last_good.clone(),
                 error.to_string(),
                 error.means_not_running(),
@@ -107,12 +136,20 @@ async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> Daemon
     };
     let socket = client.socket().display().to_string();
     match client.attention_list_fleet().await {
-        Ok(rows) => DaemonAttention::up(group_by_cwd(&rows)),
+        Ok(rows) => {
+            let grouped = group_rows(&rows);
+            DaemonAttention::up_indexed(
+                grouped.by_session_id,
+                grouped.by_cwd,
+                grouped.by_cwd_without_session_id,
+                grouped.all,
+            )
+        }
         // Name the socket. "attention/list failed" without it leaves the
         // operator guessing which daemon, which home, which socket.
         Err(error) => {
             let not_running = error.means_not_running();
-            DaemonAttention::down(
+            DaemonAttention::down_cached(
                 last_good.clone(),
                 format!("attention/list via {socket}: {error}"),
                 not_running,
@@ -121,29 +158,58 @@ async fn poll_once(last_good: &HashMap<String, Vec<SessionAttention>>) -> Daemon
     }
 }
 
-/// Fold wire rows into the per-cwd chips the sessions screen renders.
-fn group_by_cwd(rows: &[WireRow]) -> HashMap<String, Vec<SessionAttention>> {
-    let mut by_cwd: HashMap<String, Vec<SessionAttention>> = HashMap::new();
+/// The three indexes one daemon attention list needs.
+///
+/// Provider session id is primary. Cwd remains only a unique fallback for
+/// legacy local rows that have not yet learned their provider id.
+#[derive(Default)]
+struct GroupedRows {
+    by_session_id: HashMap<String, Vec<SessionAttention>>,
+    by_cwd: HashMap<String, Vec<SessionAttention>>,
+    by_cwd_without_session_id: HashMap<String, Vec<SessionAttention>>,
+    all: HashMap<String, SessionAttention>,
+}
+
+/// Fold wire rows into exact-session and guarded-cwd indexes.
+fn group_rows(rows: &[WireRow]) -> GroupedRows {
+    let mut grouped = GroupedRows::default();
     for row in rows {
         // A kind this build does not know renders as NO chip rather than a
         // wrong one; the header's elsewhere count is what reports it honestly.
         let Some(kind) = chip_for_daemon_kind(&row.kind) else {
             continue;
         };
-        // A row with no cwd cannot be placed on any session row. Skipped here
-        // and counted as elsewhere, never guessed onto the selected session.
-        let cwd = row.cwd.trim_end_matches('/');
-        if cwd.is_empty() {
-            continue;
-        }
         let payload: serde_json::Value =
             serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null);
         let chip = SessionAttention::daemon(kind, row.created_at, row.id.clone())
             .with_detail(question_of(&payload).unwrap_or_default())
             .with_options(options_of(&payload));
-        by_cwd.entry(cwd.to_string()).or_default().push(chip);
+        if !row.session_id.is_empty() {
+            grouped
+                .by_session_id
+                .entry(row.session_id.clone())
+                .or_default()
+                .push(chip.clone());
+        }
+        let cwd = row.cwd.trim_end_matches('/');
+        if !cwd.is_empty() {
+            grouped.by_cwd.entry(cwd.to_string()).or_default().push(chip.clone());
+            if row.session_id.is_empty() {
+                grouped
+                    .by_cwd_without_session_id
+                    .entry(cwd.to_string())
+                    .or_default()
+                    .push(chip.clone());
+            }
+        }
+        grouped.all.insert(row.id.clone(), chip);
     }
-    by_cwd
+    grouped
+}
+
+#[cfg(test)]
+fn group_by_cwd(rows: &[WireRow]) -> HashMap<String, Vec<SessionAttention>> {
+    group_rows(rows).by_cwd
 }
 
 /// The one-line question an attention payload is asking, if it says.
@@ -223,7 +289,7 @@ mod tests {
     fn every_answerable_daemon_kind_maps_to_a_chip() {
         for (kind, expected) in [
             ("ask_user_question", AttentionKind::Ask),
-            ("waiting", AttentionKind::Ask),
+            ("waiting", AttentionKind::Wait),
             ("codex_request_user", AttentionKind::Ask),
             ("approval", AttentionKind::Approve),
             ("error", AttentionKind::Err),
@@ -251,6 +317,13 @@ mod tests {
             "a cwd-less row has no session to land on; guessing one delivers an \
              answer into the wrong agent"
         );
+    }
+
+    #[test]
+    fn a_cwdless_row_is_retained_under_its_exact_provider_session_id() {
+        let grouped = group_rows(&[wire("a", "approval", "", serde_json::json!({}))]);
+        assert_eq!(grouped.by_session_id["provider-a"].len(), 1);
+        assert_eq!(grouped.all.len(), 1, "an elsewhere count can still see it");
     }
 
     #[test]
@@ -379,7 +452,7 @@ mod tests {
             wire("c", "error", "/off/screen", serde_json::json!({})),
         ]);
         let up = DaemonAttention::up(grouped);
-        let claimed: HashSet<String> = ["/on/screen".to_string()].into_iter().collect();
+        let claimed: HashSet<String> = ["a".to_string()].into_iter().collect();
         assert_eq!(up.elsewhere(&claimed), 1);
     }
 }

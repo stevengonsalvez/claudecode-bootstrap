@@ -232,9 +232,9 @@ fn seed_isolated_home(home: &Path) {
 
 /// Three registry rows: TWO on the shared worktree, which is what makes an
 /// answer there ambiguous, and one on its own.
-fn seed_sessions(home: &Path, rows: &[(&str, &Path, &str, &str)]) {
+fn seed_sessions(home: &Path, rows: &[(&str, &Path, &str, &str, &str)]) {
     let mut sessions = serde_json::Map::new();
-    for (tmux, worktree, workspace, uuid) in rows {
+    for (tmux, worktree, workspace, uuid, codex_thread_id) in rows {
         sessions.insert(
             (*tmux).to_string(),
             json!({
@@ -243,7 +243,8 @@ fn seed_sessions(home: &Path, rows: &[(&str, &Path, &str, &str)]) {
                 "worktree_path": worktree,
                 "workspace_name": workspace,
                 "created_at": "2026-09-04T00:00:00Z",
-                "agent_type": "Claude",
+                "agent_type": "Codex",
+                "codex_thread_id": codex_thread_id,
                 "skip_permissions": true,
             }),
         );
@@ -264,7 +265,7 @@ fn seed_waiting_hook(home: &Path, cwd: &Path, project: &str, session_id: &str, q
         .insert_and_prune(
             &Envelope {
                 protocol_version: 1,
-                agent: "claude".into(),
+                agent: "codex".into(),
                 raw_event: "Notification:idle_prompt".into(),
                 session_id: session_id.into(),
                 cwd: cwd.to_string_lossy().into_owned(),
@@ -281,6 +282,7 @@ fn seed_waiting_hook(home: &Path, cwd: &Path, project: &str, session_id: &str, q
 }
 
 const AMBIGUOUS_QUESTION: &str = "Which sqlite path?";
+const SIBLING_QUESTION: &str = "Keep this sibling waiting?";
 const SOLO_QUESTION: &str = "Rebase or merge here?";
 
 #[test]
@@ -317,18 +319,21 @@ fn a_failed_answer_stays_on_its_own_question_across_a_navigation() {
                 &shared_tree,
                 "shared-one",
                 "6f1f5f7e-0000-4000-8000-0000000000d1",
+                "outcome-shared",
             ),
             (
                 &shared_b,
                 &shared_tree,
                 "shared-two",
                 "6f1f5f7e-0000-4000-8000-0000000000d2",
+                "outcome-shared-b",
             ),
             (
                 &solo,
                 &solo_tree,
                 "solo-target",
                 "6f1f5f7e-0000-4000-8000-0000000000d3",
+                "outcome-solo",
             ),
         ],
     );
@@ -338,6 +343,15 @@ fn a_failed_answer_stays_on_its_own_question_across_a_navigation() {
         "shared-one",
         "outcome-shared",
         AMBIGUOUS_QUESTION,
+    );
+    // Keep the sibling on the same shared worktree answerable too. Walking
+    // through it must leave the ask tab cleanly before `Down` selects solo.
+    seed_waiting_hook(
+        home,
+        &shared_tree,
+        "shared-two",
+        "outcome-shared-b",
+        SIBLING_QUESTION,
     );
     seed_waiting_hook(
         home,
@@ -388,10 +402,10 @@ fn a_failed_answer_stays_on_its_own_question_across_a_navigation() {
             // The header pluralises: one waiting session says "needs you",
             // several say "N need you". Matching only the singular walked the
             // whole 90s deadline past a screen that was already correct.
-            |c| c.contains("ASK") && (c.contains("need you") || c.contains("needs you")),
+            |c| c.contains("WAIT") && (c.contains("need you") || c.contains("needs you")),
         )
         .is_some(),
-        "no ASK chip on the sessions screen:\n{}",
+        "no WAIT chip on the sessions screen:\n{}",
         capture_pane(&tui_tmux)
     );
 

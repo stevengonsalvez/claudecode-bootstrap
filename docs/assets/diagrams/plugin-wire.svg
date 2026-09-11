@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 270" width="920" height="270" role="img" aria-label="ainb v2 plugin stdio wire protocol: host runtime to plugin subprocess over framed JSON-RPC">
+  <style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;}@media (prefers-color-scheme: dark){.bg{fill:#0F0F18;}.ink{fill:#DCDCE6;}.mute{fill:#9A9AB0;}.accent{fill:#E08A63;}.accentfill{fill:#E08A63;}.card{fill:#191923;stroke:#2E2E3E;}.chip{fill:#20202C;stroke:#2E2E3E;}.line{stroke:#7A7A92;}.alt{stroke:#8FA86B;}.linefill{fill:#7A7A92;}.altfill{fill:#8FA86B;}}</style>
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="linefill" fill="#8A857C"/></marker>
+    <marker id="arrAlt" markerWidth="9" markerHeight="8" refX="7.5" refY="4" orient="auto"><polygon points="0 0, 8.5 4, 0 8" class="altfill" fill="#5F7048"/></marker>
+  </defs>
+  <rect width="920" height="270" class="bg" fill="#FAF9F5"/>
+  <text x="36" y="40" font-size="20" class="ink" fill="#141413" text-anchor="start" font-weight="800">ainb v2 plugin stdio wire protocol</text>
+  <rect x="36" y="48" width="220" height="3" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="271" y="40" font-size="12.5" class="mute" fill="#6B655B" text-anchor="start">host runtime and child plugin communicate via Content-Length JSON-RPC 2.0</text>
+  <rect x="36" y="70" width="340" height="145" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="36" y="70" width="3" height="145" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="50" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">ainb Host Runtime</text>
+  <text x="50" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">ainb-plugin-runtime crate</text>
+  <text x="50" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Dedicated tokio task per plugin</text>
+  <text x="50" y="164" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Request and response ledger</text>
+  <text x="50" y="184" font-size="10.5" class="mute" fill="#6B655B" text-anchor="start">Capability-gated access (-32001 on deny)</text>
+  <path d="M376 115 L540 115" class="line" fill="none" stroke="#8A857C" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="460" y="107" font-size="9.5" class="mute" fill="#6B655B" text-anchor="middle">stdin (requests &amp; notifies)</text>
+  <path d="M544 165 L380 165" class="alt" fill="none" stroke="#5F7048" stroke-width="1.6" marker-end="url(#arrAlt)"/>
+  <text x="460" y="157" font-size="9.5" class="alt" fill="#5F7048" text-anchor="middle">stdout (responses &amp; reverse calls)</text>
+  <text x="460" y="200" font-size="9" class="mute" fill="#6B655B" text-anchor="middle">Content-Length: N\r\n\r\n{json}</text>
+  <rect x="544" y="70" width="340" height="145" rx="10" class="card" fill="#FFFFFF" stroke="#E4E0D8" stroke-width="1"/>
+  <rect x="544" y="70" width="3" height="145" rx="1.5" class="accentfill" fill="#C25A38"/>
+  <text x="558" y="94" font-size="13" class="ink" fill="#141413" text-anchor="start" font-weight="700">Plugin Child Process</text>
+  <text x="558" y="116" font-size="11.5" class="accent" fill="#C25A38" text-anchor="start" font-weight="600">ainb-plugin-sdk-rust crate</text>
+  <text x="558" y="144" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Native binary in dist/plugins/&lt;name&gt;/</text>
+  <text x="558" y="164" font-size="11" class="mute" fill="#6B655B" text-anchor="start">Plugin trait event and render dispatcher</text>
+  <text x="558" y="184" font-size="10.5" class="mute" fill="#6B655B" text-anchor="start">HostClient for callbacks (log, storage, frames)</text>
+  <text x="36" y="245" font-size="11.5" class="mute" fill="#6B655B" text-anchor="start">Child process isolation ensures plugin panics never take down the host TUI.</text>
+</svg>

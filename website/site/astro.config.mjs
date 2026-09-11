@@ -83,6 +83,7 @@ export default defineConfig({
             { label: 'Install', slug: 'tui/install' },
             { label: 'Quick start', slug: 'tui/quickstart' },
             { label: 'Concepts', slug: 'product/concepts' },
+            { label: 'Architecture', slug: 'product/architecture' },
             { label: 'Keyboard', slug: 'tui/keyboard-shortcuts' },
           ],
         },
